@@ -344,8 +344,8 @@ class TestRealClassifier:
         assert bad_score != good_score or bad_score > 0.3
 
     def test_sentiment_classifier(self) -> None:
-        from core.primitive import SentimentClassifier
-        clf = SentimentClassifier()
+        from core.primitive import SentimentScoreClassifier
+        clf = SentimentScoreClassifier()
         pos = clf.evaluate("I love this wonderful day")
         neg = clf.evaluate("This is terrible and awful")
         assert pos >= neg, "Positive prompt should score >= negative"

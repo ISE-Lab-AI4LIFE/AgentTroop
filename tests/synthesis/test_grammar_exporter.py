@@ -53,11 +53,20 @@ class TestGrammarExporter:
         assert has_not, "Depth 2 should include NotNode structures"
 
     def test_enumerate_conditions_depth2_includes_and_or(self) -> None:
-        conditions = self.exporter.enumerate_conditions(max_depth=2)
+        from core.primitive import ContainsWordPredicate, LengthGtPredicate
+        from synthesis.grammar_exporter import PrimitiveCatalog
+        exporter = GrammarExporter(max_depth=2)
+        exporter.get_primitives = lambda: PrimitiveCatalog(
+            predicates=[
+                ContainsWordPredicate(word="test"),
+                LengthGtPredicate(threshold=5),
+            ],
+        )
+        conditions = exporter.enumerate_conditions(max_programs=100)
         has_binary = any(
             isinstance(c, (AndNode, OrNode)) for c in conditions
         )
-        assert has_binary, "Depth 2 should include AND/OR structures"
+        assert has_binary, "Depth 2 should include AND/OR structures with few primitives"
 
     def test_enumerate_conditions_depth2_includes_apply(
         self,

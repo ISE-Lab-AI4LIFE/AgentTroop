@@ -259,11 +259,9 @@ class CVC5Synthesizer:
             return None
 
         d = depth if depth is not None else self.max_depth
-        max_p = self.beam_width if self.beam_width > 0 else 500
         programs = exporter.enumerate_programs(
             max_depth=d,
             examples=examples,
-            max_programs=max_p,
         )
         if not programs:
             return None

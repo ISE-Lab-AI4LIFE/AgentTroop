@@ -23,3 +23,5 @@ networkx>=3.0            # evaluation/structural_recovery.py — graph metrics
 
 # -- Development / Testing ----------------------------------------------------
 pytest>=7.0              # Test runner
+google-genai>=0.1.0     # Google GenAI client for interacting with Gemma models
+python-dotenv>=1.0.0    # Load .env files into environment for local development

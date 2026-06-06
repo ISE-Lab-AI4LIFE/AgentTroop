@@ -310,6 +310,12 @@ def _enumerate_conditions(
             for node in prev:
                 results.append(NotNode(child=node))
 
+            for t in catalog.transforms:
+                for node in _nodes_at_transform_depth(d, catalog, memo):
+                    results.append(
+                        ApplyTransformNode(transform=t, inner=node)
+                    )
+
             for d1 in range(1, d):
                 d2 = d - d1
                 lefts = _get_at_depth(d1, catalog, memo)
@@ -321,12 +327,6 @@ def _enumerate_conditions(
                         break
                 if len(results) + total_generated >= limit:
                     break
-
-            for t in catalog.transforms:
-                for node in _nodes_at_transform_depth(d, catalog, memo):
-                    results.append(
-                        ApplyTransformNode(transform=t, inner=node)
-                    )
 
         seen: Set[str] = set()
         unique: List[Node] = []

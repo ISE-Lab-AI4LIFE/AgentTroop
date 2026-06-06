@@ -52,7 +52,7 @@
 | Orchestrator | — | ⬜ Chưa xây dựng |
 | Cognitive Agent | — | ⬜ Chưa xây dựng |
 | Strategist Agent | — | ⬜ Chưa xây dựng |
-| Researcher Agent | — | ⬜ Chưa xây dựng |
+| Researcher Agent | `agents/researcher.py` | ✅ Hoàn thành (17 tests) |
 
 ### ⬜ Orchestrator
 - Điều phối vòng lặp 6 phase: phát hiện bất thường → sinh giả thuyết → thiết kế can thiệp → thực thi → tổng hợp → kiểm chứng
@@ -64,10 +64,14 @@
 ### ⬜ Strategist Agent
 - Thiết kế can thiệp tối ưu để phân biệt giả thuyết
 
-### ⬜ Researcher Agent
-- Tổng hợp chương trình bằng CVC5, kiểm chứng bằng can thiệp
-- Trích xuất abstract theory → Scientific Memory
-- Ghi vào Defense Program Store, Ontology Memory
+### ✅ Researcher Agent
+- **`agents/researcher.py`** — `ResearcherAgent` class
+- **Pipeline 5 bước:** synthesis → verification → store program → abstract theory → store theory
+- **`run_reverse_engineering_pipeline()`** — entry point end‑to‑end, trả về dict kết quả
+- Không dùng LLM, chỉ dùng `synthesis` module + `knowledge` memory layers
+- Constructor tự động tạo `CVC5Synthesizer` (max_depth=3, beam_width=200) và `ProgramExecutor`
+- Hỗ trợ `allow_error_rate`, `experiment_id`, `exclude_prompts`, `verbose`
+- 17 tests (mock tất cả dependencies)
 
 ---
 
@@ -76,9 +80,10 @@
 | Module | File | Tests | Trạng thái |
 |--------|------|-------|------------|
 | Program AST | `core/program.py` | — | ✅ Hoàn thành |
-| Primitive types | `core/primitive.py` | — | ✅ Hoàn thành |
+| Primitive types | `core/primitive.py` | 200 tests (92 primitives) | ✅ Hoàn thành |
 | Type definitions | `core/types.py` | — | ✅ Hoàn thành |
 | Semantic Memory (vector) | `knowledge/semantic_memory.py` | 53 tests | ✅ Hoàn thành |
+| Researcher Agent | `agents/researcher.py` | 17 tests | ✅ Hoàn thành |
 | Synthesis — Grammar Exporter | `synthesis/grammar_exporter.py` | 18 tests | ✅ Hoàn thành |
 | Synthesis — CVC5 Synthesizer | `synthesis/cvc5_synthesizer.py` | 48 tests (16 base + 32 ext) | ✅ Hoàn thành |
 | Synthesis — Program Verifier | `synthesis/verifier.py` | 18 tests (14 base + 4 ext) | ✅ Hoàn thành |
@@ -91,9 +96,10 @@
 ### ✅ Core Primitive (`core/primitive.py`)
 - `Primitive` base class + `Predicate`, `Transform`, `Classifier`
 - `PrimitiveRegistry` singleton
-- Built-in primitives: `ContainsWordPredicate`, `LengthGtPredicate`, `MatchesRegexPredicate`, `Rot13Transform`, `Base64DecodeTransform`, `ToLowercaseTransform`, `RemovePunctuationTransform`, `ToxicityScoreClassifier`, `SentimentClassifier`
-- `ToxicityScoreClassifier` dùng TextBlob (nếu có) + keyword heuristic (`bomb`, `kill`, …), deterministic
-- `SentimentClassifier` dùng TextBlob (nếu có) + keyword heuristic (`bad`, `terrible`, … → `good`, `great`, …)
+- **92 built-in primitives**: 27 predicates + 38 transforms + 27 classifiers
+- All primitives use `@dataclass` with `__post_init__` for metadata
+- Toxicity/Sentiment classifiers use TextBlob (nếu có) + keyword heuristics
+- 200 unit tests covering all 92 primitives + registry completeness
 
 ### ✅ Semantic Memory (`knowledge/semantic_memory.py`)
 - Vector store with FAISS index + SQLite metadata
@@ -158,7 +164,7 @@
 | 1 | Hạ tầng cơ bản: Neo4j, Episodic/Session memory, Knowledge Manager | 🔶 Đang thực hiện (thiếu Session, Redis) |
 | 2 | Cognitive Agent: phát hiện bất thường, sinh giả thuyết | ⬜ Chưa bắt đầu |
 | 3 | Strategist Agent: thiết kế can thiệp heuristic | ⬜ Chưa bắt đầu |
-| 4 | Researcher Agent: CVC5, grammar, program synthesis | 🔶 Đang thực hiện (synthesis module done, thiếu integration với Agent layer) |
+| 4 | Researcher Agent: CVC5, grammar, program synthesis, pipeline end‑to‑end | ✅ Hoàn thành (`agents/researcher.py`, 17 tests) |
 | 5 | Orchestrator: vòng lặp 6 phase, checkpoint, proposal queue | ⬜ Chưa bắt đầu |
 | 6 | Scientific Memory: trích xuất lý thuyết, chuyển giao | ✅ Hoàn thành (phần lưu trữ), ⬜ Thiếu phần trích xuất |
 
@@ -171,7 +177,10 @@
 | Tổng số memory layers đã xây dựng | 4 / 6 (L1, L4, L5, L6) |
 | Tổng số tests (knowledge layer) | 207 |
 | Tổng số tests (synthesis module) | 80 |
-| **Tổng số tests (toàn bộ)** | **402** |
-| Tổng số files Python (knowledge + synthesis) | 8 modules |
+| Tổng số tests (primitive module) | 200 |
+| Tổng số tests (researcher agent) | 17 |
+| **Tổng số tests (toàn bộ)** | **~614** |
+| Tổng số primitives | **92** (27 predicate + 38 transform + 27 classifier) |
+| Tổng số files Python (knowledge + synthesis + agents + core) | 10 modules |
 | Neo4j labels đã định nghĩa | `Theory`, `DefenseProgram`, `ASTNode`, `PrimitiveNode`, `OntologyPrimitive` |
 | Neo4j constraints | Unique constraints trên Theory(id,version), DefenseProgram(id,version), ASTNode(node_id), PrimitiveNode(name), OntologyPrimitive(name) |

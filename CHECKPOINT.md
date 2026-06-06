@@ -7,6 +7,8 @@
 > - **Mốc 2 (8/6):** Semantic Memory (L5) production-ready + Auto-Compact
 > - **Mốc 3 (8/6):** Synthesis module — GrammarExporter + CVC5Synthesizer + ProgramVerifier
 > - **Mốc 4 (6/6):** Synthesis hardening — beam width, disk cache, free thresholds, real classifiers, guard explosion
+> - **Mốc 5 (6/6):** Researcher Agent — pipeline end‑to‑end, 5 bước, 17 tests
+> - **Mốc 6 (6/6):** 92 primitives (27+38+27) — 200 tests, primitive_catalog.md, 4 bug fixes
 
 ---
 
@@ -202,6 +204,125 @@ ScientificMemory, Theory
 # Semantic Memory (L5)
 SemanticMemory, StoredEmbedding
 ```
+
+## Mốc 5 — 6/6/2026 (Researcher Agent)
+
+### 5.1. Researcher Agent (`agents/researcher.py`)
+
+**Class:** `ResearcherAgent` — pipeline end‑to‑end cho reverse engineering.
+
+**Constructor tự động tạo:**
+- `CVC5Synthesizer(max_depth=3, beam_width=200, timeout=30, use_cache=True)`
+- `ProgramExecutor(default_registry)`
+
+**Phương thức:**
+
+| Method | Mô tả |
+|--------|-------|
+| `synthesize_from_campaign(campaign_id, experiment_id, allow_error_rate)` | Đọc episodes → synthesis → stats |
+| `verify_program(program, victim, num_test, threshold, exclude_prompts, verbose)` | Verify với victim |
+| `store_program(program, name, confidence, provenance, status)` | Lưu vào DefenseProgramStore |
+| `abstract_theory(program, model_family, conditions, provenance)` | Trích xuất Theory |
+| `store_theory(theory)` | Lưu vào ScientificMemory |
+| `run_reverse_engineering_pipeline(campaign_id, victim, ...)` | Pipeline 5 bước end‑to‑end |
+
+**Pipeline 5 bước:**
+1. `synthesize_from_campaign` → nếu không có program, dừng
+2. `verify_program` → accuracy + verified flag
+3. `store_program` → program_id (status=confirmed/draft)
+4. `abstract_theory` → Theory pattern từ program
+5. `store_theory` → theory_id
+
+**Xử lý lỗi:** Exception trong pipeline → log + return dict `success=False`.
+
+**Kết quả: 17/17 tests pass**
+
+| Test class | Số test |
+|------------|---------|
+| TestSynthesizeFromCampaign | 4 |
+| TestVerifyProgram | 2 |
+| TestStoreProgram | 2 |
+| TestAbstractTheory | 2 |
+| TestStoreTheory | 1 |
+| TestPipeline | 5 |
+| TestDefaultSynthesizer | 1 |
+
+**Files:**
+- `agents/__init__.py` — export `ResearcherAgent`
+- `agents/researcher.py` — implementation
+- `tests/agents/test_researcher.py` — 17 tests
+- `docs/researcher_agent.md` — documentation
+
+### 5.2. Cập nhật system test count
+
+- **Synthesis:** 84 tests (1 skipped)
+- **Knowledge layer:** 207 tests
+- **Researcher Agent:** 17 tests
+- **Total:** **419 tests** (+17 từ Researcher Agent)
+
+### 5.3. Ghi chú
+
+- Agent **không dùng LLM** — chỉ dùng synthesis module + memory layers.
+- Có thể test độc lập với mock: `python -m pytest tests/agents/test_researcher.py -v`
+- `verify_program` tạo `ProgramVerifier` mới mỗi lần gọi (victim‑specific).
+- Pipeline tự động dừng nếu synthesis không tìm được program.
+
+
+## Mốc 6 — 6/6/2026 (92 primitives + full tests)
+
+### 6.1. Mở rộng lên 92 primitives
+
+**Thay đổi trong `core/primitive.py`:**
+- **Predicates:** 27 (thêm 19 mới: ContainsAnyWord, ContainsAllWords, LengthLt, StartsWith, EndsWith, HasNumber, HasSpecialChar, IsAllCaps, ContainsLeet, ContainsRot13, ContainsBase64, ContainsHex, IsEmpty, StartsWithRoleplay, ContainsSystemOverride, ContainsDelimiter, ContainsCodeBlock, HasEmoji, ContainsURL, Sentiment, Intent, MatchesJailbreakPattern, ContainsEncodingWrapper, IsRepetitive)
+- **Transforms:** 38 (thêm 30 mới: Base64Decode, ToLowercase, ToUppercase, LeetSpeak, ReverseText, PigLatin, MorseCode, AddPrefix, AddSuffix, WrapCodeBlock, InsertTypos, WordShuffle, AddMarkdown, AddZeroWidthChars, UnicodeObfuscate, HtmlEncode, URLEncode, QuotedPrintable, BinaryEncode, HexEncode, RemoveVowels, Boustrophedon, AtbashCipher, CaesarCipher, VigenereCipher, RailFenceCipher, RemoveWhitespace, InsertSynonyms, EscapeQuotes, FormatAsJson, AddRolePlay, Truncate, PadToLength, RandomCase, CharacterSubstitution)
+- **Classifiers:** 27 (thêm 22 mới: IntentScore, ObscurityScore, LengthScore, RepetitionScore, EntropyScore, LanguageScore, JailbreakLikelihood, ContainsBlacklistedWord, SpecialCharRatio, DigitRatio, UpperCaseRatio, PunctuationRatio, WhitespaceRatio, UniqueTokenRatio, Gpt2Perplexity, EncodingDetection, RefusalSimilarity, HarmfulnessSimilarity, CodeLikelihood, JsonLikelihood, SqlLikelihood, PromptInjectionLikelihood, RoleplayLikelihood, AdversarialSuffixScore, PersuasionScore)
+
+### 6.2. Bug fixes
+
+| Bug | Fix |
+|-----|-----|
+| `ContainsRot13Predicate` always returned True (used full alphabet) | Changed check to n-z half only with 50% threshold |
+| `ContainsBase64Predicate` failed on simple base64 strings | Simplified to `ratio > 0.95` check |
+| `QuotedPrintableTransform` didn't encode non-ASCII chars | Added `ord(c) < 128` guard |
+| `to_dict()` failed on dataclass primitives (no version_id attr) | Changed to `getattr(self, ..., default)` |
+| Comment said 38 transforms but only 34 registered | Added 4 new transforms (Truncate, PadToLength, RandomCase, CharacterSubstitution) |
+
+### 6.3. Unit tests — 200 tests for 92 primitives
+
+**File:** `tests/core/test_primitive.py` — 200 tests covering all 92 primitives.
+
+| Test group | Count |
+|------------|-------|
+| Predicate tests (27 classes) | ~72 tests |
+| Transform tests (38 classes) | ~88 tests |
+| Classifier tests (27 classes) | ~33 tests |
+| Registry tests | 7 tests |
+| **Total** | **200 tests** |
+
+### 6.4. Documentation
+
+- `docs/primitive_catalog.md` — full table of all 92 primitives with parameters and descriptions
+
+### 6.5. System test count update
+
+| Area | Tests |
+|------|-------|
+| Knowledge layer | 207 |
+| Synthesis module | 80 (84 - 1 skipped CVC5) |
+| Primitive tests | 200 |
+| Researcher Agent | 17 |
+| **Total** | **~614** |
+
+### 6.6. Files changed/created
+
+| File | Change |
+|------|--------|
+| `core/primitive.py` | 92 primitives, 4 new transforms, 3 bug fixes, to_dict fix |
+| `tests/core/test_primitive.py` | 200 tests created |
+| `docs/primitive_catalog.md` | Created |
+| `TODO.md` | Updated test counts, primitive stats |
+| `CHECKPOINT.md` | Mốc 6 added |
+
 
 ## Mốc 4 — 6/6/2026 (synthesis hardening + real classifiers)
 
