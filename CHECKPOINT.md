@@ -9,6 +9,8 @@
 > - **Mốc 4 (6/6):** Synthesis hardening — beam width, disk cache, free thresholds, real classifiers, guard explosion
 > - **Mốc 5 (6/6):** Researcher Agent — pipeline end‑to‑end, 5 bước, 17 tests
 > - **Mốc 6 (6/6):** 92 primitives (27+38+27) — 200 tests, primitive_catalog.md, 4 bug fixes
+> - **Mốc 7 (6/6):** Cognitive Agent — anomaly detection, LLM hypothesis generation, 56 tests
+> - **Mốc 8 (6/6):** Strategist Agent + Orchestrator — intervention design, 6-phase loop, hybrid heuristic/LLM, 796 total tests
 
 ---
 
@@ -266,6 +268,105 @@ SemanticMemory, StoredEmbedding
 - Có thể test độc lập với mock: `python -m pytest tests/agents/test_researcher.py -v`
 - `verify_program` tạo `ProgramVerifier` mới mỗi lần gọi (victim‑specific).
 - Pipeline tự động dừng nếu synthesis không tìm được program.
+
+
+## Mốc 7 — 6/6/2026 (Cognitive Agent)
+
+### 7.1. Cognitive Agent (`agents/cognitive.py`)
+
+**Class:** `CognitiveAgent` — phát hiện bất thường và sinh giả thuyết cấu trúc.
+
+**Constructor:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `episodic_memory` | **required** | Source of episode data |
+| `llm_client` | auto (env vars) | LLM for hypothesis generation |
+| `ontology_memory` | `None` | Optional primitive catalog |
+| `grammar_exporter` | auto (`default_registry`) | Primitive catalog provider |
+| `anomaly_threshold` | `0.2` | Min outcome diff to flag anomaly |
+| `base_prompts` | `DEFAULT_BASE_PROMPTS` (26 prompts) | Base prompts for grouping |
+
+**Phương thức:**
+
+| Method | Mô tả |
+|--------|-------|
+| `detect_anomalies(campaign_id, experiment_id)` | Đọc episodes → group by base prompt → detect outcome differences |
+| `generate_hypotheses(anomalies, prior_hypotheses)` | LLM prompt → parse JSON → Hypothesis[] |
+| `estimate_confidence(hypothesis, anomalies)` | Laplace smoothing: `(supporting + 1) / (total + 2)` |
+
+**Data classes:**
+
+- `Anomaly` — `id`, `base_prompt`, `transform_names`, `outcome_original/transformed`, `difference`, `episode_id_original/transformed`, `timestamp`
+- `Hypothesis` — `id`, `description`, `condition`, `confidence`, `supporting_anomaly_ids`, `created_at`
+
+**Logic phát hiện bất thường:**
+1. Lọc episodes theo `EpisodeFilter(campaign_id, experiment_id)`
+2. Bỏ qua episode có `outcome is None`
+3. Gom nhóm theo `intervention.prompt`
+4. Trong mỗi nhóm, nếu có từ 2 outcomes khác nhau → tạo Anomaly cho mỗi cặp
+
+**Logic sinh giả thuyết:**
+1. Tạo prompt template với mô tả anomalies + primitive catalog
+2. Gọi `LLMClient.generate(prompt, temperature=0.0)`
+3. Parse JSON response (direct / markdown code block / regex fragment)
+4. Fallback: hypothesis mặc định (keyword filter + decode cipher) khi LLM fails
+5. Giới hạn 5 hypotheses
+
+**Kết quả: 39/39 tests pass**
+
+### 7.4. Cải tiến (10 điểm, Mốc 7.1)
+
+Sau khi hoàn thiện Cognitive Agent, đã áp dụng 10 cải tiến:
+
+| # | Cải tiến | Mô tả |
+|---|----------|-------|
+| 1 | **Tích hợp `prior_hypotheses` vào prompt LLM** | Prior hypotheses được đưa vào prompt, LLM được yêu cầu tinh chỉnh, cải thiện hoặc đề xuất mới, tránh trùng lặp |
+| 2 | **Phát hiện transform chain anomaly** | `_detect_transform_chain_anomalies()`: phát hiện trường hợp chỉ khi kết hợp nhiều transforms mới thay đổi outcome |
+| 3 | **Tùy chỉnh `base_prompts` qua file cấu hình** | `load_base_prompts(path)` hỗ trợ JSON và YAML; tham số `base_prompts_path` trong constructor |
+| 4 | **Logging chi tiết parse LLM response** | Mỗi parsing strategy ghi `logger.debug` kết quả (thành công/thất bại, số lượng items) |
+| 5 | **`experiment_id` kết hợp `campaign_id`** | Test mới kiểm tra cả hai filter hoạt động đồng thời |
+| 6 | **Weighted confidence** | `estimate_confidence` dùng weighted Laplace: anomalies có `difference` lớn hơn được trọng số cao hơn |
+| 7 | **Validation `anomaly_threshold`** | Clamp `[0, 1]` kèm warning log nếu ngoài khoảng |
+| 8 | **Anomaly store callback** | Constructor nhận `anomaly_store: Callable[[List[Anomaly]], None]`; lỗi callback không làm gián đoạn detect |
+| 9 | **Unit test `prior_hypotheses` có nội dung** | `test_prior_hypotheses_included_in_prompt` kiểm tra prior hypotheses xuất hiện trong prompt |
+| 10 | **Tài liệu** | `docs/cognitive.md` — tài liệu đầy đủ: thiết kế, API, tests, so sánh Researcher Agent |
+
+### 7.5. Cập nhật test count
+
+| Khu vực | Tests cũ | Tests mới |
+|---------|----------|-----------|
+| Constructor | 4 | 7 (+3: clamping, anomaly store) |
+| load_base_prompts | — | 5 (mới) |
+| detect_anomalies (pairwise) | 11 | 11 |
+| Transform chain | — | 4 (mới) |
+| Anomaly store | — | 3 (mới) |
+| generate_hypotheses | 6 | 7 (+1: prior_hypotheses in prompt) |
+| estimate_confidence | 5 | 5 (sửa weighted) |
+| Pipeline | 2 | 2 |
+| Data class serialisation | 2 | 2 |
+| LLM parsing | 2 | 2 |
+| **Total** | **39** | **56** |
+
+| Area | Tests |
+|------|-------|
+| Knowledge layer | 207 |
+| Synthesis module | 84 (1 skipped CVC5) |
+| Primitive tests | 200 |
+| Researcher Agent | 40 |
+| Cognitive Agent | 56 |
+| **Total** | **~690** |
+
+### 7.6. Files updated
+
+| File | Change |
+|------|--------|
+| `agents/cognitive.py` | Thêm: `load_base_prompts()`, `_detect_transform_chain_anomalies()`, weighted confidence, threshold clamping, anomaly_store, prior_hypotheses prompt, parse logging |
+| `tests/agents/test_cognitive.py` | 80 tests (56 cũ + 24 mới: base_prompts validation, anomaly store queue, persist, LLM retry, primitive cache, get_anomalies type, logging format) |
+| `docs/cognitive.md` | Tài liệu đầy đủ (thay thế `docs/cognitive_agent.md`) |
+| `TODO.md` | Cập nhật test counts |
+| `CHECKPOINT.md` | Mốc 7 mở rộng |
+| `CHECKPOINT.md` | Mốc 7 added |
 
 
 ## Mốc 6 — 6/6/2026 (92 primitives + full tests)
@@ -603,19 +704,193 @@ tests/synthesis/
 | `networkx` | Required | `evaluation/structural_recovery.py` | — |
 | CVC5 binary | Optional | Synthesis (CVC5Synthesizer) | Enumeration path (⚠️ warning log) |
 
+---
+
+## Mốc 8 — 6/6/2026 (Strategist Agent + Orchestrator)
+
+### 8.1. Strategist Agent (`agents/strategist.py`)
+
+**Class:** `StrategistAgent` — thiết kế và thực thi can thiệp tối ưu để phân biệt giả thuyết.
+
+**Constructor:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `episodic_memory` | **required** | Ghi kết quả can thiệp vào L1 |
+| `executor` | auto (`default_registry`) | Đánh giá hypothesis dạng Program AST |
+| `llm_client` | `None` | LLM cho hybrid mode & outcome prediction |
+| `grammar_exporter` | auto (`default_registry`) | Lấy danh sách transforms |
+| `primitive_registry` | `default_registry` | Fallback registry |
+| `intervention_budget` | 50 | Số transforms tối đa thử mỗi prompt |
+| `use_llm` | `True` | Bật LLM-guided generation |
+| `temperature` | 0.7 | Nhiệt độ LLM |
+| `max_prompt_length` | 2000 | Giới hạn độ dài prompt |
+
+**Phương thức:**
+
+| Method | Mô tả |
+|--------|-------|
+| `select_hypothesis_pair(hypotheses)` | Chọn cặp có độ bất định cao nhất `1 - |conf₁ - conf₂|` |
+| `design_intervention(h1, h2, base_prompts)` | Heuristic local search + LLM-guided, chọn can thiệp có `|pred₁ - pred₂|` lớn nhất |
+| `execute_intervention(intervention, victim)` | Gửi prompt → victim, trả về Outcome |
+| `store_intervention(intervention, outcome, campaign_id, h1, h2, ...)` | Tạo Episode, ghi vào Episodic Memory |
+| `run_intervention_round(hypotheses, victim, campaign_id, ...)` | End-to-end: select → design → execute → store |
+| `evaluate_discriminative_power(intervention, h1, h2)` | Tính Δ(I; Π₁, Π₂) |
+| `refresh_primitive_cache()` | Xoá primitive cache |
+
+**Kiến trúc xử lý hypothesis:**
+- Duck-typed: chấp nhận `agents.cognitive.Hypothesis` (text-based) và `core.hypothesis.Hypothesis` (Program-based)
+- `_predict_outcome`: ProgramExecutor → LLM → keyword extraction (regex `'...'`) → default ACCEPT
+
+**Hybrid intervention design:**
+- Heuristic local search: thử identity + từng transform, tính Δ, chọn max
+- LLM-guided (khi `use_llm=True` và `llm_client` khả dụng): gợi ý transforms
+- Nếu LLM lỗi: fallback heuristic
+- Early return khi Δ=1.0 (perfect discrimination)
+
+**Kết quả: 62/62 tests pass**
+
+| Test class | Số test |
+|------------|---------|
+| TestConstructor | 3 |
+| TestSelectHypothesisPair | 4 |
+| TestPredictOutcome | 5 |
+| TestDiscriminativePower | 3 |
+| TestDesignIntervention | 5 |
+| TestExecuteIntervention | 2 |
+| TestStoreIntervention | 2 |
+| TestRunInterventionRound | 3 |
+| TestLlmGuidedIntervention | 3 |
+| TestRefreshPrimitiveCache | 2 |
+| TestEdgeCases | 4 |
+| TestApplyTransformName | 2 |
+| TestTransformChain | 5 |
+| TestTransformChainCustomDepth | 3 |
+| TestBudgetClamping | 3 |
+| TestNonDeterministic | 4 |
+| TestBasePromptsFromMemory | 4 |
+| TestCandidateLimits | 3 |
+| TestAutoInvalidate | 2 |
+
+### 8.2. Orchestrator (`orchestration/__init__.py`)
+
+**Class:** `Orchestrator` — điều phối vòng lặp 6-phase.
+
+**Constructor:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `cognitive_agent` | **required** | CognitiveAgent instance |
+| `strategist_agent` | **required** | StrategistAgent instance |
+| `researcher_agent` | **required** | ResearcherAgent instance |
+| `episodic_memory` | **required** | Central L1 store |
+| `max_iterations` | 10 | Số vòng lặp tối đa |
+| `convergence_threshold` | 0.05 | Ngưỡng hội tụ |
+
+**State machine (`OrchestratorPhase`):** `IDLE → ANOMALY_DETECTION → HYPOTHESIS_GENERATION → INTERVENTION_DESIGN → INTERVENTION_EXECUTION → PROGRAM_SYNTHESIS → VERIFICATION_AND_STORE → CONVERGED`
+
+**Pipeline flow:**
+
+```
+run_pipeline(campaign_id, victim, experiment_id)
+  │
+  ├── Phase 1-2: Cognitive Agent
+  │     ├── detect_anomalies(campaign_id, experiment_id)
+  │     └── generate_hypotheses(anomalies, prior_hypotheses)
+  │
+  ├── Phase 3-4: Strategist Agent
+  │     ├── design_intervention(h1, h2) cho top 3 hypothesis pairs
+  │     └── execute_intervention(intervention, victim)
+  │
+  ├── Phase 5-6: Researcher Agent
+  │     └── run_reverse_engineering_pipeline(campaign_id, victim)
+  │
+  └── Check convergence → tiếp tục hoặc dừng
+```
+
+**Hội tụ:** Dừng khi có `program_id` từ Researcher AND không còn anomalies mới.
+
+**Kết quả: 15/15 tests pass**
+
+| Test class | Số test |
+|------------|---------|
+| TestConstructor | 3 |
+| TestRunPipeline | 6 |
+| TestCheckConvergence | 4 |
+| TestPhaseStrategist | 2 |
+
+### 8.3. Cập nhật test count
+
+| Khu vực | Tests |
+|---------|-------|
+| Knowledge layer | 207 |
+| Synthesis module | 84 (1 skipped CVC5) |
+| Primitive tests | 200 |
+| Researcher Agent | 40 |
+| Cognitive Agent | 80 |
+| Strategist Agent | 62 |
+| Orchestrator | 15 |
+| **Total** | **796** (5 skipped) |
+
+### 8.4. Files created/updated
+
+| File | Change |
+|------|--------|
+| `agents/strategist.py` | Mới: StrategistAgent class (~225 dòng) |
+| `agents/__init__.py` | Thêm export `StrategistAgent` |
+| `orchestration/__init__.py` | Mới: Orchestrator + OrchestratorPhase |
+| `tests/agents/test_strategist.py` | Mới: 62 tests |
+| `tests/orchestration/test_orchestrator.py` | Mới: 15 tests |
+| `docs/strategist_agent.md` | Mới: tài liệu |
+| `TODO.md` | Cập nhật agent layer, test counts |
+| `CHECKPOINT.md` | Mốc 8 |
+
+### 8.5. Orchestrator architecture
+
+```
+Orchestrator
+├── Phase 1-2: Cognitive Agent
+│   ├── detect_anomalies → List[Anomaly]
+│   └── generate_hypotheses → List[Hypothesis]
+├── Phase 3-4: Strategist Agent
+│   ├── design_intervention(h1, h2) → Intervention
+│   └── execute_intervention(I, victim) → Episode → EpisodicMemory
+├── Phase 5-6: Researcher Agent
+│   └── run_reverse_engineering_pipeline → Program + Theory
+└── Convergence check
+```
+
+1. **Cognitive Agent** đọc Episodic Memory từ các vòng trước (nếu có)
+2. **Strategist Agent** dùng hypotheses text-based để thiết kế can thiệp
+3. Kết quả can thiệp được ghi vào **Episodic Memory** (cùng campaign)
+4. **Researcher Agent** đọc tất cả episodes (cũ + mới) cho synthesis
+5. Vòng lặp tiếp tục cho đến khi hội tụ hoặc hết `max_iterations`
+
+### 8.6. Ghi chú
+
+- `orchestration/__init__.py` hiện là file duy nhất trong `orchestration/` (single module pattern).
+- StrategistAgent dùng duck-typing cho hypotheses → không cần import cụ thể, hỗ trợ nhiều loại hypothesis.
+- Keyword extraction trong `_predict_outcome` dùng regex đơn giản `r"'([^']*)'"` — phù hợp condition pattern `contains_word('bomb')`.
+- `intervention_budget` giới hạn số transforms thử mỗi prompt để tránh combinatorial explosion. Giá trị được clamp [1, 1000] với cảnh báo.
+- `_check_convergence` dừng pipeline sớm khi có program + không còn anomalies.
+- **Cognitive Agent fixes (6/6):** (1) `_validate_base_prompts()` — kiểm tra non-empty, ≤1000 ký tự. (2) Logging format dùng `fallback=%s` động. (3) `AnomalyStore.get_anomalies()` → `List[Anomaly]` thay vì `List[Dict]`. (4) Sửa bug `PRAGMA table_info` dùng `d[0]` thay vì `d[1]`. (5) Thêm 24 tests (base_prompts validation, anomaly store queue, persist, LLM retry, primitive cache, get_anomalies type, logging format). (6) Cập nhật docs AnomalyStore schema, primitive cache invalidation.
+- **Strategist Agent improvements (10 items, 6/6):** (1) Transform chain support (`max_chain_depth`). (2) Base prompts từ Episodic Memory. (3) Logging metrics (candidates, avg Δ). (4) Non‑deterministic classifier handling (`num_trials`). (5) Clamp `intervention_budget` [1, 1000]. (6) Auto-fetch prompts từ campaign. (7) LLM prompt template documentation. (8) `max_candidates_heuristic` / `max_candidates_llm` riêng. (9) 8 transform chain tests. (10) OntologyMemory auto-invalidate hook.
+
 ### Ghi chú cho phiên sau
 
 1. **Nếu thêm tính năng mới:** cập nhật CHECKPOINT.md với mốc mới.
 2. **Test commands:**
     ```bash
-    python -m pytest tests/ -v                           # Tất cả (402 tests)
-    python -m pytest tests/knowledge/ -v                 # Knowledge layer
-    python -m pytest tests/synthesis/ -v                 # Synthesis module
-   python -m pytest tests/knowledge/test_episodic.py -v          # L1 — SQLite
-   python -m pytest tests/knowledge/test_defense_store.py -v     # L4 — cần Neo4j
-   python -m pytest tests/knowledge/test_ontology_memory.py -v   # L5 — cần Neo4j
-   python -m pytest tests/knowledge/test_scientific_memory.py -v # L6 — cần Neo4j
-   python -m pytest tests/knowledge/test_semantic_memory.py -v   # L5 FAISS
+    python -m pytest tests/ -v                           # Tất cả (796 tests)
+    python -m pytest tests/agents/ -v                    # Agent layer (182 tests)
+    python -m pytest tests/agents/test_strategist.py -v          # Strategist (62 tests)
+    python -m pytest tests/orchestration/test_orchestrator.py -v # Orchestrator (15 tests)
+    python -m pytest tests/agents/test_cognitive.py -v          # Cognitive (80 tests)
+    python -m pytest tests/knowledge/test_episodic.py -v          # L1 — SQLite
+    python -m pytest tests/knowledge/test_defense_store.py -v     # L4 — cần Neo4j
+    python -m pytest tests/knowledge/test_ontology_memory.py -v   # L5 — cần Neo4j
+    python -m pytest tests/knowledge/test_scientific_memory.py -v # L6 — cần Neo4j
+    python -m pytest tests/knowledge/test_semantic_memory.py -v   # L5 FAISS
    ```
 3. **Neo4j** phải chạy trên `localhost:7687` để test L4, L5, L6.
 4. **FAISS** và **sentence-transformers** là optional; code tự fallback.

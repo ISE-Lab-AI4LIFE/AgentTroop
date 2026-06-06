@@ -49,29 +49,49 @@
 
 | Agent | File | Trạng thái |
 |-------|------|------------|
-| Orchestrator | — | ⬜ Chưa xây dựng |
-| Cognitive Agent | — | ⬜ Chưa xây dựng |
-| Strategist Agent | — | ⬜ Chưa xây dựng |
-| Researcher Agent | `agents/researcher.py` | ✅ Hoàn thành (17 tests) |
+| Orchestrator | `orchestration/__init__.py` | ✅ Hoàn thành (15 tests) |
+| Cognitive Agent | `agents/cognitive.py` | ✅ Hoàn thành (80 tests) |
+| Strategist Agent | `agents/strategist.py` | ✅ Hoàn thành (62 tests) |
+| Researcher Agent | `agents/researcher.py` | ✅ Hoàn thành (40 tests) |
 
-### ⬜ Orchestrator
+### ✅ Orchestrator (`orchestration/__init__.py`)
 - Điều phối vòng lặp 6 phase: phát hiện bất thường → sinh giả thuyết → thiết kế can thiệp → thực thi → tổng hợp → kiểm chứng
-- Quản lý proposal queue, checkpoint, state machine
+- State machine (`OrchestratorPhase` enum) với checkpoint support
+- Quản lý hypothesis pairs cho Strategist, pipeline end‑to‑end cho Researcher
+- Kiểm tra hội tụ: dừng sớm khi có program verified + không còn anomalies
+- 15 tests (mock tất cả dependencies)
 
-### ⬜ Cognitive Agent
-- Phát hiện bất thường từ Episodic Memory, sinh giả thuyết cấu trúc bằng LLM
+### ✅ Cognitive Agent (`agents/cognitive.py`)
+- Phát hiện bất thường từ Episodic Memory (so sánh outcome theo nhóm prompt gốc)
+- Sinh giả thuyết cấu trúc bằng LLM (GEMMA qua LLMClient) với fallback mặc định
+- Ước lượng độ tin cậy (Laplace smoothing) dựa trên số lượng anomalies hỗ trợ
+- Data classes: `Anomaly`, `Hypothesis` với auto UUID, serialization to_dict
+- Tích hợp GrammarExporter để lấy primitive catalog
+- 80 tests (mock LLM, memory, grammar exporter)
 
-### ⬜ Strategist Agent
-- Thiết kế can thiệp tối ưu để phân biệt giả thuyết
+### ✅ Strategist Agent (`agents/strategist.py`)
+- Thiết kế can thiệp tối ưu để phân biệt giả thuyết cạnh tranh
+- Dùng `Intervention` (base prompt + transforms) từ `core/intervention.py`
+- Hỗ trợ cả text-based hypotheses (cognitive, với keyword extraction) và Program AST (executor)
+- Hybrid mode: heuristic local search + LLM-guided transform suggestion
+- Transform chain support: kết hợp nhiều transforms (cấu hình `max_chain_depth`)
+- Tự động lấy base prompts từ Episodic Memory (dựa trên campaign_id)
+- Xử lý non‑deterministic classifier với `num_trials` + majority vote
+- Clamp `intervention_budget` trong [1, 1000] với cảnh báo
+- `max_candidates_heuristic` / `max_candidates_llm` riêng biệt
+- Logging metrics: candidates count, avg Δ
+- Ghi kết quả can thiệp vào Episodic Memory
+- Primitive cache với `refresh_primitive_cache()` + OntologyMemory hook
+- 62 tests (mock executor, memory, grammar exporter, LLM client)
 
-### ✅ Researcher Agent
+### ✅ Researcher Agent (`agents/researcher.py`)
 - **`agents/researcher.py`** — `ResearcherAgent` class
 - **Pipeline 5 bước:** synthesis → verification → store program → abstract theory → store theory
 - **`run_reverse_engineering_pipeline()`** — entry point end‑to‑end, trả về dict kết quả
 - Không dùng LLM, chỉ dùng `synthesis` module + `knowledge` memory layers
 - Constructor tự động tạo `CVC5Synthesizer` (max_depth=3, beam_width=200) và `ProgramExecutor`
 - Hỗ trợ `allow_error_rate`, `experiment_id`, `exclude_prompts`, `verbose`
-- 17 tests (mock tất cả dependencies)
+- 40 tests (mock tất cả dependencies)
 
 ---
 
@@ -162,10 +182,10 @@
 | Giai đoạn | Trọng tâm | Trạng thái |
 |-----------|-----------|------------|
 | 1 | Hạ tầng cơ bản: Neo4j, Episodic/Session memory, Knowledge Manager | 🔶 Đang thực hiện (thiếu Session, Redis) |
-| 2 | Cognitive Agent: phát hiện bất thường, sinh giả thuyết | ⬜ Chưa bắt đầu |
-| 3 | Strategist Agent: thiết kế can thiệp heuristic | ⬜ Chưa bắt đầu |
-| 4 | Researcher Agent: CVC5, grammar, program synthesis, pipeline end‑to‑end | ✅ Hoàn thành (`agents/researcher.py`, 17 tests) |
-| 5 | Orchestrator: vòng lặp 6 phase, checkpoint, proposal queue | ⬜ Chưa bắt đầu |
+| 2 | Cognitive Agent: phát hiện bất thường, sinh giả thuyết | ✅ Hoàn thành (`agents/cognitive.py`, 80 tests) |
+| 3 | Strategist Agent: thiết kế can thiệp heuristic | ✅ Hoàn thành (`agents/strategist.py`, 30 tests) |
+| 4 | Researcher Agent: CVC5, grammar, program synthesis, pipeline end‑to‑end | ✅ Hoàn thành (`agents/researcher.py`, 40 tests) |
+| 5 | Orchestrator: vòng lặp 6 phase, checkpoint, proposal queue | ✅ Hoàn thành (`orchestration/__init__.py`, 15 tests) |
 | 6 | Scientific Memory: trích xuất lý thuyết, chuyển giao | ✅ Hoàn thành (phần lưu trữ), ⬜ Thiếu phần trích xuất |
 
 ---
@@ -178,8 +198,11 @@
 | Tổng số tests (knowledge layer) | 207 |
 | Tổng số tests (synthesis module) | 80 |
 | Tổng số tests (primitive module) | 200 |
-| Tổng số tests (researcher agent) | 17 |
-| **Tổng số tests (toàn bộ)** | **~614** |
+| Tổng số tests (researcher agent) | 40 |
+| Tổng số tests (cognitive agent) | 80 |
+| Tổng số tests (strategist agent) | 62 |
+| Tổng số tests (orchestrator) | 15 |
+| **Tổng số tests (toàn bộ)** | **796** (5 skipped) |
 | Tổng số primitives | **92** (27 predicate + 38 transform + 27 classifier) |
 | Tổng số files Python (knowledge + synthesis + agents + core) | 10 modules |
 | Neo4j labels đã định nghĩa | `Theory`, `DefenseProgram`, `ASTNode`, `PrimitiveNode`, `OntologyPrimitive` |
