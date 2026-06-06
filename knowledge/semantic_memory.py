@@ -13,7 +13,8 @@ Key features:
 - ``sync_episode()`` to stay in sync with Episodic Memory.
 - Enhanced export (directory with FAISS index + JSON metadata).
 
-Requires: ``numpy``.  Optional: ``faiss``, ``sentence-transformers``.
+Primary (recommended): ``faiss-cpu``, ``sentence-transformers``.
+Fallback: ``numpy`` (for vector ops), ``fss5/like`` (for keyword search).
 """
 
 from __future__ import annotations
@@ -721,7 +722,22 @@ class SemanticMemory:
         min_similarity: float = 0.5,
     ) -> List[Tuple[StoredEmbedding, float]]:
         """Embed *query_text* with the Sentence-Transformer model, then
-        call ``search_by_embedding``."""
+        call ``search_by_embedding``.
+
+        Falls back to keyword search when ``sentence-transformers`` is
+        not installed (with a warning).
+        """
+        if not _HAS_ST:
+            logger.warning(
+                "sentence-transformers is not installed; "
+                "falling back to keyword search.  "
+                "Install: pip install sentence-transformers"
+            )
+            return self._keyword_search(
+                query_text,
+                top_k=top_k,
+                content_type_filter=content_type_filter,
+            )
         model = self._get_model()
         vec = model.encode(query_text).tolist()  # type: ignore[union-attr]
         return self.search_by_embedding(
@@ -748,9 +764,24 @@ class SemanticMemory:
         Both score components are normalised to ``[0, 1]`` before being
         combined via weighted sum.
 
+        Falls back to keyword-only search when ``sentence-transformers``
+        is not installed (with a warning).
+
         Returns up to *top_k* ``(StoredEmbedding, combined_score)``
         sorted descending.
         """
+        if not _HAS_ST:
+            logger.warning(
+                "sentence-transformers is not installed; "
+                "falling back to keyword-only search.  "
+                "Install: pip install sentence-transformers"
+            )
+            return self._keyword_search(
+                query_text,
+                top_k=top_k,
+                content_type_filter=content_type_filter,
+            )
+
         total_weight = keyword_weight + vector_weight
         if total_weight <= 0.0:
             keyword_weight, vector_weight = 0.3, 0.7
@@ -839,9 +870,18 @@ class SemanticMemory:
                 returns a vector.  Defaults to the instance's Sentence-
                 Transformer model.
 
+        Raises:
+            RuntimeError: When ``sentence-transformers`` is not installed
+                and no ``embedding_model`` is provided.
+
         Returns:
             List of created embedding ids ``[prompt_id, response_id, summary_id]``.
         """
+        if embedding_model is None and not _HAS_ST:
+            raise RuntimeError(
+                "sentence-transformers is not installed; "
+                "pip install sentence-transformers"
+            )
         if embedding_model is None:
             embedding_model = self._get_model()
 

@@ -234,12 +234,14 @@ tests/knowledge/
 
 ### Dependencies
 
-| Package | Required? | Used by |
-|---------|-----------|---------|
-| `neo4j` | ✅ Required | Scientific Memory |
-| `numpy` | ✅ Required | Semantic Memory |
-| `faiss-cpu` | ❌ Optional | Semantic Memory (vector search) |
-| `sentence-transformers` | ❌ Optional | Semantic Memory (text→embedding) |
+| Package | Priority | Used by | Fallback |
+|---------|----------|---------|---------|
+| `neo4j` | Required | Scientific Memory | — |
+| `numpy` | Required | Semantic Memory | — |
+| `faiss-cpu` | **Primary** | Semantic Memory (vector search) | numpy cosine similarity (⚠️ warning) |
+| `sentence-transformers` | **Primary** | Semantic Memory (text→embedding) | keyword search (⚠️ warning) |
+| `scikit-learn` | Required | `adapters/toy_victims/neural.py` | — |
+| `networkx` | Required | `evaluation/structural_recovery.py` | — |
 
 ### Ghi chú cho phiên sau
 

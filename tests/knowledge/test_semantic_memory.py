@@ -370,12 +370,36 @@ class TestSearchByText:
         assert len(results) >= 1
         assert results[0][0].episode_id == "ep_cat"
 
-    def test_search_by_text_without_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_search_by_text_without_model_falls_back_to_keyword(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         import knowledge.semantic_memory as sm
         monkeypatch.setattr(sm, "_HAS_ST", False)
         m = SemanticMemory(":memory:")
-        with pytest.raises(RuntimeError, match="sentence-transformers"):
-            m.search_by_text("hello")
+        m.add_embedding(
+            episode_id="ep_kw", content_type="prompt", content="hello world",
+            embedding=[0.1],
+        )
+        # Falls back to keyword search instead of raising
+        results = m.search_by_text("hello", top_k=5)
+        assert len(results) == 1
+        assert results[0][0].content == "hello world"
+        m.close()
+
+    def test_hybrid_search_without_model_falls_back_to_keyword(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import knowledge.semantic_memory as sm
+        monkeypatch.setattr(sm, "_HAS_ST", False)
+        m = SemanticMemory(":memory:")
+        m.add_embedding(
+            episode_id="ep_hb", content_type="prompt", content="hybrid fallback",
+            embedding=[0.1],
+        )
+        results = m.hybrid_search("hybrid", top_k=5)
+        assert len(results) == 1
+        assert results[0][0].content == "hybrid fallback"
+        m.close()
 
 
 # -------------------------------------------------------------------
@@ -437,6 +461,22 @@ class TestEpisodeIntegration:
         result = mem.sync_episode("nonexistent_ep")
         assert result["created"] == 0
         assert result["deleted"] == 0
+
+    def test_add_from_episode_without_model_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import knowledge.semantic_memory as sm
+        monkeypatch.setattr(sm, "_HAS_ST", False)
+        from knowledge.episodic.episodic import Episode, InterventionRecord
+        intervention = InterventionRecord(intervention_id="int_nm", prompt="no model")
+        episode = Episode(
+            episode_id="ep_nm", intervention=intervention,
+            victim_name="t", campaign_id="c", experiment_id="e", outcome=0,
+        )
+        m = SemanticMemory(":memory:")
+        with pytest.raises(RuntimeError, match="sentence-transformers"):
+            m.add_from_episode(episode)
+        m.close()
 
     def test_auto_sync_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """auto_sync_episodes=True flag is accepted and triggers existence check."""

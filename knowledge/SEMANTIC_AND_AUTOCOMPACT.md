@@ -28,13 +28,13 @@ harmony-x/
 
 ### Yêu cầu
 
-| Thư viện | Bắt buộc? | Mục đích |
-|----------|-----------|----------|
-| `numpy` | **Bắt buộc** | Vector operations, BLOB I/O |
-| `faiss-cpu` | Optional | Vector index (tăng tốc search ~100x) |
-| `sentence-transformers` | Optional | Text → embedding (`search_by_text`, `hybrid_search`) |
+| Thư viện | Mức ưu tiên | Mục đích | Fallback |
+|----------|------------|----------|----------|
+| `numpy` | **Bắt buộc** | Vector operations, BLOB I/O | — |
+| `faiss-cpu` | **Primary** | Vector index (tăng tốc search ~100x) | numpy cosine similarity (⚠️ warning) |
+| `sentence-transformers` | **Primary** | Text → embedding (`search_by_text`, `hybrid_search`) | keyword search (⚠️ warning) |
 
-Nếu FAISS không được cài đặt, `search_by_embedding` tự động fallback về numpy cosine similarity (kèm warning).
+**Primary =** được cài đặt mặc định và là phương án chạy chính. Nếu không có, code tự fallback kèm warning ra terminal.
 
 ### Lớp dữ liệu: `StoredEmbedding`
 
@@ -108,6 +108,26 @@ sm = SemanticMemory("vectors.db", auto_sync_episodes=True)  # Auto-sync với Ep
 |--------|-------|
 | `count() → int` | Tổng số embeddings. |
 | `get_stats() → Dict` | Stats: total, dimension, FAISS availability, content type distribution. |
+
+### Fallback Behaviour
+
+Cả hai thư viện `faiss-cpu` và `sentence-transformers` đều được import bằng `try/except ImportError`:
+
+```python
+try:
+    import faiss
+    _HAS_FAISS = True
+except ImportError:
+    _HAS_FAISS = False
+    logger.warning("FAISS not installed — falling back to numpy")
+```
+
+Khi không có FAISS → `search_by_embedding` dùng numpy full-scan (chậm hơn nhưng vẫn đúng).
+
+Khi không có sentence-transformers:
+- `search_by_text` → fallback sang keyword search (FTS5/LIKE)
+- `hybrid_search` → fallback sang keyword-only search
+- `add_from_episode` → raise `RuntimeError` (cần model để tạo embedding)
 
 ### FAISS Architecture
 

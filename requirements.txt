@@ -1,0 +1,25 @@
+# =============================================================================
+# HARMONY-X — Core Dependencies
+# =============================================================================
+# Install with:  pip install -r requirements.txt
+#
+# faiss-cpu  and  sentence-transformers  are PRIMARY (recommended).
+# The code falls back gracefully when they are missing (with warning).
+# =============================================================================
+
+# -- Knowledge Layer ----------------------------------------------------------
+neo4j>=5.0              # Scientific Memory (L6) — Neo4j graph database driver
+numpy>=1.26              # Semantic Memory (L5) — vector operations & BLOBs
+
+# -- Vector search (primary, fallback: numpy cosine) --------------------------
+faiss-cpu>=1.12          # FAISS index for Semantic Memory (L5)
+
+# -- Text-to-embedding (primary, fallback: keyword search) --------------------
+sentence-transformers>=3.0  # Semantic Memory (L5) — search_by_text / hybrid_search
+
+# -- Core ---------------------------------------------------------------------
+scikit-learn>=1.4        # adapters/toy_victims/neural.py — CountVectorizer, LogisticRegression
+networkx>=3.0            # evaluation/structural_recovery.py — graph metrics
+
+# -- Development / Testing ----------------------------------------------------
+pytest>=7.0              # Test runner
