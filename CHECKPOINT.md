@@ -876,6 +876,143 @@ Orchestrator
 - **Cognitive Agent fixes (6/6):** (1) `_validate_base_prompts()` — kiểm tra non-empty, ≤1000 ký tự. (2) Logging format dùng `fallback=%s` động. (3) `AnomalyStore.get_anomalies()` → `List[Anomaly]` thay vì `List[Dict]`. (4) Sửa bug `PRAGMA table_info` dùng `d[0]` thay vì `d[1]`. (5) Thêm 24 tests (base_prompts validation, anomaly store queue, persist, LLM retry, primitive cache, get_anomalies type, logging format). (6) Cập nhật docs AnomalyStore schema, primitive cache invalidation.
 - **Strategist Agent improvements (10 items, 6/6):** (1) Transform chain support (`max_chain_depth`). (2) Base prompts từ Episodic Memory. (3) Logging metrics (candidates, avg Δ). (4) Non‑deterministic classifier handling (`num_trials`). (5) Clamp `intervention_budget` [1, 1000]. (6) Auto-fetch prompts từ campaign. (7) LLM prompt template documentation. (8) `max_candidates_heuristic` / `max_candidates_llm` riêng. (9) 8 transform chain tests. (10) OntologyMemory auto-invalidate hook.
 
+## Mốc 9 — 6/6/2026 (Causal Graph + Knowledge Manager + Proposal Queue)
+
+### 9.1. Causal Graph (`knowledge/causal_graph.py`)
+
+**Backend:** Neo4j, với constraints: `CausalNode.id` UNIQUE, `CAUSAL_EDGE(source_id, target_id)` composite UNIQUE.
+
+**Dataclasses:**
+- `CausalNode` — `id`, `name`, `type` (primitive/defense_component/outcome), `metadata`, `created_at`
+- `CausalEdge` — `source_id`, `target_id`, `strength` (0..1), `p_value` (0..1), `intervention_ids`, `created_at`
+
+**API:**
+| Method | Mô tả |
+|--------|-------|
+| `add_node(name, node_type, metadata)` → str | Tạo node |
+| `get_node(node_id)` → Optional[CausalNode] | Lấy node |
+| `get_or_create_node(name, node_type, metadata)` → str | Tìm hoặc tạo |
+| `update_node(node_id, name, metadata)` → bool | Cập nhật |
+| `delete_node(node_id)` → bool | Xoá node + cascade edges |
+| `find_nodes_by_name(name)` / `find_nodes_by_type(type)` | Tìm kiếm |
+| `add_edge(source_id, target_id, strength, p_value, intervention_ids)` → bool | Tạo edge |
+| `get_edge(source_id, target_id)` → Optional[CausalEdge] | Lấy edge |
+| `delete_edge(source_id, target_id)` → bool | Xoá edge |
+| `find_causes(target_id, min_strength)` → List[(edge, node)] | Truy vấn cause |
+| `find_effects(source_id, min_strength)` → List[(edge, node)] | Truy vấn effect |
+| `get_all_nodes()` / `get_all_edges()` | Liệt kê |
+| `clear()` → int | Xoá toàn bộ |
+| `export(file_path)` / `import_(file_path)` → int | JSON |
+
+**Tests:** ~30 tests (testcontainers Neo4j container)
+
+### 9.2. Knowledge Manager + Proposal Queue (`knowledge/manager.py`)
+
+**Backend:** Redis (production) hoặc in-memory (dev/test), auto-fallback.
+
+**Target & Owners:**
+- `episodic` → CognitiveAgent, StrategistAgent (ghi trực tiếp)
+- `defense_program_store` → ResearcherAgent
+- `scientific_memory` → ResearcherAgent
+- `causal_graph` → ResearcherAgent
+- `session_memory` → Orchestrator
+
+**API:**
+| Method | Mô tả |
+|--------|-------|
+| `register_store(target, store_instance)` | Đăng ký store |
+| `read(target, query)` | Đọc (không cần permission) |
+| `write(target, data, agent_id)` | Ghi nếu là owner |
+| `propose(target, data, agent_id, action)` → proposal_id | Gửi proposal |
+| `poll_proposals(agent_id, target, timeout)` → List[Dict] | Owner lấy proposals |
+| `resolve_proposal(proposal_id, accepted, result, error)` → bool | Owner resolve |
+| `get_proposal_status(proposal_id)` → Optional[Dict] | Xem trạng thái |
+| `set_owners(target, owners)` / `get_owners(target)` / `is_owner(target, agent_id)` | Quản lý owners |
+
+**Proposal flow:** propose → poll → resolve (tương tự event sourcing / CQRS)
+
+**Tests:** ~25 tests (testcontainers Redis container)
+
+### 9.3. Files created
+
+| File | Lines | Mô tả |
+|------|-------|-------|
+| `knowledge/causal_graph.py` | ~330 | CausalGraph module |
+| `tests/knowledge/test_causal_graph.py` | ~310 | ~30 tests (testcontainers Neo4j) |
+| `knowledge/manager.py` | ~360 | KnowledgeManager + Proposal queue |
+| `tests/knowledge/test_manager.py` | ~310 | ~25 tests (testcontainers Redis + in-memory) |
+| `docs/causal_graph.md` | ~60 | Tài liệu CausalGraph |
+| `docs/knowledge_manager.md` | ~80 | Tài liệu Knowledge Manager |
+| `knowledge/__init__.py` | update | Thêm exports: CausalGraph, KnowledgeManager, v.v. |
+| `requirements.txt` | update | Thêm `redis`, `testcontainers` |
+
+### 9.4. Cập nhật test count
+
+| Khu vực | Tests |
+|---------|-------|
+| Knowledge layer (cũ) | 207 |
+| Causal Graph | ~30 |
+| Knowledge Manager | ~25 |
+| **TOTAL (mới)** | **~262 (knowledge layer)** |
+
+## Mốc 10 — 6/6/2026 (Session Memory + Orchestrator V2)
+
+### 10.1. Session Memory (`knowledge/session_memory.py`)
+
+**Backend:** Redis, key format `session:{campaign_id}` (hash) + `session:{campaign_id}:hypotheses` (list).
+
+**Fields:** `campaign_id`, `target_model`, `current_best_program_id`, `current_best_accuracy`, `iteration`, `intervention_count`, `status`, `started_at`, `updated_at`, `metadata`.
+
+**API:**
+| Method | Mô tả |
+|--------|-------|
+| `create_session(campaign_id, target_model, metadata)` → bool | Tạo session |
+| `get_session(campaign_id)` → Optional[Dict] | Lấy session |
+| `update_session(campaign_id, updates)` → bool | Cập nhật |
+| `delete_session(campaign_id)` → bool | Xoá |
+| `increment_iteration(campaign_id)` → int | Atomic ++ |
+| `increment_intervention_count(campaign_id, delta)` → int | Atomic += delta |
+| `set_best_program(campaign_id, program_id, accuracy)` → bool | Best program |
+| `add_hypothesis(campaign_id, hyp_id)` / `remove_hypothesis` | Hypothesis list |
+| `list_hypotheses(campaign_id)` → List[str] | |
+| `set_status(campaign_id, status)` → bool | running/completed/failed |
+| `list_active_sessions()` → List[str] | SCAN keys |
+| `session_exists(campaign_id)` → bool | |
+
+**Features:** TTL tự động (mặc định 24h), atomic increment qua Redis HINCRBY, pipeline cho multi-op.
+
+### 10.2. Orchestrator V2 (`orchestration/orchestrator.py`)
+
+**Luồng:** Phase 1-2 (Cognitive) → Phase 3-4 (Strategist, lặp) → Phase 5-6 (Researcher, định kỳ).
+
+**Tích hợp:**
+- `KnowledgeManager` — permission-aware read/write
+- `SessionMemory` — checkpoint, hypothesis list, status tracking
+- Budget check: `max_interventions` hard cap
+- Convergence: `accuracy >= accuracy_threshold` → dừng sớm
+- Resume support: `orchestrator.resume()` load từ SessionMemory
+
+### 10.3. Files created
+
+| File | Mô tả |
+|------|-------|
+| `knowledge/session_memory.py` | SessionMemory (L2, Redis) |
+| `tests/knowledge/test_session_memory.py` | 15 tests (testcontainers Redis) |
+| `orchestration/orchestrator.py` | Orchestrator V2 |
+| `tests/orchestration/test_orchestrator_v2.py` | 14 tests (testcontainers Redis) |
+| `docs/session_memory.md` | Tài liệu |
+| `docs/orchestrator_v2.md` | Tài liệu |
+
+### 10.4. Module exports updated
+
+`knowledge/__init__.py` — thêm `SessionMemory`.
+
+### 10.5. Ghi chú
+
+- Orchestrator V2 nằm ở file riêng (`orchestration/orchestrator.py`), không ảnh hưởng Orchestrator cũ trong `__init__.py`.
+- Các test của Orchestrator V2 dùng testcontainers Redis + mock agents.
+- SessionMemory yêu cầu Redis, fallback không có in-memory (khác với KnowledgeManager).
+
 ### Ghi chú cho phiên sau
 
 1. **Nếu thêm tính năng mới:** cập nhật CHECKPOINT.md với mốc mới.
@@ -885,12 +1022,16 @@ Orchestrator
     python -m pytest tests/agents/ -v                    # Agent layer (182 tests)
     python -m pytest tests/agents/test_strategist.py -v          # Strategist (62 tests)
     python -m pytest tests/orchestration/test_orchestrator.py -v # Orchestrator (15 tests)
+    python -m pytest tests/orchestration/test_orchestrator_v2.py -v # Orchestrator V2 — cần Docker
     python -m pytest tests/agents/test_cognitive.py -v          # Cognitive (80 tests)
     python -m pytest tests/knowledge/test_episodic.py -v          # L1 — SQLite
     python -m pytest tests/knowledge/test_defense_store.py -v     # L4 — cần Neo4j
     python -m pytest tests/knowledge/test_ontology_memory.py -v   # L5 — cần Neo4j
     python -m pytest tests/knowledge/test_scientific_memory.py -v # L6 — cần Neo4j
     python -m pytest tests/knowledge/test_semantic_memory.py -v   # L5 FAISS
+    python -m pytest tests/knowledge/test_causal_graph.py -v      # Causal Graph — cần Docker
+    python -m pytest tests/knowledge/test_manager.py -v           # Knowledge Manager — cần Docker
+    python -m pytest tests/knowledge/test_session_memory.py -v    # Session Memory — cần Docker
    ```
 3. **Neo4j** phải chạy trên `localhost:7687` để test L4, L5, L6.
 4. **FAISS** và **sentence-transformers** là optional; code tự fallback.

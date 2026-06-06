@@ -21,7 +21,11 @@ sentence-transformers>=3.0  # Semantic Memory (L5) — search_by_text / hybrid_s
 scikit-learn>=1.4        # adapters/toy_victims/neural.py — CountVectorizer, LogisticRegression
 networkx>=3.0            # evaluation/structural_recovery.py — graph metrics
 
+# -- Redis (optional, for Knowledge Manager proposal queue) --------------------
+redis>=5.0               # Knowledge Manager — proposal queue & session cache
+
 # -- Development / Testing ----------------------------------------------------
 pytest>=7.0              # Test runner
+testcontainers>=4.0      # Integration tests with real Neo4j/Redis containers
 google-genai>=0.1.0     # Google GenAI client for interacting with Gemma models
 python-dotenv>=1.0.0    # Load .env files into environment for local development

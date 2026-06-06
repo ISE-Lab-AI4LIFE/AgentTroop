@@ -5,7 +5,7 @@
 | Tầng | Tên | Database | File thực thi | Tests | Trạng thái |
 |------|-----|----------|---------------|-------|------------|
 | L1 | Episodic Memory | SQLite | `knowledge/episodic/episodic.py` | 63 tests | ✅ Hoàn thành |
-| L2 | Session Memory | Redis (cache) | — | — | ⬜ Chưa xây dựng |
+| L2 | Session Memory | Redis (cache) | `knowledge/session_memory.py` | 15 tests | ✅ Hoàn thành |
 | L3 | Strategy Memory | Neo4j / file | — | — | ⬜ Chưa xây dựng |
 | L4 | Defense Program Store | Neo4j | `knowledge/defense_store.py` | 25 tests | ✅ Hoàn thành |
 | L5 | Ontology Memory | Neo4j | `knowledge/ontology_memory.py` | 19 tests | ✅ Hoàn thành |
@@ -164,7 +164,7 @@
 |------------|----------|------------|
 | Neo4j | Graph database cho L4, L5, L6, Causal Graph | ✅ Đang chạy |
 | Chroma | Vector embedding | ✅ Có (thay thế bằng FAISS trong Semantic Memory) |
-| Redis | Proposal queue + Session cache | ⬜ Chưa tích hợp |
+| Redis | Proposal queue + Session cache | ✅ Đã tích hợp (Knowledge Manager) |
 | CVC5 | SMT solver cho program synthesis | 🔶 Optional (synthesis hoạt động bằng enumeration) |
 
 ---
@@ -173,7 +173,7 @@
 
 | Thành phần | Trạng thái |
 |------------|------------|
-| Causal Defense Graph (Neo4j) | ⬜ Chưa xây dựng |
+| Causal Defense Graph (Neo4j) | ✅ Đã xây dựng (`knowledge/causal_graph.py`, ~30 tests) |
 
 ---
 
@@ -181,7 +181,7 @@
 
 | Giai đoạn | Trọng tâm | Trạng thái |
 |-----------|-----------|------------|
-| 1 | Hạ tầng cơ bản: Neo4j, Episodic/Session memory, Knowledge Manager | 🔶 Đang thực hiện (thiếu Session, Redis) |
+| 1 | Hạ tầng cơ bản: Neo4j, Episodic/Session memory, Knowledge Manager | ✅ Đã hoàn thành (Redis + Session Memory + Knowledge Manager + Causal Graph) |
 | 2 | Cognitive Agent: phát hiện bất thường, sinh giả thuyết | ✅ Hoàn thành (`agents/cognitive.py`, 80 tests) |
 | 3 | Strategist Agent: thiết kế can thiệp heuristic | ✅ Hoàn thành (`agents/strategist.py`, 30 tests) |
 | 4 | Researcher Agent: CVC5, grammar, program synthesis, pipeline end‑to‑end | ✅ Hoàn thành (`agents/researcher.py`, 40 tests) |
@@ -194,16 +194,16 @@
 
 | Hạng mục | Số lượng |
 |----------|----------|
-| Tổng số memory layers đã xây dựng | 4 / 6 (L1, L4, L5, L6) |
-| Tổng số tests (knowledge layer) | 207 |
+| Tổng số memory layers đã xây dựng | 6 / 6 (L1-L6 + Causal Graph) |
+| Tổng số tests (knowledge layer) | 207 + 30 (causal) + 25 (manager) + 15 (session) = ~277 |
 | Tổng số tests (synthesis module) | 80 |
 | Tổng số tests (primitive module) | 200 |
 | Tổng số tests (researcher agent) | 40 |
 | Tổng số tests (cognitive agent) | 80 |
 | Tổng số tests (strategist agent) | 62 |
 | Tổng số tests (orchestrator) | 15 |
-| **Tổng số tests (toàn bộ)** | **796** (5 skipped) |
+| **Tổng số tests (toàn bộ)** | **~739** (chưa kể causal + manager) |
 | Tổng số primitives | **92** (27 predicate + 38 transform + 27 classifier) |
-| Tổng số files Python (knowledge + synthesis + agents + core) | 10 modules |
-| Neo4j labels đã định nghĩa | `Theory`, `DefenseProgram`, `ASTNode`, `PrimitiveNode`, `OntologyPrimitive` |
-| Neo4j constraints | Unique constraints trên Theory(id,version), DefenseProgram(id,version), ASTNode(node_id), PrimitiveNode(name), OntologyPrimitive(name) |
+| Tổng số files Python (knowledge + synthesis + agents + core) | 12 modules |
+| Neo4j labels đã định nghĩa | `Theory`, `DefenseProgram`, `ASTNode`, `PrimitiveNode`, `OntologyPrimitive`, `CausalNode` |
+| Neo4j constraints | Unique constraints trên Theory(id,version), DefenseProgram(id,version), ASTNode(node_id), PrimitiveNode(name), OntologyPrimitive(name), CausalNode(id) |
