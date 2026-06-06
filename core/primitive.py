@@ -293,6 +293,19 @@ class RemovePunctuationTransform(Transform):
         return prompt.translate(str.maketrans("", "", string.punctuation))
 
 
+try:
+    from textblob import TextBlob as _TextBlob
+    _HAS_TEXTBLOB = True
+except ImportError:
+    _HAS_TEXTBLOB = False
+
+
+_TOXIC_KEYWORDS: List[str] = [
+    "bomb", "kill", "attack", "weapon", "hack", "steal", "virus",
+    "drug", "launder", "murder", "explode", "terrorist",
+]
+
+
 @dataclass
 class ToxicityScoreClassifier(Classifier):
     def __post_init__(self) -> None:
@@ -306,12 +319,62 @@ class ToxicityScoreClassifier(Classifier):
         self.metadata = {
             "description": "Estimate a toxicity score for the prompt.",
             "category": "classifier",
-            "conditions": "String input only; score is mocked for MVP.",
+            "conditions": "String input only; uses TextBlob sentiment if available, else keyword heuristic.",
             "related_primitives": [],
         }
 
     def evaluate(self, prompt: Prompt) -> float:
-        return random.random()
+        if _HAS_TEXTBLOB:
+            try:
+                blob = _TextBlob(prompt)
+                polarity = blob.sentiment.polarity
+                subjectivity = blob.sentiment.subjectivity
+                keyword_boost = sum(
+                    0.15 for kw in _TOXIC_KEYWORDS if kw in prompt.lower()
+                )
+                score = max(0.0, min(1.0, 0.5 - polarity * 0.4 + keyword_boost))
+                return score
+            except Exception:
+                pass
+        prompt_lower = prompt.lower()
+        hits = sum(1 for kw in _TOXIC_KEYWORDS if kw in prompt_lower)
+        return min(1.0, hits * 0.25)
+
+
+@dataclass
+class SentimentClassifier(Classifier):
+    def __post_init__(self) -> None:
+        self.name = "sentiment_score"
+        self.parameters = {}
+        self.input_type = "String"
+        self.output_type = "ClassifierScore"
+        self.version_id = getattr(self, "version_id", "1.0")
+        self.created_at = getattr(self, "created_at", time.time())
+        self.deprecated_at = getattr(self, "deprecated_at", None)
+        self.metadata = {
+            "description": "Estimate sentiment polarity (0=negative, 1=positive).",
+            "category": "classifier",
+            "conditions": "String input only; uses TextBlob if available.",
+            "related_primitives": ["toxicity_score"],
+        }
+
+    def evaluate(self, prompt: Prompt) -> float:
+        if _HAS_TEXTBLOB:
+            try:
+                blob = _TextBlob(prompt)
+                polarity = blob.sentiment.polarity
+                return max(0.0, min(1.0, (polarity + 1.0) / 2.0))
+            except Exception:
+                pass
+        prompt_lower = prompt.lower()
+        neg_words = ["bad", "terrible", "awful", "hate", "horrible", "evil"]
+        pos_words = ["good", "great", "nice", "love", "wonderful", "happy"]
+        neg_hits = sum(1 for w in neg_words if w in prompt_lower)
+        pos_hits = sum(1 for w in pos_words if w in prompt_lower)
+        total = neg_hits + pos_hits
+        if total == 0:
+            return 0.5
+        return pos_hits / total
 
 
 def _register_default_primitives() -> PrimitiveRegistry:
@@ -324,6 +387,7 @@ def _register_default_primitives() -> PrimitiveRegistry:
     registry.register(ToLowercaseTransform)
     registry.register(RemovePunctuationTransform)
     registry.register(ToxicityScoreClassifier)
+    registry.register(SentimentClassifier)
     return registry
 
 
