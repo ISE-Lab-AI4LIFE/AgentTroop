@@ -395,6 +395,42 @@ class ResearcherAgent:
     # Pipeline
     # ------------------------------------------------------------------
 
+    def verify_and_store(
+        self,
+        program: Program,
+        campaign_id: str,
+        victim: Any,
+        program_id: Optional[str] = None,
+    ) -> bool:
+        """Verify a candidate program against victim and store if verified.
+
+        Returns True if program was verified and stored successfully.
+        """
+        try:
+            report = self.verify_program(
+                program=program,
+                victim=victim,
+                num_test_interventions=5,
+                accuracy_threshold=0.7,
+            )
+            if report.verified:
+                stored_id = self.store_program(
+                    program=program,
+                    name=program_id or program.id,
+                    confidence=report.accuracy,
+                    provenance=[campaign_id],
+                    status="verified" if report.accuracy >= 0.9 else "candidate",
+                )
+                logger.info(
+                    "Verified and stored program %s (accuracy=%.2f)",
+                    stored_id, report.accuracy,
+                )
+                return True
+            return False
+        except Exception as exc:
+            logger.debug("verify_and_store failed: %s", exc)
+            return False
+
     def run_reverse_engineering_pipeline(
         self,
         campaign_id: str,

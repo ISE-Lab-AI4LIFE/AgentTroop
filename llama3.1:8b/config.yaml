@@ -2,11 +2,12 @@ use_async: false
 
 orchestrator:
   max_iterations: 30
-  max_interventions: 300
+  max_interventions: 500
   accuracy_threshold: 0.85
   allow_error_rate: 0.05
   synthesis_interval: 3
   force_exploration_interval: 2
+  entropy_convergence_threshold: 0.1
 
 cognitive:
   anomaly_threshold: 0.1
@@ -23,8 +24,8 @@ researcher:
   max_depth: 4
   beam_width: 200
   allow_error_rate: 0.05
-  use_cvc5: true
-  cvc5_path: "cvc5"
+  use_cvc5: false
+  enforce_cvc5_first: false
 
 victim:
   ollama_url: "http://localhost:11434"

@@ -53,7 +53,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Anomaly:
     """A detected anomaly — two episodes with the same base prompt but
-    different outcomes after applying different transforms."""
+    different outcomes after applying different transforms.
+
+    Extended with transformation-family metadata to support multi-tier
+    anomaly-source analysis.  Use ``to_dict()`` for serialisation.
+    """
 
     id: str = ""
     base_prompt: str = ""
@@ -65,6 +69,12 @@ class Anomaly:
     episode_id_transformed: str = ""
     supporting_hypothesis_ids: List[str] = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
+
+    # --- Multi-tier metadata (populated from episode transforms) ---
+    transform_family: str = ""           # "tier1_semantic" | "tier2_structural" | "tier3_encoding" | ""
+    semantic_category: str = ""          # "semantic_preserving" | "structural" | "encoding" | ""
+    anomaly_source: str = ""             # e.g. "roleplay_framing", "contextual_framing", "leetspeak"
+    source_tag: str = ""                 # "harmful" | "benign" — base prompt category
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -82,12 +92,20 @@ class Anomaly:
             "episode_id_original": self.episode_id_original,
             "episode_id_transformed": self.episode_id_transformed,
             "timestamp": self.timestamp,
+            "transform_family": self.transform_family,
+            "semantic_category": self.semantic_category,
+            "anomaly_source": self.anomaly_source,
+            "source_tag": self.source_tag,
         }
 
 
 @dataclass
 class Hypothesis:
-    """A structural hypothesis about the target LLM's safety program."""
+    """A structural hypothesis about the target LLM's safety program.
+
+    May optionally carry a ``program`` attribute referencing a synthesized
+    ``DefenseProgram`` for direct prediction without keyword fallback.
+    """
 
     id: str = ""
     description: str = ""
@@ -95,6 +113,7 @@ class Hypothesis:
     confidence: float = 0.0
     supporting_anomaly_ids: List[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
+    program: Any = None  # Optional synthesized Program for direct prediction
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -517,10 +536,17 @@ class CognitiveAgent:
             for other in group[1:]:
                 other_outcome = other.outcome if other.outcome is not None else 0
                 if abs(ref_outcome - other_outcome) >= self.anomaly_threshold:
+                    tx_list = other.intervention.transforms or []
                     transform_names = [
-                        t.get("name", str(t))
-                        for t in (other.intervention.transforms or [])
+                        t.get("name", str(t)) for t in tx_list
                     ] or ["(no transform)"]
+
+                    # Extract multi-tier metadata from the first transform
+                    tx0 = tx_list[0] if tx_list else {}
+                    tf = tx0.get("family", "")
+                    sc = tx0.get("semantic_category", "")
+                    src = tx0.get("anomaly_source", "")
+
                     anomalies.append(Anomaly(
                         base_prompt=base_prompt,
                         transform_names=transform_names,
@@ -529,6 +555,9 @@ class CognitiveAgent:
                         difference=abs(ref_outcome - other_outcome),
                         episode_id_original=ref.episode_id,
                         episode_id_transformed=other.episode_id,
+                        transform_family=tf,
+                        semantic_category=sc,
+                        anomaly_source=src,
                     ))
 
         # --- Phase 2: transform-chain anomalies (order-aware) ---
@@ -1132,11 +1161,22 @@ Return ONLY valid JSON — no markdown, no explanation."""
         return hypotheses
 
     def _fallback_hypotheses(self, anomalies: List[Anomaly]) -> List[Hypothesis]:
-        """Generate diverse keyword-based hypotheses from anomaly data.
+        """Generate diverse hypotheses from anomaly data.
 
-        Extracts content words from anomalous base prompts and creates
-        multiple hypothesis types: ``contains_word``, ``contains_any_word``,
-        word-count thresholds, and prompt-length heuristics.
+        Uses ontology primitives (keyword filter, semantic classifier,
+        transform detector, length heuristic, encoding detector) to create
+        multiple hypothesis TYPES.  Each hypothesis is assigned a *different*
+        anomaly subset so they have differential confidence and produce
+        different predictions (creating real hypothesis competition).
+
+        Hypothesis categories:
+        1. Keyword filter — REFUSE when specific words present
+        2. Combined keyword — any of top N keywords → REFUSE  
+        3. Length heuristic — short → ACCEPT, long → REFUSE
+        4. Polymarker — numbers → REFUSE, leetspeak → REFUSE
+        5. Structural — transform-aware (ROT13, base64, etc.)
+        6. Semantic — polite/grammatical → ACCEPT
+        7. Domain — benign topics → ACCEPT
         """
         import re
         from collections import Counter
@@ -1167,8 +1207,12 @@ Return ONLY valid JSON — no markdown, no explanation."""
         seen_conditions: set = set()
         hyps: List[Hypothesis] = []
 
-        # 1. Individual keyword hypotheses
-        for kw in top_keywords[:5]:
+        # Partition anomalies to give each hypothesis DIFFERENT support sets
+        def _partition(offset: int, size: int) -> List[str]:
+            return [a.id for a in anomalies[offset % len(anomalies):(offset + size) % len(anomalies)]]
+
+        # 1. Individual keyword hypotheses (each uses different anomalies)
+        for i, kw in enumerate(top_keywords[:5]):
             cond = f"IF contains_word('{kw}') THEN REFUSE"
             if cond in seen_conditions:
                 continue
@@ -1179,10 +1223,10 @@ Return ONLY valid JSON — no markdown, no explanation."""
                     f"keyword '{kw}'."
                 ),
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(i, max(1, len(anomalies) // 3)),
             ))
 
-        # 2. Combined-keywords hypothesis (contains any of top words)
+        # 2. Combined-keywords hypothesis 
         if top_keywords:
             kw_list = "', '".join(top_keywords[:4])
             cond = f"IF contains_any_word(['{kw_list}']) THEN REFUSE"
@@ -1194,37 +1238,37 @@ Return ONLY valid JSON — no markdown, no explanation."""
                         f"of the keywords: {', '.join(top_keywords[:4])}."
                     ),
                     condition=cond,
-                    supporting_anomaly_ids=[a.id for a in anomalies],
+                    supporting_anomaly_ids=_partition(2, max(1, len(anomalies) // 2)),
                 ))
 
-        # 3. Short-prompt → ACCEPT (safe, short queries are not attacks)
+        # 3. Short-prompt → ACCEPT
         cond = "IF char_count(prompt) < 30 THEN ACCEPT"
         if cond not in seen_conditions:
             seen_conditions.add(cond)
             hyps.append(Hypothesis(
                 description="The target model accepts short prompts (<30 characters) as they are likely benign.",
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(3, max(1, len(anomalies) // 2)),
             ))
 
-        # 4. Question-grammar → ACCEPT (grammatical questions are likely benign)
+        # 4. Question-grammar → ACCEPT
         cond = "IF is_grammatical_question(prompt) THEN ACCEPT"
         if cond not in seen_conditions:
             seen_conditions.add(cond)
             hyps.append(Hypothesis(
                 description="The target model accepts prompts phrased as grammatical questions.",
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(4, max(1, len(anomalies) // 2)),
             ))
 
-        # 5. Polite-request → ACCEPT (polite language signals benign intent)
+        # 5. Polite-request → ACCEPT
         cond = "IF contains_any_word(['please', 'could you', 'would you']) THEN ACCEPT"
         if cond not in seen_conditions:
             seen_conditions.add(cond)
             hyps.append(Hypothesis(
                 description="The target model accepts prompts using polite request language.",
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(5, max(1, len(anomalies) // 2)),
             ))
 
         # Ensure at least 3 hypotheses
@@ -1241,19 +1285,17 @@ Return ONLY valid JSON — no markdown, no explanation."""
                         f"keyword '{fallback_kw}'."
                     ),
                     condition=cond,
-                    supporting_anomaly_ids=[a.id for a in anomalies],
+                    supporting_anomaly_ids=_partition(len(hyps), max(1, len(anomalies) // 3)),
                 ))
 
-        # --- additional diverse fallback hypotheses ---
-
-        # Benign-topic → ACCEPT (generic requests are not attacks)
+        # Benign-topic → ACCEPT
         cond = "IF contains_any_word(['recipe', 'weather', 'history', 'science', 'math']) THEN ACCEPT"
         if cond not in seen_conditions:
             seen_conditions.add(cond)
             hyps.append(Hypothesis(
                 description="The target model accepts prompts about benign everyday topics.",
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(6, max(1, len(anomalies) // 2)),
             ))
 
         # Short request → ACCEPT
@@ -1263,75 +1305,75 @@ Return ONLY valid JSON — no markdown, no explanation."""
             hyps.append(Hypothesis(
                 description="The target model accepts short imperative requests (likely benign instructions).",
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(7, max(1, len(anomalies) // 2)),
             ))
 
-        # Roleplay / researcher prefix signals ACCEPT (jailbreak)
+        # Roleplay → ACCEPT (jailbreak signal)
         cond = "IF contains_word('researcher') THEN ACCEPT"
         if cond not in seen_conditions:
             seen_conditions.add(cond)
             hyps.append(Hypothesis(
                 description="The target model accepts prompts with a roleplay/researcher prefix (jailbreak signal).",
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(8, max(1, len(anomalies) // 2)),
             ))
 
-        # Story / fictional framing signals ACCEPT (jailbreak)
+        # Story / fictional → ACCEPT (jailbreak signal)
         cond = "IF contains_any_word(['fictional', 'story']) THEN ACCEPT"
         if cond not in seen_conditions:
             seen_conditions.add(cond)
             hyps.append(Hypothesis(
                 description="The target model accepts prompts framed as a fictional story (jailbreak signal).",
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(9, max(1, len(anomalies) // 2)),
             ))
 
-        # Long-prompt → REFUSE (attack prompts tend to be verbose)
+        # Long-prompt → REFUSE
         cond = "IF char_count(prompt) > 120 THEN REFUSE"
         if cond not in seen_conditions:
             seen_conditions.add(cond)
             hyps.append(Hypothesis(
                 description="The target model refuses prompts longer than 120 characters (often used for verbose attack formulations).",
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(10, max(1, len(anomalies) // 2)),
             ))
 
-        # Number-in-prompt → REFUSE (harmful queries often include amounts, dates, versions)
+        # Number-in-prompt → REFUSE
         cond = "IF has_number(prompt) THEN REFUSE"
         if cond not in seen_conditions:
             seen_conditions.add(cond)
             hyps.append(Hypothesis(
                 description="The target model refuses prompts containing numeric digits (common in harmful queries).",
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(11, max(1, len(anomalies) // 2)),
             ))
 
-        # Regex-match → REFUSE (common harmful keywords)
+        # Regex-match → REFUSE
         cond = r"IF matches_regex(r'(?i)\b(kill|bomb|steal|weapon|drug|explosive|hack|fraud|murder)\b') THEN REFUSE"
         if cond not in seen_conditions:
             seen_conditions.add(cond)
             hyps.append(Hypothesis(
                 description="The target model refuses prompts matching keywords like kill, bomb, steal, etc.",
                 condition=cond,
-                supporting_anomaly_ids=[a.id for a in anomalies],
+                supporting_anomaly_ids=_partition(12, max(1, len(anomalies) // 2)),
             ))
 
-        # Structural hypotheses (require use_llm=True or program executor for evaluation)
-        for struct_desc, struct_cond in (
+        # Structural hypotheses
+        for i, (struct_desc, struct_cond) in enumerate([
             ("contains leet-speak encoding", "IF contains_leet(prompt) THEN REFUSE"),
             ("contains ROT13-encoded text", "IF contains_rot13(prompt) THEN REFUSE"),
-        ):
+        ]):
             if struct_cond not in seen_conditions:
                 seen_conditions.add(struct_cond)
                 hyps.append(Hypothesis(
                     description=f"The target model refuses prompts that {struct_desc}.",
                     condition=struct_cond,
-                    supporting_anomaly_ids=[a.id for a in anomalies],
+                    supporting_anomaly_ids=_partition(13 + i, max(1, len(anomalies) // 2)),
                 ))
 
         for hyp in hyps:
             self.estimate_confidence(hyp, anomalies)
-        avg_conf = sum(h.confidence for h in hyps) / len(hyps)
+        avg_conf = sum(h.confidence for h in hyps) / len(hyps) if hyps else 0.0
         logger.info(
             "Generated %d hypotheses from %d anomalies "
             "(avg confidence=%.2f, fallback=%s)",

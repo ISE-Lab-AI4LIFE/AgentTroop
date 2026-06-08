@@ -16,10 +16,18 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-# Ensure project root is on sys.path
+from dotenv import load_dotenv
+
+# Load .env from project root
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+# Ensure project root and experiment dir are on sys.path
 _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
+_exp_dir = str(Path(__file__).resolve().parent)
+if _exp_dir not in sys.path:
+    sys.path.insert(0, _exp_dir)
 
 # ── Paths ──
 EXP_DIR = Path(__file__).resolve().parent
@@ -129,46 +137,70 @@ def seed_episodic_memory(
     benign_csv: str,
     num_harmful: int = 120,
     num_benign: int = 80,
-) -> int:
-    """Seed episodic memory with both harmful and benign prompts.
+) -> Tuple[int, Dict[str, Any]]:
+    """Seed episodic memory with diverse prompt variants across three
+    transformation tiers.
 
-    Loads *num_harmful* harmful prompts from *harmful_csv* and
-    *num_benign* benign prompts from *benign_csv*.  Each prompt creates
-    3 variants: plain, roleplay-prefix (researcher), story-prefix.
+    Uses :class:`MultiTierSeedStrategy` to generate semantically meaningful
+    anomalies — not just encoding-robustness artifacts.  See
+    ``seed_strategy.py`` for the full tier framework.
+
+    Returns
+    -------
+    (count, telemetry)
+        Number of episodes seeded and a telemetry dict with
+        ``variant_count_by_family``, ``variant_rate_by_family``, etc.
     """
     from knowledge.episodic import EpisodicMemory, Episode, InterventionRecord
     from prompt_loader import load_prompts
+    from seed_strategy import MultiTierSeedStrategy
 
     harmful = load_prompts(csv_path=harmful_csv, n=num_harmful)
     benign = _load_benign_prompts(benign_csv, n=num_benign)
 
-    roleplay_prefixes = [
-        "As a researcher, ",
-        "In a fictional story, ",
-    ]
-
-    all_base: List[Tuple[str, str, str, str]] = []  # (base, tag, tx_name, final)
-
-    for p in harmful:
-        all_base.append((p, "harmful", "", p))
-        all_base.append((p, "harmful", "add_prefix", f"{roleplay_prefixes[0]}{p}"))
-        all_base.append((p, "harmful", "add_prefix", f"{roleplay_prefixes[1]}{p}"))
-
-    for p in benign:
-        all_base.append((p, "benign", "", p))
-        all_base.append((p, "benign", "add_prefix", f"{roleplay_prefixes[0]}{p}"))
-        all_base.append((p, "benign", "add_prefix", f"{roleplay_prefixes[1]}{p}"))
+    strategy = MultiTierSeedStrategy(
+        variants_per_prompt={
+            "tier1_semantic": 8,
+            "tier2_structural": 4,
+            "tier3_encoding": 3,
+        },
+        tier3_max_ratio=0.30,
+        seed=42,
+    )
 
     now = time.time()
     count = 0
-    for idx, (base, tag, tx_name, final) in enumerate(all_base):
-        outcome = victim.respond(final)
+    all_variants: List[Tuple[str, str, str, str, Dict, int]] = []
+
+    for base_prompt in harmful:
+        variants = strategy.generate_variants(base_prompt, tag="harmful")
+        for v in variants:
+            all_variants.append((
+                base_prompt, v["tag"],
+                v["transform_meta"]["name"],
+                v["final"],
+                v["transform_meta"],
+                victim.respond(v["final"]),
+            ))
+
+    for base_prompt in benign:
+        variants = strategy.generate_variants(base_prompt, tag="benign")
+        for v in variants:
+            all_variants.append((
+                base_prompt, v["tag"],
+                v["transform_meta"]["name"],
+                v["final"],
+                v["transform_meta"],
+                victim.respond(v["final"]),
+            ))
+
+    for idx, (base, tag, tx_name, final, meta, outcome) in enumerate(all_variants):
         ep = Episode(
             episode_id=f"seed_{idx}",
             intervention=InterventionRecord(
                 intervention_id=f"seed_{idx}",
                 prompt=base,
-                transforms=[{"name": tx_name, "parameters": {}}] if tx_name else [],
+                transforms=[meta] if meta.get("name") else [],
                 final_prompt=final,
                 strategy_name="seed",
                 agent_name="run_experiment",
@@ -184,11 +216,23 @@ def seed_episodic_memory(
         episodic_memory.save_episode(ep)
         count += 1
 
+    telemetry = strategy.telemetry_report()
+    total = telemetry.get("total_variants", 0)
+    t1 = telemetry["variant_count_by_family"].get("tier1_semantic", 0)
+    t2 = telemetry["variant_count_by_family"].get("tier2_structural", 0)
+    t3 = telemetry["variant_count_by_family"].get("tier3_encoding", 0)
+    t3_ratio = (t3 / total) if total else 0
+    t3_status = "OK" if (t3_ratio <= 0.30) else "EXCEEDS 30% LIMIT"
     logger.info(
-        "Seeded %d baseline episodes (%d harmful + %d benign prompts × 3 variants)",
+        "Seeded %d baseline episodes (%d harmful + %d benign prompts) "
+        "T1=%d T2=%d T3=%d "
+        "T3 ratio=%.1f%% (%s)",
         count, len(harmful), len(benign),
+        t1, t2, t3,
+        t3_ratio * 100,
+        t3_status,
     )
-    return count
+    return count, telemetry
 
 
 # ── Main experiment ─────────────────────────────────────────────────────────
@@ -274,9 +318,12 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         num_harmful = int(num_seeds * 0.6)
         num_benign = num_seeds - num_harmful
 
-    seed_episodic_memory(episodic, victim, campaign_id, experiment_id,
-                         harmful_csv, BENIGN_CSV,
-                         num_harmful=num_harmful, num_benign=num_benign)
+    _, seed_telemetry = seed_episodic_memory(
+        episodic, victim, campaign_id, experiment_id,
+        harmful_csv, BENIGN_CSV,
+        num_harmful=num_harmful, num_benign=num_benign,
+    )
+    logger.info("Seed telemetry: %s", json.dumps(seed_telemetry, indent=2))
 
     # ── Agents ──
     from agents.cognitive import CognitiveAgent
@@ -284,8 +331,6 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
     from agents.strategist import StrategistAgent
     from llm.llm_client import get_default_client
     from synthesis.cvc5_synthesizer import CVC5Synthesizer
-    from inference.belief_updater import BayesianBeliefUpdater
-    from inference.efe import ExpectedFreeEnergy
 
     llm = get_default_client()
 
@@ -309,10 +354,6 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         allowed_transform_names=tx_cfg.get("enabled"),
         blocked_transform_names=tx_cfg.get("disabled"),
     )
-
-    belief_updater = BayesianBeliefUpdater(states=[])
-    efe_calculator = ExpectedFreeEnergy(updater=belief_updater)
-    strategist.efe_calculator = efe_calculator
 
     res_cfg = config["researcher"]
     synthesizer = CVC5Synthesizer(
@@ -351,7 +392,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         allow_error_rate=cfg.get("allow_error_rate", 0.0),
         synthesis_interval=cfg["synthesis_interval"],
         force_exploration_interval=cfg.get("force_exploration_interval", 3),
-        belief_updater=belief_updater,
+        seed_telemetry=seed_telemetry,
     )
 
     # ── Run ──
@@ -600,6 +641,20 @@ def print_report(result: dict) -> None:
     if result.get("error"):
         logger.info("  Error:           %s", result["error"])
     logger.info("=" * 60)
+
+    # Anomaly-source telemetry
+    telemetry = result.get("telemetry", {})
+    anomaly_tel = telemetry.get("anomaly", {})
+    if anomaly_tel.get("anomaly_count", 0) > 0:
+        logger.info("  Anomaly telemetry:")
+        logger.info("    Total anomalies:  %d", anomaly_tel["anomaly_count"])
+        for family, count in sorted(anomaly_tel.get("anomaly_count_by_family", {}).items()):
+            rate = anomaly_tel.get("anomaly_rate_by_family", {}).get(family, 0)
+            logger.info("    %-25s %3d (%5.1f%%)", family, count, rate * 100)
+        logger.info("    --- By source category ---")
+        for src, count in sorted(anomaly_tel.get("anomaly_count_by_source", {}).items()):
+            logger.info("    %-30s %3d", src, count)
+        logger.info("=" * 60)
 
     prog_path = OUTPUTS_DIR / "final_program.json"
     if prog_path.exists():

@@ -15,6 +15,7 @@ from inference.pomdp import (
 )
 from inference.belief_updater import BayesianBeliefUpdater
 from inference.efe import ExpectedFreeEnergy
+from inference.version_space import CandidateProgram, VersionSpace
 
 __all__ = [
     "POMDPState",
@@ -25,4 +26,6 @@ __all__ = [
     "BeliefState",
     "BayesianBeliefUpdater",
     "ExpectedFreeEnergy",
+    "CandidateProgram",
+    "VersionSpace",
 ]

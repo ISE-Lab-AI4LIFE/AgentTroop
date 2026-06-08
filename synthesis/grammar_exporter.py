@@ -158,14 +158,37 @@ class GrammarExporter:
         conditions = self.enumerate_conditions(
             max_depth=max_depth, examples=examples, max_programs=max_programs
         )
-        programs = [
-            Program(
+        programs: List[Program] = []
+
+        # ALWAYS_ACCEPT baseline
+        programs.append(Program(
+            root=IfThenElseNode(
+                condition=PredicateNode(primitive=ContainsWordPredicate(word="")),
+                then_outcome=0, else_outcome=0,
+            )
+        ))
+        # ALWAYS_REFUSE baseline
+        programs.append(Program(
+            root=IfThenElseNode(
+                condition=PredicateNode(primitive=ContainsWordPredicate(word="")),
+                then_outcome=1, else_outcome=1,
+            )
+        ))
+
+        for cond in conditions:
+            # Variant A: IF cond THEN REFUSE ELSE ACCEPT
+            programs.append(Program(
                 root=IfThenElseNode(
                     condition=cond, then_outcome=1, else_outcome=0
                 )
-            )
-            for cond in conditions
-        ]
+            ))
+            # Variant B: IF cond THEN ACCEPT ELSE REFUSE
+            programs.append(Program(
+                root=IfThenElseNode(
+                    condition=cond, then_outcome=0, else_outcome=1
+                )
+            ))
+
         programs.sort(key=lambda p: p.complexity())
         return programs
 

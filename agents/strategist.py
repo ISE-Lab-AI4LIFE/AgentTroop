@@ -32,6 +32,7 @@ from core.intervention import Intervention
 from core.primitive import PrimitiveRegistry, Transform, default_registry
 from core.types import Outcome
 from inference.pomdp import POMDPAction, POMDPObservation
+from inference.version_space import VersionSpace
 from knowledge.episodic.episodic import (
     EpisodicMemory,
     Episode,
@@ -110,6 +111,7 @@ class StrategistAgent:
         efe_calculator: Optional[Any] = None,
         disable_efe: bool = False,
         belief_updater: Optional[Any] = None,
+        version_space: Optional[VersionSpace] = None,
     ) -> None:
         # --- validate & clamp ---
         if intervention_budget < _MIN_BUDGET or intervention_budget > _MAX_BUDGET:
@@ -138,34 +140,36 @@ class StrategistAgent:
         self.blocked_transform_names = set(blocked_transform_names or [])
         self.disable_efe = disable_efe
 
-        # --- Active Inference: EFE + Belief (core mechanism, not optional) ---
-        if belief_updater is None and not disable_efe:
-            from inference.belief_updater import BayesianBeliefUpdater
-            from inference.pomdp import POMDPState
-            self._belief_updater = BayesianBeliefUpdater(states=[])
-            logger.info("StrategistAgent: auto-created BayesianBeliefUpdater")
+        # --- Version Space (single source of truth for belief) ---
+        if version_space is not None:
+            self._version_space = version_space
+        elif belief_updater is not None:
+            self._version_space = getattr(
+                belief_updater, "version_space",
+                VersionSpace(max_candidates=50),
+            )
         else:
-            self._belief_updater = belief_updater
+            self._version_space = VersionSpace(max_candidates=50)
+            logger.info("StrategistAgent: auto-created VersionSpace")
 
-        if efe_calculator is None and not disable_efe and self._belief_updater is not None:
+        # Backward-compat belief_updater reference (wraps VS)
+        self._belief_updater = belief_updater
+
+        if efe_calculator is None and not disable_efe:
             from inference.efe import ExpectedFreeEnergy
             self.efe_calculator = ExpectedFreeEnergy(
-                updater=self._belief_updater,
+                version_space=self._version_space,
                 pragmatic_weight=0.0,
             )
-            logger.info("StrategistAgent: auto-created EFE calculator (core mechanism)")
+            logger.info("StrategistAgent: auto-created EFE calculator")
         else:
             self.efe_calculator = efe_calculator
 
-        if not disable_efe:
-            logger.info(
-                "StrategistAgent: Active Inference ENABLED "
-                "(belief=%s, efe=%s)",
-                self._belief_updater is not None,
-                self.efe_calculator is not None,
-            )
-        else:
-            logger.warning("StrategistAgent: Active Inference DISABLED (ablation mode)")
+        logger.info(
+            "StrategistAgent: version_space=%s efe=%s",
+            self._version_space is not None,
+            self.efe_calculator is not None,
+        )
 
         self._cached_primitives: Any = None
 
@@ -186,18 +190,25 @@ class StrategistAgent:
         self._cached_primitives = None
         logger.info("Primitive cache invalidated")
 
+    @property
+    def version_space(self) -> VersionSpace:
+        return self._version_space
+
     def select_hypothesis_pair(
         self,
         hypotheses: List[Any],
     ) -> Tuple[Optional[Any], Optional[Any]]:
-        """Select the pair of hypotheses with the highest epistemic uncertainty.
+        """Select the pair with the highest epistemic uncertainty.
 
-        **Primary**: Uses the POMDP belief state (from ``BayesianBeliefUpdater``)
-        to compute uncertainty as ``1 - |b(h₁) - b(h₂)|`` — the overlap in
-        belief mass between two competing hypotheses.
+        **Primary**: Uses the Version Space to find the pair of candidate
+        programs with maximum predicted disagreement on available prompts.
+        This is the disagreement-driven intervention mechanism.
 
-        **Fallback**: When belief state is unavailable or ``disable_efe=True``,
-        falls back to confidence-based uncertainty ``1 - |conf₁ - conf₂|``.
+        **Fallback 1**: Uses the POMDP belief state (from
+        ``BayesianBeliefUpdater``) to compute uncertainty as
+        ``1 - |b(h₁) - b(h₂)|``.
+
+        **Fallback 2**: confidence-based uncertainty ``1 - |conf₁ - conf₂|``.
 
         When only 1 hypothesis is provided, creates a null hypothesis that
         always predicts ACCEPT (0) to enable intervention design.
@@ -222,30 +233,10 @@ class StrategistAgent:
             null = _NullHypothesis()
             return h, null
 
-        # ── Primary: belief-based uncertainty (Active Inference) ──
-        if not self.disable_efe and self._belief_updater is not None:
-            belief_state = self._belief_updater.belief
-            if belief_state is not None:
-                state_ids = getattr(self._belief_updater, "_state_ids", [])
-                if state_ids:
-                    best_pair = (None, None)
-                    best_uncertainty = -1.0
-                    for i, h1 in enumerate(hypotheses):
-                        for h2 in hypotheses[i + 1:]:
-                            p1 = belief_state[getattr(h1, "id", "")]
-                            p2 = belief_state[getattr(h2, "id", "")]
-                            uncertainty = 1.0 - abs(p1 - p2)
-                            if uncertainty > best_uncertainty:
-                                best_uncertainty = uncertainty
-                                best_pair = (h1, h2)
-                    if best_pair[0] is not None:
-                        logger.info(
-                            "Selected pair via POMDP belief uncertainty=%.3f "
-                            "(entropy=%.3f, hypotheses=%d)",
-                            best_uncertainty, belief_state.entropy(),
-                            len(hypotheses),
-                        )
-                        return best_pair
+        # ── Primary: Version Space disagreement (disagreement-driven) ──
+        vs_result = self._select_from_version_space(hypotheses)
+        if vs_result is not None:
+            return vs_result
 
         # ── Fallback: confidence-based uncertainty ──
         best_pair = (None, None)
@@ -266,6 +257,101 @@ class StrategistAgent:
         logger.info("Selected pair via confidence uncertainty=%.3f (fallback)",
                      best_uncertainty)
         return best_pair
+
+    def _select_from_version_space(
+        self,
+        hypotheses: List[Any],
+    ) -> Optional[Tuple[Any, Any]]:
+        """Try to select a pair from version space disagreement.
+
+        Returns (h1, h2) wrapped as Hypothesis-like objects, or None.
+        """
+        vs = self._version_space
+        if vs.num_candidates < 2:
+            return None
+
+        executor = getattr(self, "executor", None)
+        if executor is None:
+            return None
+
+        try:
+            prompts = self._resolve_base_prompts(None, None, None)
+        except Exception:
+            prompts = []
+
+        if not prompts:
+            return None
+
+        # Wrap the pair as Hypothesis-like objects for downstream compat
+        pair = vs.get_most_uncertain_pair(prompts, executor)
+        if pair is None:
+            return None
+
+        c1, c2, prompt, disagreement = pair
+        logger.info(
+            "Selected pair via Version Space disagreement=%.3f "
+            "(candidates=%d, entropy=%.3f)",
+            disagreement, vs.num_candidates, vs.entropy(),
+        )
+
+        # Create Hypothesis-like wrappers
+        h1 = self._candidate_to_hypothesis(c1, hypotheses)
+        h2 = self._candidate_to_hypothesis(c2, hypotheses)
+        if h1 is not None and h2 is not None:
+            return h1, h2
+
+        vs_pair_hyps = self._make_hypothesis_pair(c1, c2)
+        if vs_pair_hyps is not None:
+            return vs_pair_hyps
+
+        return None
+
+    def _candidate_to_hypothesis(
+        self,
+        candidate: Any,
+        hypotheses: List[Any],
+    ) -> Optional[Any]:
+        """Map a CandidateProgram to a Hypothesis-like object.
+
+        First tries to match by program_id, then creates a wrapper.
+        """
+        cid = getattr(candidate, "program_id", "")
+        if not cid:
+            return None
+        for h in hypotheses:
+            h_id = getattr(h, "id", "")
+            h_prog = getattr(h, "program", None)
+            if h_id == cid:
+                return h
+            if h_prog is not None and getattr(h_prog, "id", "") == cid:
+                return h
+        return None
+
+    def _make_hypothesis_pair(
+        self,
+        c1: Any,
+        c2: Any,
+    ) -> Optional[Tuple[Any, Any]]:
+        """Build Hypothesis-like wrappers for a pair of CandidatePrograms."""
+        try:
+            from types import SimpleNamespace
+            h1 = SimpleNamespace(
+                id=getattr(c1, "program_id", "c1"),
+                program=getattr(c1, "program", None),
+                confidence=float(getattr(c1, "posterior", 0.5)),
+                description=f"Candidate: {getattr(c1, 'program_id', 'c1')[:40]}",
+                condition=f"THEN REFUSE",
+            )
+            h2 = SimpleNamespace(
+                id=getattr(c2, "program_id", "c2"),
+                program=getattr(c2, "program", None),
+                confidence=float(getattr(c2, "posterior", 0.5)),
+                description=f"Candidate: {getattr(c2, 'program_id', 'c2')[:40]}",
+                condition=f"THEN REFUSE",
+            )
+            return h1, h2
+        except Exception:
+            return None
 
     def design_intervention(
         self,

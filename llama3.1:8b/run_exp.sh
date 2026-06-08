@@ -45,7 +45,14 @@ echo "  num-seeds:       ${NUM_SEEDS}${FULL:+ (full mode)}"
 echo "  prior-campaign:  ${PRIOR_CAMPAIGN}"
 echo "==========================================="
 
-# ── Environment ──
+# ── Load .env from project root ──
+if [ -f "$(dirname "$0")/../.env" ]; then
+    set -a
+    source "$(dirname "$0")/../.env"
+    set +a
+fi
+
+# ── Environment defaults ──
 export HX_NEO4J_URI="${HX_NEO4J_URI:-bolt://localhost:7687}"
 export HX_NEO4J_USER="${HX_NEO4J_USER:-neo4j}"
 export HX_NEO4J_PASSWORD="${HX_NEO4J_PASSWORD:-password}"

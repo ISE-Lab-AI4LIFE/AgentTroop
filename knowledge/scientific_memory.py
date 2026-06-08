@@ -61,7 +61,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
-from neo4j import GraphDatabase, Session  # type: ignore[import-untyped]
+from neo4j import GraphDatabase, Session, basic_auth  # type: ignore[import-untyped]
 from neo4j.exceptions import ServiceUnavailable  # type: ignore[import-untyped]
 
 # ---------------------------------------------------------------------------
@@ -210,7 +210,7 @@ class ScientificMemory:
         if self._driver is None:
             try:
                 self._driver = GraphDatabase.driver(
-                    self.uri, auth=(self.user, self.password)
+                    self.uri, auth=basic_auth(self.user, self.password)
                 )
             except ServiceUnavailable as exc:
                 raise ConnectionError(

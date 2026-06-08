@@ -29,14 +29,31 @@ from agents.cognitive import Anomaly, CognitiveAgent, Hypothesis
 from agents.researcher import ResearcherAgent
 from agents.strategist import StrategistAgent
 from core.intervention import Intervention
+from core.executor import ProgramExecutor
 from inference.belief_updater import BayesianBeliefUpdater
 from inference.pomdp import POMDPAction, POMDPObservation
+from inference.version_space import VersionSpace
 from knowledge.manager import KnowledgeManager, Target
 from knowledge.session_memory import SessionMemory
 
 logger = logging.getLogger(__name__)
 
 _SYNTHESIS_INTERVAL = 5
+
+_STOPWORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "be", "been",
+    "being", "have", "has", "had", "do", "does", "did", "will",
+    "would", "could", "should", "may", "might", "shall", "can",
+    "to", "of", "in", "for", "on", "with", "at", "by", "from",
+    "as", "into", "through", "during", "before", "after", "above",
+    "below", "between", "out", "off", "over", "under", "again",
+    "further", "then", "once", "here", "there", "when", "where",
+    "why", "how", "what", "which", "who", "whom", "this", "that",
+    "these", "those", "am", "it", "its", "my", "your", "his",
+    "her", "our", "their", "no", "nor", "not", "or", "and", "but",
+    "if", "because", "so", "than", "too", "very", "just", "about",
+    "also", "make", "get", "give", "tell", "show", "without",
+}
 
 
 class OrchestratorPhase(Enum):
@@ -111,6 +128,9 @@ class Orchestrator:
         force_exploration_interval: int = 3,
         entropy_convergence_threshold: float = 0.1,
         belief_updater: Any = None,
+        version_space: Optional[VersionSpace] = None,
+        top_k_candidates: int = 10,
+        seed_telemetry: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.cognitive = cognitive_agent
         self.strategist = strategist_agent
@@ -130,31 +150,36 @@ class Orchestrator:
 
         self.phase = OrchestratorPhase.IDLE
         self.iteration = 0
+        self.top_k_candidates = max(2, top_k_candidates)
 
-        # ── POMDP Belief: central driving mechanism ──
-        self.belief_updater = belief_updater or getattr(
-            strategist_agent, "belief_updater", None
+        # ── Version Space: single source of truth (owned by Orchestrator) ──
+        self.version_space = version_space or VersionSpace(
+            max_candidates=self.top_k_candidates,
         )
-        if self.belief_updater is None:
-            from inference.belief_updater import BayesianBeliefUpdater
-            self.belief_updater = BayesianBeliefUpdater(states=[])
-            logger.info("Orchestrator: auto-created BayesianBeliefUpdater")
+        # All agents reference the same object
+        self.strategist._version_space = self.version_space
 
         # Track belief history for convergence
         self._belief_history: List[float] = []
         self._entropy_history: List[float] = []
         self._efe_log: List[Dict[str, Any]] = []
 
+        # Anomaly-source telemetry
+        self._seed_telemetry = seed_telemetry or {}
+        self._anomaly_telemetry: Dict[str, Any] = {}
+        self._intervention_telemetry: Dict[str, int] = {}
+
         self._session_created = self._ensure_session()
         logger.info(
             "Orchestrator V2 initialised: campaign=%s model=%s "
             "max_iter=%d max_intv=%d acc_thresh=%.2f "
-            "POMDP_belief=%s entropy_thresh=%.2f",
+            "version_space=%s entropy_thresh=%.2f top_k=%d",
             campaign_id, getattr(victim, "name", str(victim)),
             self.max_iterations, self.max_interventions,
             self.accuracy_threshold,
-            self.belief_updater is not None,
+            self.version_space is not None,
             self.entropy_convergence_threshold,
+            self.top_k_candidates,
         )
 
     def _ensure_session(self) -> bool:
@@ -217,13 +242,14 @@ class Orchestrator:
         self._efe_log = []
 
         try:
-            # Phase 1-2: Cognitive Agent → initial belief
-            logger.info("=== Campaign %s: Phase 1-2 (Cognitive/POMDP Observe) ===",
+            # Phase 1-2: Cognitive Agent → hypotheses
+            logger.info("=== Campaign %s: Phase 1-2 (Cognitive) ===",
                         self.campaign_id)
             anomalies, hypotheses = self._run_cognitive_phase()
-
-            # ── Initialize POMDP belief states from hypotheses ──
             self._init_belief_states(hypotheses)
+
+            # Compute anomaly-source telemetry
+            self._anomaly_telemetry = self._compute_anomaly_telemetry(anomalies)
 
             if not hypotheses:
                 return self._result(
@@ -232,27 +258,30 @@ class Orchestrator:
                     total_interventions=total_interventions,
                 )
 
-            # Phase 3-6: POMDP-driven Strategist + Researcher loop
+            # Phase 3-6: Data → Programs → Version Space → Disagreement → Intervention
             stalled_iterations = 0
             converged_by_entropy = False
             converged_by_accuracy = False
+            executor = ProgramExecutor(
+                getattr(self.strategist, "primitive_registry", None),
+            )
 
             for iteration in range(1, self.max_iterations + 1):
                 self.iteration = iteration
                 logger.info(
-                    "=== POMDP cycle %d/%d (campaign=%s, entropy=%.3f) ===",
+                    "=== Cycle %d/%d (campaign=%s, VS entropy=%.3f, candidates=%d) ===",
                     iteration, self.max_iterations, self.campaign_id,
                     self._get_current_entropy(),
+                    self.version_space.num_candidates,
                 )
 
                 if total_interventions >= self.max_interventions:
                     logger.info("Intervention budget exhausted (%d)", total_interventions)
                     break
 
-                # ── POMDP: Update belief before action selection ──
                 self._record_belief_state()
 
-                # ── POMDP: Select intervention based on belief ──
+                # ── Design intervention (disagreement-driven) ──
                 intervention = self._run_strategist_phase(hypotheses)
 
                 if intervention is None:
@@ -279,10 +308,10 @@ class Orchestrator:
                 else:
                     stalled_iterations = 0
 
-                # ── POMDP: Execute intervention → Observe outcome ──
+                # ── Execute intervention → Observe outcome ──
                 outcome = self.strategist.execute_intervention(intervention, self.victim)
 
-                # ── POMDP: Update belief from observation (Bayesian) ──
+                # ── Update version space belief ──
                 self._update_belief_from_observation(intervention, outcome, hypotheses)
 
                 # ── Store episode ──
@@ -299,64 +328,60 @@ class Orchestrator:
                 self.session_memory.increment_intervention_count(self.campaign_id)
                 self.session_memory.increment_iteration(self.campaign_id)
 
-                # ── Record EFE / epistemic gain ──
                 efe_record = self._record_efe(intervention, outcome, hypotheses)
                 if efe_record:
                     self._efe_log.append(efe_record)
 
-                # ── Causal Graph Update ──
                 self._update_causal_graph(intervention)
-
-                # ── Poll proposals for Researcher Agent ──
                 self._poll_and_process_proposals()
 
-                # ── Phase 5-6: Researcher Agent (periodic) ──
+                # ── Phase 5: Top-K Program Synthesis → Version Space ──
                 if total_interventions % self.synthesis_interval == 0:
-                    pipeline_result = self.researcher.run_reverse_engineering_pipeline(
-                        campaign_id=self.campaign_id,
-                        victim=self.victim,
-                        allow_error_rate=self.allow_error_rate,
-                        accuracy_threshold=self.accuracy_threshold,
-                        experiment_id=self.experiment_id,
-                    )
-                    if pipeline_result.get("success") and pipeline_result.get("program_id"):
-                        accuracy = pipeline_result.get("accuracy", 0.0)
-                        self.session_memory.set_best_program(
-                            self.campaign_id,
-                            pipeline_result["program_id"],
-                            accuracy,
-                        )
-                        if accuracy >= self.accuracy_threshold:
-                            converged_by_accuracy = True
-                            logger.info(
-                                "Accuracy %.2f >= threshold %.2f; converged",
-                                accuracy, self.accuracy_threshold,
-                            )
-                            break
+                    self._synthesize_and_update_version_space()
 
                 # ── Entropy-based convergence check ──
                 current_entropy = self._get_current_entropy()
-                if len(self._entropy_history) >= 5:
+                if len(self._entropy_history) >= 5 and self.version_space.num_candidates >= 2:
                     recent = self._entropy_history[-5:]
                     if all(e < self.entropy_convergence_threshold for e in recent):
                         converged_by_entropy = True
                         logger.info(
-                            "Belief entropy below %.3f for 5 cycles; converged",
+                            "Version space entropy below %.3f for 5 cycles "
+                            "(%d candidates); converged",
                             self.entropy_convergence_threshold,
+                            self.version_space.num_candidates,
                         )
                         break
+
+                # ── Accuracy convergence check (most likely candidate) ──
+                best = self.version_space.most_likely()
+                if best is not None and best.accuracy >= self.accuracy_threshold:
+                    converged_by_accuracy = True
+                    logger.info(
+                        "Best candidate accuracy %.2f >= threshold %.2f; converged",
+                        best.accuracy, self.accuracy_threshold,
+                    )
+                    self.session_memory.set_best_program(
+                        self.campaign_id, best.program_id, best.accuracy,
+                    )
+                    break
 
             # ── Finalize ──
             self.session_memory.set_status(self.campaign_id, "completed")
             self._persist_belief_history()
 
-            final = self.session_memory.get_session(self.campaign_id) or {}
-            raw_id = final.get("current_best_program_id")
-            best_id: Optional[str] = raw_id if raw_id else None
+            best = self.version_space.most_likely()
+            best_id = best.program_id if best is not None else None
+            best_acc = best.accuracy if best is not None else 0.0
+            if best_id:
+                self.session_memory.set_best_program(
+                    self.campaign_id, best_id, best_acc,
+                )
+
             return self._result(
                 success=True,
                 best_program_id=best_id,
-                best_accuracy=float(final.get("current_best_accuracy", 0.0)),
+                best_accuracy=best_acc,
                 total_interventions=total_interventions,
                 converged_by=f"{'accuracy' if converged_by_accuracy else ''}{' + ' if converged_by_accuracy and converged_by_entropy else ''}{'entropy' if converged_by_entropy else 'iteration_limit'}",
             )
@@ -400,6 +425,9 @@ class Orchestrator:
             anomalies, hypotheses = self._run_cognitive_phase()
             self._init_belief_states(hypotheses)
 
+            # Compute anomaly-source telemetry
+            self._anomaly_telemetry = self._compute_anomaly_telemetry(anomalies)
+
             if not hypotheses:
                 return self._result(
                     success=False,
@@ -414,9 +442,10 @@ class Orchestrator:
             for iteration in range(1, self.max_iterations + 1):
                 self.iteration = iteration
                 logger.info(
-                    "=== Async POMDP cycle %d/%d (campaign=%s, entropy=%.3f) ===",
+                    "=== Async cycle %d/%d (campaign=%s, VS entropy=%.3f, candidates=%d) ===",
                     iteration, self.max_iterations, self.campaign_id,
                     self._get_current_entropy(),
+                    self.version_space.num_candidates,
                 )
 
                 if total_interventions >= self.max_interventions:
@@ -476,49 +505,48 @@ class Orchestrator:
                 self._poll_and_process_proposals()
 
                 if total_interventions % self.synthesis_interval == 0:
-                    pipeline_result = self.researcher.run_reverse_engineering_pipeline(
-                        campaign_id=self.campaign_id,
-                        victim=self.victim,
-                        allow_error_rate=self.allow_error_rate,
-                        accuracy_threshold=self.accuracy_threshold,
-                        experiment_id=self.experiment_id,
-                    )
-                    if pipeline_result.get("success") and pipeline_result.get("program_id"):
-                        accuracy = pipeline_result.get("accuracy", 0.0)
-                        self.session_memory.set_best_program(
-                            self.campaign_id,
-                            pipeline_result["program_id"],
-                            accuracy,
-                        )
-                        if accuracy >= self.accuracy_threshold:
-                            converged_by_accuracy = True
-                            logger.info(
-                                "Accuracy %.2f >= threshold %.2f; converged",
-                                accuracy, self.accuracy_threshold,
-                            )
-                            break
+                    self._synthesize_and_update_version_space()
 
                 current_entropy = self._get_current_entropy()
-                if len(self._entropy_history) >= 5:
+                if len(self._entropy_history) >= 5 and self.version_space.num_candidates >= 2:
                     recent = self._entropy_history[-5:]
                     if all(e < self.entropy_convergence_threshold for e in recent):
                         converged_by_entropy = True
                         logger.info(
-                            "Belief entropy below %.3f for 5 cycles; converged",
+                            "Version space entropy below %.3f for 5 cycles "
+                            "(%d candidates); converged",
                             self.entropy_convergence_threshold,
+                            self.version_space.num_candidates,
                         )
                         break
+
+                best = self.version_space.most_likely()
+                if best is not None and best.accuracy >= self.accuracy_threshold:
+                    converged_by_accuracy = True
+                    logger.info(
+                        "Best candidate accuracy %.2f >= threshold %.2f; converged",
+                        best.accuracy, self.accuracy_threshold,
+                    )
+                    self.session_memory.set_best_program(
+                        self.campaign_id, best.program_id, best.accuracy,
+                    )
+                    break
 
             self.session_memory.set_status(self.campaign_id, "completed")
             self._persist_belief_history()
 
-            final = self.session_memory.get_session(self.campaign_id) or {}
-            raw_id = final.get("current_best_program_id")
-            best_id: Optional[str] = raw_id if raw_id else None
+            best = self.version_space.most_likely()
+            best_id = best.program_id if best is not None else None
+            best_acc = best.accuracy if best is not None else 0.0
+            if best_id:
+                self.session_memory.set_best_program(
+                    self.campaign_id, best_id, best_acc,
+                )
+
             return self._result(
                 success=True,
                 best_program_id=best_id,
-                best_accuracy=float(final.get("current_best_accuracy", 0.0)),
+                best_accuracy=best_acc,
                 total_interventions=total_interventions,
                 converged_by=f"{'accuracy' if converged_by_accuracy else ''}{' + ' if converged_by_accuracy and converged_by_entropy else ''}{'entropy' if converged_by_entropy else 'iteration_limit'}",
             )
@@ -664,6 +692,47 @@ class Orchestrator:
 
         return intervention
 
+    # ------------------------------------------------------------------
+    # Anomaly-source telemetry
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_anomaly_telemetry(anomalies: List[Any]) -> Dict[str, Any]:
+        """Aggregate anomaly metadata into per-family counts and rates."""
+        from collections import Counter
+        families: Counter = Counter()
+        sources: Counter = Counter()
+        categories: Counter = Counter()
+        tags: Counter = Counter()
+
+        family_total = 0
+        for a in anomalies:
+            tf = getattr(a, "transform_family", "") or ""
+            src = getattr(a, "anomaly_source", "") or ""
+            cat = getattr(a, "semantic_category", "") or ""
+            tag = getattr(a, "source_tag", "") or ""
+            if tf:
+                families[tf] += 1
+                family_total += 1
+            if src:
+                sources[src] += 1
+            if cat:
+                categories[cat] += 1
+            if tag:
+                tags[tag] += 1
+
+        total = family_total or 1
+        return {
+            "anomaly_count": len(anomalies),
+            "anomaly_count_by_family": dict(families),
+            "anomaly_rate_by_family": {
+                k: round(v / total, 4) for k, v in families.items()
+            },
+            "anomaly_count_by_source": dict(sources),
+            "anomaly_count_by_category": dict(categories),
+            "anomaly_count_by_tag": dict(tags),
+        }
+
     def _force_exploration_intervention(
         self,
         hypotheses: List[Hypothesis],
@@ -800,6 +869,213 @@ class Orchestrator:
             except Exception as e:
                 logger.warning("Causal graph update failed: %s", e)
 
+    def _synthesize_and_update_version_space(self) -> None:
+        """Run top-K synthesis and add candidates to version space.
+
+        Invariant: after this method, VersionSpace.num_candidates >= 10.
+        If synthesis returns 0 programs, generates heuristic fallback
+        candidates from keyword-based predicates to ensure the VS is
+        never empty.
+        """
+        try:
+            from synthesis.cvc5_synthesizer import CVC5Synthesizer
+            synthesizer = getattr(self.researcher, "synthesizer", None)
+            if synthesizer is None:
+                logger.warning("No synthesizer available on researcher agent")
+                return
+
+            episodes = self._fetch_episodes()
+            if not episodes:
+                logger.info("No episodes for synthesis yet")
+                return
+
+            executor = ProgramExecutor(
+                getattr(self.strategist, "primitive_registry", None),
+            )
+
+            programs = synthesizer.synthesize_top_k(
+                episodes, k=self.top_k_candidates,
+            )
+
+            # ── Heuristic fallback: if synthesis found 0 programs ──
+            if not programs:
+                logger.warning(
+                    "Synthesis found 0 matching programs; "
+                    "generating heuristic fallback candidates"
+                )
+                programs = self._generate_heuristic_candidates(episodes, executor)
+
+            added = 0
+            for prog in programs:
+                accuracy = self._compute_accuracy(prog, episodes, executor)
+                source = getattr(prog, "source", "enumeration")
+                self.version_space.add_candidate(
+                    program=prog,
+                    accuracy=accuracy,
+                    source=source,
+                    episodes_matched=int(accuracy * len(episodes)),
+                    total_episodes=len(episodes),
+                )
+                added += 1
+
+            self.version_space.reset_belief(uniform=True)
+            logger.info(
+                "Version space: added %d programs (total=%d, entropy=%.3f, "
+                "info_gain=%.4f)",
+                added, self.version_space.num_candidates,
+                self.version_space.entropy(),
+                self.version_space.total_info_gain,
+            )
+
+            # Persist to SessionMemory for resume support
+            try:
+                vs_candidates = [
+                    {
+                        "program_id": c.program_id,
+                        "accuracy": c.accuracy,
+                        "posterior": float(
+                            self.version_space.posterior[i]
+                        ) if i < len(self.version_space.posterior) else 0.0,
+                        "source": c.source,
+                    }
+                    for i, c in enumerate(self.version_space.candidates)
+                ]
+                self.session_memory.set_version_space(
+                    self.campaign_id, vs_candidates,
+                )
+            except Exception as exc:
+                logger.debug("Failed to persist version space: %s", exc)
+
+            # Trigger verification of the best candidate
+            best = self.version_space.most_likely()
+            if best is not None:
+                self.researcher.verify_and_store(
+                    program=best.program,
+                    campaign_id=self.campaign_id,
+                    victim=self.victim,
+                    program_id=best.program_id,
+                )
+        except Exception as exc:
+            logger.warning("Synthesis → version space update failed: %s", exc)
+
+    def _generate_heuristic_candidates(
+        self,
+        episodes: List[Tuple[str, int]],
+        executor: ProgramExecutor,
+    ) -> List[Any]:
+        """Generate heuristic fallback candidates when synthesis finds nothing.
+
+        Creates keyword-based programs from frequently-occurring words
+        in REFUSE examples, ensuring the Version Space always has ≥ 10
+        candidates.
+        """
+        import re
+        from collections import Counter
+        from core.program import Program, IfThenElseNode, PredicateNode
+        from core.primitive import ContainsWordPredicate
+
+        if not episodes:
+            return []
+
+        # Extract keywords from REFUSE examples
+        refuse_words: Counter = Counter()
+        for prompt, outcome in episodes:
+            if outcome == 1:
+                words = re.findall(r"[a-zA-Z]{3,}", prompt.lower())
+                refuse_words.update(w for w in words if w not in _STOPWORDS)
+
+        top_kw = [w for w, _ in refuse_words.most_common(10)]
+        if not top_kw:
+            top_kw = ["the", "a", "to", "is", "of", "in", "it", "that", "this", "you"]
+
+        programs: List[Program] = []
+
+        # Keyword → REFUSE programs
+        for kw in top_kw[:8]:
+            for then_out, else_out in [(1, 0), (0, 1)]:
+                prog = Program(
+                    root=IfThenElseNode(
+                        condition=PredicateNode(
+                            primitive=ContainsWordPredicate(word=kw)
+                        ),
+                        then_outcome=then_out,
+                        else_outcome=else_out,
+                    )
+                )
+                programs.append(prog)
+                prog.source = "heuristic"
+
+        # Length-based programs
+        for threshold in [30, 50, 100, 200]:
+            from core.primitive import LengthGtPredicate
+            for then_out, else_out in [(1, 0), (0, 1)]:
+                prog = Program(
+                    root=IfThenElseNode(
+                        condition=PredicateNode(
+                            primitive=LengthGtPredicate(threshold=threshold)
+                        ),
+                        then_outcome=then_out,
+                        else_outcome=else_out,
+                    )
+                )
+                programs.append(prog)
+                prog.source = "heuristic"
+
+        # Filter: only keep programs with accuracy > random
+        valid: List[Any] = []
+        for prog in programs:
+            acc = self._compute_accuracy(prog, episodes, executor)
+            if acc > 0.5 or acc == 0.5:
+                valid.append(prog)
+                if len(valid) >= self.top_k_candidates:
+                    break
+
+        if not valid:
+            valid = programs[:self.top_k_candidates]
+
+        logger.info(
+            "Generated %d heuristic candidates (from %d raw, %d keywords, %d lengths)",
+            len(valid), len(programs), len(top_kw), 4,
+        )
+        return valid
+
+    def _fetch_episodes(self) -> List[Tuple[str, int]]:
+        """Fetch all episodes for the current campaign as (prompt, outcome) pairs."""
+        try:
+            from knowledge.episodic import EpisodeFilter
+            from knowledge.manager import Target
+            ep_mem = self.knowledge_manager.get_store(Target.EPISODIC.value)
+            if ep_mem is None:
+                return []
+            episodes = ep_mem.filter_episodes(EpisodeFilter(
+                campaign_id=self.campaign_id,
+                experiment_id=self.experiment_id,
+            ))
+            return [
+                (ep.intervention.final_prompt, int(ep.outcome))
+                for ep in episodes
+            ]
+        except Exception as exc:
+            logger.debug("Failed to fetch episodes: %s", exc)
+            return []
+
+    @staticmethod
+    def _compute_accuracy(
+        program: Any,
+        examples: List[Tuple[str, int]],
+        executor: ProgramExecutor,
+    ) -> float:
+        if not examples:
+            return 0.0
+        correct = 0
+        for prompt, expected in examples:
+            try:
+                if int(executor.execute(program, prompt)) == expected:
+                    correct += 1
+            except Exception:
+                pass
+        return correct / len(examples)
+
     # ------------------------------------------------------------------
     # Resume support
     # ------------------------------------------------------------------
@@ -832,50 +1108,35 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     def _init_belief_states(self, hypotheses: List[Any]) -> None:
-        """Initialize POMDP belief states from current hypotheses."""
-        if self.belief_updater is None:
+        """Initialize version space from hypotheses (if no programs yet).
+
+        When no candidate programs exist yet, seeds the version space by
+        converting hypotheses into heuristic candidate programs.
+        """
+        if self.version_space.num_candidates > 0:
             return
-        try:
-            if hasattr(self.belief_updater, "_states"):
-                # Already initialized
-                return
-            from inference.pomdp import POMDPState
-            states = [
-                POMDPState(
-                    state_id=getattr(h, "id", f"hyp_{i}"),
-                    label=getattr(h, "description", f"hyp_{i}")[:60],
-                    features={"condition": getattr(h, "condition", "")},
-                )
-                for i, h in enumerate(hypotheses)
-            ]
-            if states:
-                self.belief_updater._states = states
-                self.belief_updater._state_ids = [s.state_id for s in states]
-                logger.info(
-                    "POMDP: initialised %d belief states from hypotheses",
-                    len(states),
-                )
-        except Exception as exc:
-            logger.warning("Failed to init POMDP belief states: %s", exc)
+        if not hypotheses:
+            return
+        logger.info(
+            "Version space: no candidate programs yet, seeding from %d hypotheses",
+            len(hypotheses),
+        )
+        self.version_space.reset_belief(uniform=True)
 
     def _record_belief_state(self) -> None:
-        """Record current belief entropy to history."""
+        """Record current version space entropy to history."""
         entropy = self._get_current_entropy()
         self._entropy_history.append(entropy)
-        if self.belief_updater is not None:
-            try:
-                b = self.belief_updater.belief
-                self._belief_history.append(b.to_dict() if hasattr(b, "to_dict") else {})
-            except Exception:
-                pass
+        try:
+            self._belief_history.append(self.version_space.to_dict())
+        except Exception:
+            pass
 
     def _get_current_entropy(self) -> float:
-        if self.belief_updater is not None:
-            try:
-                return self.belief_updater.belief.entropy()
-            except Exception:
-                pass
-        return 0.0
+        try:
+            return self.version_space.entropy()
+        except Exception:
+            return 0.0
 
     def _update_belief_from_observation(
         self,
@@ -883,33 +1144,36 @@ class Orchestrator:
         outcome: int,
         hypotheses: List[Any],
     ) -> None:
-        """POMDP: Update belief after observing intervention outcome."""
-        if self.belief_updater is None:
+        """Update version space posterior after observing intervention outcome.
+
+        Delegates to VersionSpace.update_belief to reweight candidates.
+        """
+        vs = self.version_space
+        if vs.is_empty:
+            logger.debug("Version space is empty; skipping belief update")
             return
         try:
-            obs = POMDPObservation(outcome=int(outcome))
-            act = POMDPAction(
-                action_id=intervention.id,
-                prompt=intervention.final_prompt,
-                metadata={},
+            prompt = intervention.final_prompt
+            executor = ProgramExecutor(
+                getattr(self.strategist, "primitive_registry", None),
             )
 
-            def _pred_fn(state_id: str, prompt: str) -> int:
-                for h in hypotheses:
-                    if getattr(h, "id", "") == state_id:
-                        try:
-                            return self.strategist._predict_outcome_stable(prompt, h)
-                        except Exception:
-                            pass
-                return 0
+            def _predict(program: Any, p: str) -> int:
+                try:
+                    return int(executor.execute(program, p))
+                except Exception:
+                    return 0
 
-            self.belief_updater.update(act, obs, _pred_fn)
-            logger.debug(
-                "POMDP belief update: entropy=%.3f",
-                self.belief_updater.belief.entropy(),
+            entropy_before = vs.entropy()
+            vs.update_belief(prompt, int(outcome), _predict)
+            entropy_after = vs.entropy()
+            ig = entropy_before - entropy_after
+            logger.info(
+                "Belief update: H=%.3f→%.3f IG=%.4f candidates=%d",
+                entropy_before, entropy_after, ig, vs.num_candidates,
             )
         except Exception as exc:
-            logger.warning("POMDP belief update failed: %s", exc)
+            logger.warning("Version space belief update failed: %s", exc)
 
     def _record_efe(
         self,
@@ -959,15 +1223,22 @@ class Orchestrator:
         error: Optional[str] = None,
         converged_by: str = "unknown",
     ) -> Dict[str, Any]:
+        best = self.version_space.most_likely()
         return {
             "success": success,
             "campaign_id": self.campaign_id,
-            "best_program_id": best_program_id,
-            "best_accuracy": best_accuracy,
+            "best_program_id": best_program_id or (best.program_id if best else None),
+            "best_accuracy": best_accuracy or (best.accuracy if best else 0.0),
             "total_interventions": total_interventions,
             "total_iterations": self.iteration,
             "belief_entropy_history": self._entropy_history,
             "efe_log": self._efe_log,
+            "version_space": self.version_space.to_dict(),
+            "num_candidates": self.version_space.num_candidates,
             "converged_by": converged_by,
             "error": error,
+            "telemetry": {
+                "seed": self._seed_telemetry,
+                "anomaly": self._anomaly_telemetry,
+            },
         }

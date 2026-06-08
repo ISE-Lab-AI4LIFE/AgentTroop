@@ -132,12 +132,12 @@ class _Neo4jBackend:
     """Neo4j-backed storage for StrategyRecord nodes."""
 
     def __init__(self, uri: str, user: str, password: str, database: str) -> None:
-        from neo4j import GraphDatabase  # type: ignore[import-untyped]
+        from neo4j import GraphDatabase, basic_auth  # type: ignore[import-untyped]
         from neo4j.exceptions import ServiceUnavailable  # type: ignore[import-untyped]
 
         self._database = database
         try:
-            self._driver = GraphDatabase.driver(uri, auth=(user, password))
+            self._driver = GraphDatabase.driver(uri, auth=basic_auth(user, password))
             self._ensure_constraints()
         except ServiceUnavailable as exc:
             raise ConnectionError(

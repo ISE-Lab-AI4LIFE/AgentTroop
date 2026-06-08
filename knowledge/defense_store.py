@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Type
 
-from neo4j import GraphDatabase, Session
+from neo4j import GraphDatabase, Session, basic_auth
 from neo4j.exceptions import ServiceUnavailable
 
 from core.program import (
@@ -92,7 +92,7 @@ class DefenseProgramStore:
         if self._driver is None:
             try:
                 self._driver = GraphDatabase.driver(
-                    self.uri, auth=(self.user, self.password)
+                    self.uri, auth=basic_auth(self.user, self.password)
                 )
             except ServiceUnavailable as exc:
                 raise ConnectionError(

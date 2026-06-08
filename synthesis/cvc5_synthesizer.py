@@ -27,6 +27,7 @@ import re
 import subprocess
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -204,6 +205,83 @@ class CVC5Synthesizer:
         ontology_memory: Optional[Any] = None,
     ) -> Optional[Program]:
         return self.synthesize_with_stats(examples, primitive_registry, ontology_memory)[0]
+
+    def synthesize_top_k(
+        self,
+        examples: List[Tuple[str, int]],
+        k: int = 5,
+        primitive_registry: Optional[PrimitiveRegistry] = None,
+        ontology_memory: Optional[Any] = None,
+    ) -> List[Program]:
+        """Synthesize up to *k* candidate programs from examples.
+
+        Returns a list of programs that match the examples within the
+        allowed error rate, scored by fitness.  This enables the version
+        space to maintain multiple competing hypotheses.
+
+        Parameters
+        ----------
+        examples : list of (prompt, outcome)
+        k : int
+            Maximum number of candidate programs to return.
+        primitive_registry : PrimitiveRegistry, optional
+        ontology_memory : OntologyMemory, optional
+
+        Returns
+        -------
+        list of Program
+            Up to *k* programs sorted by fitness (best first).
+        """
+        start = time.time()
+        registry = primitive_registry or default_registry
+        exporter = GrammarExporter(
+            primitive_registry=registry,
+            ontology_memory=ontology_memory,
+            max_depth=self.max_depth,
+        )
+        if not examples:
+            return []
+
+        max_errors = int(len(examples) * self.allow_error_rate)
+        catalog = exporter.get_parameterized_primitives(examples)
+        if catalog.is_empty():
+            return []
+
+        executor = ProgramExecutor(exporter.primitive_registry or default_registry)
+
+        # Collect all matching programs from enumeration
+        all_matching: List[Program] = []
+
+        for depth in range(1, min(self.max_depth + 2, 7)):
+            programs = exporter.enumerate_programs(max_depth=depth, examples=examples)
+            if not programs:
+                continue
+
+            for prog in programs:
+                if self._matches_all(prog, examples, executor, max_errors=max_errors):
+                    prog_id = getattr(prog, "id", None) or f"prog_{uuid.uuid4().hex[:12]}"
+                    if hasattr(prog, "id"):
+                        prog.id = prog_id
+                    all_matching.append(prog)
+                    if len(all_matching) >= k * 2:
+                        break
+            if len(all_matching) >= k * 2:
+                break
+
+        # Score and return top-K
+        scored = []
+        for prog in all_matching:
+            fitness = self._fitness_score(prog, examples, executor)
+            mdl = self._mdl_score(prog, examples, executor)
+            scored.append((fitness, -mdl, prog.complexity(), prog))
+        scored.sort(key=lambda x: (-x[0], -x[1], x[2]))
+
+        results = [p for _, _, _, p in scored[:k]]
+        logger.info(
+            "synthesize_top_k: found %d matching programs, returning %d (%.1fs)",
+            len(all_matching), len(results), time.time() - start,
+        )
+        return results
 
     def synthesize_with_stats(
         self,

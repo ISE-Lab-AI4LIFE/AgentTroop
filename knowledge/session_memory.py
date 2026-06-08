@@ -188,7 +188,7 @@ class SessionMemory:
         return new_val
 
     # ------------------------------------------------------------------
-    # Best program
+    # Best program (single + top-K persistence)
     # ------------------------------------------------------------------
 
     def set_best_program(
@@ -205,6 +205,63 @@ class SessionMemory:
         pipe.expire(key, self.ttl)
         pipe.execute()
         return True
+
+    def set_version_space(
+        self,
+        campaign_id: str,
+        candidates: List[Dict[str, Any]],
+    ) -> bool:
+        """Persist the version space candidate list to Redis.
+
+        Stores top-K candidate metadata (program_id, accuracy, posterior,
+        source) as a JSON blob so the campaign can be resumed with the
+        same candidate pool.
+
+        Parameters
+        ----------
+        campaign_id : str
+        candidates : list of dict
+            Each dict must have keys: program_id, accuracy, posterior, source.
+
+        Returns
+        -------
+        bool
+            True if saved successfully.
+        """
+        key = _session_key(campaign_id)
+        if not self.client.exists(key):
+            return False
+        try:
+            pipe = self.client.pipeline()
+            pipe.hset(key, "version_space", json.dumps(
+                candidates, ensure_ascii=False, default=str,
+            ))
+            pipe.hset(key, "updated_at", str(time.time()))
+            pipe.expire(key, self.ttl)
+            pipe.execute()
+            return True
+        except Exception as exc:
+            logger.warning("Failed to persist version space: %s", exc)
+            return False
+
+    def get_version_space(
+        self, campaign_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Restore the version space candidate list from Redis.
+
+        Returns
+        -------
+        list of dict
+            Empty list if none found.
+        """
+        key = _session_key(campaign_id)
+        try:
+            raw = self.client.hget(key, "version_space")
+            if raw:
+                return json.loads(raw)
+        except Exception as exc:
+            logger.debug("Failed to load version space: %s", exc)
+        return []
 
     # ------------------------------------------------------------------
     # Hypothesis list management

@@ -1,127 +1,96 @@
-"""Bayesian belief update for HARMONY-X (Section 2.4 of harmony_v5v.md).
+"""Bayesian belief update over candidate programs (via Version Space).
 
-Implements the exact update from the report:
+Replaces the previous ``BayesianBeliefUpdater(states=[])`` degenerate
+implementation.  Belief is now maintained over candidate programs in the
+version space rather than over empty POMDP states.
 
-    b_{t+1}(Π) = P(o | Π, I) · b_t(Π) / Σ_{Π'} P(o | Π', I) · b_t(Π')
+The update follows:
 
-This replaces the simpler uncertainty heuristic ``1 - |conf1 - conf2|``
-currently used in ``StrategistAgent.select_hypothesis_pair``.
+    P(program | o, I) ∝ P(o | program, I) * P(program)
+
+where P(o | program, I) = 1 if program.predict(prompt) == o else 0.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, List, Optional, Tuple
 
-import numpy as np
-
-from inference.pomdp import BeliefState, POMDPAction, POMDPObservation, POMDPState
+from core.program import Program
+from core.types import Outcome
+from inference.pomdp import POMDPAction, POMDPObservation
+from inference.version_space import VersionSpace
 
 logger = logging.getLogger(__name__)
 
 
 class BayesianBeliefUpdater:
-    """Performs Bayesian belief updates as hypotheses are tested.
+    """Bayesian belief update over candidate programs via Version Space.
 
-    Each hypothesis Π is treated as a possible *hidden state* s.
-    After executing intervention *I* and observing outcome *o*, the
-    belief distribution is updated via Bayes' rule.
+    Wraps ``VersionSpace`` and provides backward-compatible API.
+    The version space is the single source of truth for belief.
+
+    Parameters
+    ----------
+    version_space : VersionSpace, optional
+        If not provided, creates an empty one.  The orchestrator should
+        share a single version space across all agents.
     """
 
-    def __init__(self, states: List[POMDPState]) -> None:
-        self._states = states
-        self._state_ids = [s.state_id for s in states]
-        self._belief = BeliefState(self._state_ids, uniform_init=True)
+    def __init__(
+        self,
+        version_space: Optional[VersionSpace] = None,
+    ) -> None:
+        self._version_space = version_space or VersionSpace(max_candidates=50)
 
     @property
-    def belief(self) -> BeliefState:
-        return self._belief
+    def belief(self) -> VersionSpace:
+        """Return the version space (belief over programs)."""
+        return self._version_space
+
+    @property
+    def version_space(self) -> VersionSpace:
+        return self._version_space
+
+    def set_version_space(self, vs: VersionSpace) -> None:
+        """Replace the version space (called after synthesis)."""
+        self._version_space = vs
+        logger.info("BeliefUpdater: version space updated (%d candidates)", vs.num_candidates)
 
     def update(
         self,
         action: POMDPAction,
         observation: POMDPObservation,
-        outcome_fn: Optional[Any] = None,
-    ) -> BeliefState:
-        """Perform a single Bayesian update.
+        outcome_fn: Optional[Callable[[str, str], int]] = None,
+    ) -> VersionSpace:
+        """Bayesian update after executing an intervention.
 
-        Parameters
-        ----------
-        action : POMDPAction
-            The intervention that was executed.
-        observation : POMDPObservation
-            The observed outcome.
-        outcome_fn : callable, optional
-            Function ``fn(state_id, prompt) -> int`` that predicts the
-            outcome for a given state and prompt.  When ``None``, the
-            update uses cached predictions (defaults to uniform).
-
-        Returns
-        -------
-        BeliefState
-            The updated belief distribution.
+        Delegates to ``VersionSpace.update_belief`` when a prediction
+        function is provided.
         """
-        log_probs = np.zeros(len(self._state_ids), dtype=np.float64)
+        vs = self._version_space
+        if vs.is_empty or outcome_fn is None:
+            return vs
 
-        for i, s in enumerate(self._states):
-            if outcome_fn is not None:
-                pred = outcome_fn(s.state_id, action.prompt)
-                likelihood = 1.0 if pred == observation.outcome else 0.0
-            else:
-                likelihood = self._default_likelihood(s, action, observation)
-            log_probs[i] = np.log(max(likelihood, 1e-12)) + np.log(max(self._belief.b[i], 1e-12))
+        def _predict(program: Program, prompt: str) -> int:
+            for c in vs.candidates:
+                if c.program_id in [getattr(program, "id", "")]:
+                    return outcome_fn(c.program_id, prompt)
+            return 0
 
-        log_probs -= np.max(log_probs)  # numerical stability
-        self._belief.b = np.exp(log_probs)
-        total = self._belief.b.sum()
-        if total > 0:
-            self._belief.b /= total
-        else:
-            self._belief.b = np.full(len(self._state_ids), 1.0 / len(self._state_ids))
-
-        logger.info(
-            "Belief update: entropy=%.3f → %.3f",
-            self._belief.entropy(),
-            self._belief.entropy(),
+        vs.update_belief(
+            prompt=action.prompt,
+            observed_outcome=Outcome(observation.outcome),
+            predict_fn=_predict,
         )
-        return self._belief
+        logger.info(
+            "Belief update: entropy=%.3f candidates=%d info_gain=%.4f",
+            vs.entropy(), vs.num_candidates,
+            vs.info_gains[-1] if vs.info_gains else 0.0,
+        )
+        return vs
 
     def reset(self, uniform: bool = True) -> None:
-        if uniform:
-            self._belief = BeliefState(self._state_ids, uniform_init=True)
-        else:
-            self._belief = BeliefState(self._state_ids, uniform_init=False)
-
-    @staticmethod
-    def _default_likelihood(
-        state: POMDPState, action: POMDPAction, observation: POMDPObservation
-    ) -> float:
-        """Default likelihood: uniform when no prediction function is available."""
-        return 0.5
-
-    def select_most_uncertain_pair(self) -> Optional[tuple]:
-        """Return the pair of states with the highest epistemic uncertainty.
-
-        Uses the *max-entropy* criterion: pick the two states whose
-        beliefs are closest (i.e., most confusable).
-
-        Returns
-        -------
-        tuple of (POMDPState, POMDPState) or None
-        """
-        if len(self._states) < 2:
-            return None
-
-        best_pair = None
-        best_uncertainty = -1.0
-
-        for i, s1 in enumerate(self._states):
-            for s2 in self._states[i + 1:]:
-                p1 = self._belief[s1.state_id]
-                p2 = self._belief[s2.state_id]
-                uncertainty = 1.0 - abs(p1 - p2)
-                if uncertainty > best_uncertainty:
-                    best_uncertainty = uncertainty
-                    best_pair = (s1, s2)
-
-        return best_pair
+        """Reset belief to uniform (keeps candidates)."""
+        self._version_space.reset_belief(uniform=uniform)
+        logger.debug("BeliefUpdater: reset (uniform=%s)", uniform)
