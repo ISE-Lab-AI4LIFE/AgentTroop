@@ -22,8 +22,13 @@ from core.types import Outcome
 from knowledge.defense_store import DefenseProgramRecord, DefenseProgramStore
 from knowledge.episodic.episodic import EpisodicMemory, EpisodeFilter
 from knowledge.ontology_memory import OntologyMemory
+from graphrag.graph_reasoner import GraphRAGAnswer, GraphReasoner
+from graphrag.query_parser import QueryParser
+from graphrag.subgraph_retriever import SubgraphRetriever
 from knowledge.scientific_memory import ScientificMemory, Theory
+from knowledge.defense_store import DefenseProgramRecord, DefenseProgramStore
 from synthesis.cvc5_synthesizer import CVC5Synthesizer, SynthesisStats, build_simple_program
+from synthesis.preprocessor import Preprocessor
 from synthesis.verifier import ProgramVerifier, VerificationReport
 
 logger = logging.getLogger(__name__)
@@ -86,6 +91,12 @@ class ResearcherAgent:
         self.ontology_memory = ontology_memory
         self.causal_graph = causal_graph
 
+        # GraphRAG for explanatory reasoning (Section 10)
+        self._query_parser = QueryParser()
+        self._subgraph_retriever: Optional[SubgraphRetriever] = None
+        self._graph_reasoner = GraphReasoner()
+        self._init_graphrag()
+
         self.synthesizer = synthesizer or CVC5Synthesizer(
             max_depth=3,
             beam_width=200,
@@ -96,6 +107,7 @@ class ResearcherAgent:
         self._shared_verifier = verifier
         self.default_model_family = default_model_family
         self._verifier_cache: Dict[str, ProgramVerifier] = {}
+        self.preprocessor = Preprocessor()
 
     # ------------------------------------------------------------------
     # Step 1: Synthesis
@@ -159,6 +171,9 @@ class ResearcherAgent:
             if prompt and ep.outcome is not None:
                 examples.append((prompt, int(ep.outcome)))
 
+        # Run preprocessor (normalize + denoise)
+        examples = self.preprocessor.process(examples)
+
         log_extra = ""
         if excluded_by_prompt or excluded_by_id:
             log_extra = f" (excluded: {excluded_by_prompt} prompts, {excluded_by_id} ids)"
@@ -197,6 +212,33 @@ class ResearcherAgent:
             )
 
         return program, stats
+
+    def synthesize_program(
+        self,
+        examples: List[Tuple[str, int]],
+        grammar: Optional[Any] = None,
+    ) -> Tuple[Optional[Program], SynthesisStats]:
+        """Standalone synthesis from raw examples (spec §5.3).
+
+        Parameters
+        ----------
+        examples : list of (prompt, outcome) tuples.
+        grammar : optional grammar object (currently unused; the synthesizer
+                  uses the default primitive registry and ontology).
+
+        Returns
+        -------
+        Tuple of (program or None, SynthesisStats).
+        """
+        examples = self.preprocessor.process(examples)
+        if not examples:
+            logger.warning("All examples removed by preprocessor")
+            return None, SynthesisStats()
+        return self.synthesizer.synthesize_with_stats(
+            examples,
+            primitive_registry=default_registry,
+            ontology_memory=self.ontology_memory,
+        )
 
     # ------------------------------------------------------------------
     # Step 2: Verification
@@ -344,6 +386,10 @@ class ResearcherAgent:
         theory_id = self.scientific_memory.save_theory(theory)
         logger.info("Stored theory id=%s", theory_id)
         return theory_id
+
+    def store_scientific_knowledge(self, theory: Theory) -> str:
+        """Alias for store_theory — spec-compatible name (Section 5.3)."""
+        return self.store_theory(theory)
 
     # ------------------------------------------------------------------
     # Pipeline
@@ -571,32 +617,73 @@ class ResearcherAgent:
         conditions: Optional[Dict[str, Any]] = None,
         provenance: Optional[List[str]] = None,
     ) -> Theory:
-        """Internal: attempt synthesizer.abstract_theory with fallback."""
+        """Internal: attempt synthesizer.abstract_theory with fallback.
+
+        Enhanced: queries Defense Program Store for sibling programs in the
+        same model family, compares structures, and generalises the theory
+        (spec §5.3: 'So sánh với các chương trình đã có cùng họ mô hình,
+        tổng quát hóa thành Theory').
+        """
+        # Get base theory from synthesizer
         try:
-            return self.synthesizer.abstract_theory(
+            base_theory = self.synthesizer.abstract_theory(
                 program,
                 model_family=model_family,
                 conditions=conditions,
                 provenance=provenance,
             )
-        except AttributeError:
-            logger.warning(
-                "synthesizer.abstract_theory not available; building Theory from str(program)"
-            )
-        except Exception as exc:
+        except (AttributeError, Exception) as exc:
             logger.warning(
                 "synthesizer.abstract_theory raised %s; building fallback Theory",
                 exc,
             )
+            pattern = str(program)
+            fallback_conditions = dict(conditions or {})
+            fallback_conditions.setdefault("model_family", model_family)
+            base_theory = Theory(
+                pattern=pattern,
+                conditions=fallback_conditions,
+                provenance=provenance or [f"fallback:{pattern[:64]}"],
+            )
 
-        pattern = str(program)
-        fallback_conditions = dict(conditions or {})
-        fallback_conditions.setdefault("model_family", model_family)
-        return Theory(
-            pattern=pattern,
-            conditions=fallback_conditions,
-            provenance=provenance or [f"fallback:{pattern[:64]}"],
-        )
+        # Cross-program comparison: find sibling programs in same model family
+        sibling_patterns: List[str] = []
+        try:
+            pids = self.defense_store.list_program_ids()
+            base_str = str(program)
+            for pid in pids:
+                try:
+                    rec = self.defense_store.get(pid)
+                    if rec is None:
+                        continue
+                    p = getattr(rec, "program", None)
+                    if p is not None and str(p) != base_str:
+                        p_meta = getattr(rec, "metadata", {}) or {}
+                        if p_meta.get("model_family") == model_family:
+                            sibling_patterns.append(str(p))
+                except Exception:
+                    continue
+        except Exception as exc:
+            logger.debug("Could not query sibling programs: %s", exc)
+
+        if sibling_patterns:
+            # Generalize: mark that this pattern was observed across N programs
+            generalised_pattern = base_theory.pattern
+            confidence_boost = min(0.2, len(sibling_patterns) * 0.05)
+            base_theory.confidence = min(1.0, base_theory.confidence + confidence_boost)
+            base_theory.conditions["num_sibling_programs"] = len(sibling_patterns)
+            base_theory.conditions["sibling_patterns_sample"] = sibling_patterns[:3]
+            base_theory.pattern = (
+                f"[Generalised from {1 + len(sibling_patterns)} programs] "
+                f"{generalised_pattern}"
+            )
+            logger.info(
+                "Theory generalised: %d sibling programs found in model_family='%s' "
+                "(confidence +%.2f)",
+                len(sibling_patterns), model_family, confidence_boost,
+            )
+
+        return base_theory
 
     def _get_verifier(self, victim: Any) -> ProgramVerifier:
         """Return a cached or new ProgramVerifier for the given victim."""
@@ -763,3 +850,49 @@ class ResearcherAgent:
         """Clear the verifier cache."""
         self._verifier_cache.clear()
         logger.info("Verifier cache cleared")
+
+    # ------------------------------------------------------------------
+    # GraphRAG integration (Section 10)
+    # ------------------------------------------------------------------
+
+    def _init_graphrag(self) -> None:
+        """Lazy-init the SubgraphRetriever if causal_graph and defense_store are available."""
+        if self.causal_graph is not None and self.defense_store is not None:
+            self._subgraph_retriever = SubgraphRetriever(
+                causal_graph=self.causal_graph,
+                defense_store=self.defense_store,
+            )
+            logger.info("GraphRAG SubgraphRetriever initialised")
+
+    def explain(self, question: str) -> GraphRAGAnswer:
+        """Answer a "why" question using GraphRAG reasoning.
+
+        Pipeline:
+          1. Parse the natural-language question into a structured query.
+          2. Retrieve the relevant subgraph from Causal Graph + Defense Program Store.
+          3. Reason over the subgraph to produce an explanatory answer.
+
+        Parameters
+        ----------
+        question : str
+            A natural-language question (e.g. "Why does ROT13 bypass the filter?").
+
+        Returns
+        -------
+        GraphRAGAnswer
+            The answer with evidence nodes/edges and a confidence score.
+        """
+        query = self._query_parser.parse(question)
+
+        if self._subgraph_retriever is not None:
+            subgraph = self._subgraph_retriever.retrieve(query)
+        else:
+            logger.warning("GraphRAG not fully initialised; returning empty subgraph")
+            subgraph = {"nodes": [], "edges": [], "query": question}
+
+        answer = self._graph_reasoner.reason(subgraph)
+        logger.info(
+            "GraphRAG explanation: query='%s' answer='%s' confidence=%.2f",
+            question[:60], answer.answer[:80], answer.confidence,
+        )
+        return answer

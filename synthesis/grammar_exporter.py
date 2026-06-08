@@ -176,96 +176,30 @@ class GrammarExporter:
         max_depth: Optional[int] = None,
         use_free_thresholds: bool = False,
     ) -> str:
+        """Export SMT-LIB using the full SMTConstraintBuilder from core.grammar.
+
+        Delegates to ``SMTConstraintBuilder.build_smtlib()`` for a complete
+        encoding of the hypothesis space with depth-limited composition,
+        complexity constraints, and optional error tolerance.
+        """
+        from core.grammar import SMTConstraintBuilder
+
         catalog = self.get_parameterized_primitives(examples)
         depth = max_depth if max_depth is not None else self.max_depth
-        lines: List[str] = []
-        lines.append(";; HARMONY-X Program Synthesis — SMT-LIB v2.6")
-        lines.append(
-            f";; Primitives: {catalog.total_primitives()}, "
-            f"Examples: {len(examples)}, Depth: {depth}"
+
+        builder = SMTConstraintBuilder(
+            predicates=catalog.predicates,
+            transforms=catalog.transforms,
+            classifiers=catalog.classifiers,
+            max_depth=depth,
+            use_complexity_constraint=True,
+            max_complexity=min(10, 2**depth),
+            allow_error_rate=0.0,
         )
-        lines.append("(set-logic NRA)")
-        lines.append("")
-
-        for p in catalog.predicates:
-            pn = _safe_name(p.name)
-            lines.append(f"(declare-fun {pn} (String) Bool)")
-
-        threshold_vars: List[str] = []
-        for c in catalog.classifiers:
-            cn = _safe_name(c.name)
-            lines.append(f"(declare-fun {cn} (String) Real)")
-            if use_free_thresholds:
-                tv = f"threshold_{cn}"
-                lines.append(f"(declare-fun {tv} () Real)")
-                lines.append(f"(assert (and (<= 0 {tv}) (<= {tv} 1)))")
-                threshold_vars.append(tv)
-
-        for t in catalog.transforms:
-            tn = _safe_name(t.name)
-            lines.append(f"(declare-fun {tn} (String) String)")
-
-        lines.append("")
-        Np = len(catalog.predicates)
-        Nc = len(catalog.classifiers)
-
-        if Np + Nc + len(catalog.transforms) == 0:
-            lines.append(
-                "(define-fun condition ((x String)) Bool false)"
-            )
-        else:
-            all_atomics: List[str] = []
-            for p in catalog.predicates:
-                all_atomics.append(f"({_safe_name(p.name)} x)")
-            for i, c in enumerate(catalog.classifiers):
-                cn = _safe_name(c.name)
-                if use_free_thresholds:
-                    tv = f"threshold_{cn}"
-                    all_atomics.append(f"(> ({cn} x) {tv})")
-                else:
-                    all_atomics.append(f"(> ({cn} x) 0.5)")
-
-            has_transform_pred = catalog.predicates and len(catalog.predicates) > 0
-            for t in catalog.transforms:
-                tn = _safe_name(t.name)
-                if has_transform_pred:
-                    pn = _safe_name(catalog.predicates[0].name)
-                    all_atomics.append(f"({pn} ({tn} x))")
-                else:
-                    all_atomics.append("false")
-
-            combinator = "or"
-            lines.append(
-                "(define-fun condition ((x String)) Bool"
-            )
-            if len(all_atomics) == 1:
-                lines.append(f"  {all_atomics[0]}")
-            else:
-                lines.append(f"  ({combinator}")
-                for a in all_atomics:
-                    lines.append(f"    {a}")
-                lines.append("  )")
-            lines.append(")")
-
-        lines.append("")
-        lines.append(
-            "(define-fun program ((x String)) Int"
+        result = builder.build_smtlib(
+            examples,
+            use_free_thresholds=use_free_thresholds,
         )
-        lines.append("  (ite (condition x) 1 0)")
-        lines.append(")")
-        lines.append("")
-
-        for i, (prompt, outcome) in enumerate(examples):
-            escaped = _escape_str(prompt)
-            lines.append(
-                f"(assert (= (program \"{escaped}\") {outcome}))"
-            )
-
-        lines.append("")
-        lines.append("(check-sat)")
-        lines.append("(get-model)")
-
-        result = "\n".join(lines)
 
         if output_file:
             with open(output_file, "w", encoding="utf-8") as f:

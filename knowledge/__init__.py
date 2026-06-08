@@ -13,6 +13,7 @@ from .ontology_memory import OntologyMemory, OntologyPrimitive
 from .session_memory import SessionMemory
 from .scientific_memory import ScientificMemory, Theory
 from .semantic_memory import SemanticMemory, StoredEmbedding
+from .strategy_memory import StrategyMemory, StrategyRecord
 
 __all__ = [
     "CausalEdge",
@@ -35,5 +36,7 @@ __all__ = [
     "Theory",
     "SemanticMemory",
     "StoredEmbedding",
+    "StrategyMemory",
+    "StrategyRecord",
     "Target",
 ]

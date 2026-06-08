@@ -9,5 +9,6 @@ def test_grammar_smtlib_contains_primitive_names():
 
     assert isinstance(smtlib, str)
     assert smtlib.strip() != ""
-    assert "primitive:" in smtlib
-    assert any(name in smtlib for name in registry.list_primitives())
+    assert any(
+        name in smtlib for name in registry.list_primitives() + ["contains_word", "contains_any_word"]
+    )

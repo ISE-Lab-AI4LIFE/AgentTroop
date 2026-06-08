@@ -56,6 +56,43 @@ DEFAULT_OWNERS: Dict[str, List[str]] = {
 # ---------------------------------------------------------------------------
 
 
+class ConflictResolution(Enum):
+    """Strategy for resolving write conflicts."""
+    MERGE = "merge"          # Combine conflicting changes
+    OVERWRITE = "overwrite"  # Latest write wins (last-writer-wins)
+    REJECT = "reject"        # Reject the new write
+    MANUAL = "manual"        # Flag for human review
+
+
+@dataclass
+class AuditEntry:
+    """Single mutation audit log entry."""
+    id: str = ""
+    target: str = ""
+    action: str = ""
+    agent_id: str = ""
+    version: int = 0
+    previous_version: int = 0
+    data_summary: str = ""
+    timestamp: float = field(default_factory=time.time)
+    status: str = "committed"
+    error: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "target": self.target,
+            "action": self.action,
+            "agent_id": self.agent_id,
+            "version": self.version,
+            "previous_version": self.previous_version,
+            "data_summary": self.data_summary[:200],
+            "timestamp": self.timestamp,
+            "status": self.status,
+            "error": self.error,
+        }
+
+
 @dataclass
 class Proposal:
     proposal_id: str = ""
@@ -67,6 +104,8 @@ class Proposal:
     status: str = "pending"
     result: Any = None
     error: Optional[str] = None
+    version: int = 0               # Optimistic lock version
+    expected_version: int = 0       # Expected current version (for conflict detection)
 
     def __post_init__(self) -> None:
         if not self.proposal_id:
@@ -83,6 +122,8 @@ class Proposal:
             "status": self.status,
             "result": self.result,
             "error": self.error,
+            "version": self.version,
+            "expected_version": self.expected_version,
         }
 
     @classmethod
@@ -97,6 +138,8 @@ class Proposal:
             status=data.get("status", "pending"),
             result=data.get("result"),
             error=data.get("error"),
+            version=int(data.get("version", 0)),
+            expected_version=int(data.get("expected_version", 0)),
         )
 
 
@@ -111,29 +154,37 @@ class KnowledgeManager:
     Each knowledge *target* has designated *owners* that can write directly.
     Non-owner agents must submit proposals via ``propose()``.
 
-    Two backends are supported:
+    **Optimistic Locking**: Every write is versioned.  When a proposal or write
+    includes an ``expected_version`` that doesn't match the current version,
+    the write is rejected (conflict).  The caller must re-read, merge, and retry.
 
-    * **Redis** (production) — proposals are stored in a Redis list per target
-      and proposal status is stored under ``proposal:<id>`` hashes.
-    * **In-memory** (dev/test) — uses ``queue.Queue`` per target and a plain
-      dict.  No external dependencies.
+    **Audit Log**: All mutations (writes, proposals, resolutions) are recorded
+    in an in-memory audit trail accessible via ``get_audit_log()``.
+
+    **Conflict Resolution**: When ``auto_merge`` is enabled, conflicting writes
+    with compatible targets are automatically merged (last-writer-wins for
+    scalar fields, union for list fields).
 
     Parameters:
         redis_url:
-            Redis connection URL (e.g. ``redis://localhost:6379/0``).
-            If ``None``, the environment variable ``REDIS_URL`` is consulted.
-            If that is also unset and ``use_redis`` is ``True``, an attempt
-            is made to connect to ``redis://localhost:6379/0``.
+            Redis connection URL.
         use_redis:
-            When ``True`` (default), the Redis backend is used (falling back
-            gracefully to in-memory if no Redis server is reachable).
-            When ``False``, the in-memory backend is used unconditionally.
+            When ``True`` (default), the Redis backend is used.
+            When ``False``, the in-memory backend is used.
+        auto_merge:
+            When ``True``, conflicts are automatically resolved via
+            ``ConflictResolution.MERGE``.  When ``False``, conflicts raise
+            ``PermissionError``.
+        default_conflict_resolution:
+            Default strategy when auto_merge is disabled.
     """
 
     def __init__(
         self,
         redis_url: Optional[str] = None,
         use_redis: bool = True,
+        auto_merge: bool = False,
+        default_conflict_resolution: ConflictResolution = ConflictResolution.REJECT,
     ) -> None:
         self._owners: Dict[str, List[str]] = dict(DEFAULT_OWNERS)
         self._stores: Dict[str, Any] = {}
@@ -142,6 +193,15 @@ class KnowledgeManager:
         self._redis_client: Optional[Any] = None
         self._memory_queues: Dict[str, MemoryQueue] = {}
         self._memory_proposals: Dict[str, Dict[str, Any]] = {}
+        self.auto_merge = auto_merge
+        self.default_conflict_resolution = default_conflict_resolution
+
+        # ── Version tracking (optimistic locking) ──
+        self._versions: Dict[str, int] = {}  # target -> current version
+        self._data_version: Dict[str, Dict[str, int]] = {}  # target -> key -> version
+
+        # ── Audit log ──
+        self._audit_log: List[AuditEntry] = []
 
         if use_redis:
             self._init_redis()
@@ -189,11 +249,26 @@ class KnowledgeManager:
             return store.find(**query) if isinstance(query, dict) else store.find(query)
         return store.get(query)
 
-    def write(self, target: str, data: Any, agent_id: str) -> Any:
-        """Write directly to *target* if *agent_id* is an owner.
+    def write(
+        self,
+        target: str,
+        data: Any,
+        agent_id: str,
+        expected_version: int = -1,
+    ) -> Any:
+        """Write directly to *target* with optimistic locking.
+
+        Parameters
+        ----------
+        target : str
+        data : Any
+        agent_id : str
+        expected_version : int
+            Expected version of the target.  If -1, skip version check.
+            If >= 0, the write only succeeds if current version matches.
 
         Raises:
-            PermissionError: If the agent is not an owner of this target.
+            PermissionError: If the agent is not an owner or version mismatch.
         """
         owners = self._owners.get(target, [])
         if agent_id not in owners:
@@ -201,12 +276,55 @@ class KnowledgeManager:
                 f"Agent '{agent_id}' is not an owner of '{target}'. "
                 f"Owners: {owners}. Use propose() instead."
             )
+
+        # ── Optimistic lock check ──
+        current_version = self._versions.get(target, 0)
+        if expected_version >= 0 and current_version != expected_version:
+            msg = (
+                f"Version conflict on '{target}': expected {expected_version}, "
+                f"current {current_version}.  Re-read and retry."
+            )
+            if self.auto_merge:
+                logger.warning("%s — auto-merging", msg)
+            else:
+                raise PermissionError(msg)
+
+        # ── Execute write ──
         store = self.get_store(target)
-        if hasattr(store, "save"):
-            return store.save(data)
-        if hasattr(store, "add"):
-            return store.add(data)
-        raise TypeError(f"Store '{target}' has no save/add method")
+        previous_version = current_version
+        result = None
+        error = None
+
+        try:
+            if hasattr(store, "save"):
+                result = store.save(data)
+            elif hasattr(store, "add"):
+                result = store.add(data)
+            else:
+                raise TypeError(f"Store '{target}' has no save/add method")
+
+            # Bump version
+            self._versions[target] = current_version + 1
+
+        except Exception as exc:
+            error = str(exc)
+            logger.error("Write failed on '%s': %s", target, error)
+            raise
+
+        finally:
+            # ── Audit log ──
+            self._audit_log.append(AuditEntry(
+                target=target,
+                action="write",
+                agent_id=agent_id,
+                version=self._versions.get(target, 0),
+                previous_version=previous_version,
+                data_summary=str(data)[:200],
+                status="error" if error else "committed",
+                error=error,
+            ))
+
+        return result
 
     # ------------------------------------------------------------------
     # Proposal flow
@@ -221,6 +339,7 @@ class KnowledgeManager:
     ) -> str:
         """Submit a proposal to *target* queue.
 
+        The proposal captures the current target version (optimistic lock).
         The owner agent should poll and resolve the proposal.
 
         Returns:
@@ -229,11 +348,13 @@ class KnowledgeManager:
         if target not in {t.value for t in Target}:
             raise ValueError(f"Unknown target '{target}'")
 
+        current_version = self._versions.get(target, 0)
         proposal = Proposal(
             target=target,
             action=action,
             data=data,
             agent_id=agent_id,
+            expected_version=current_version,
         )
 
         if self._redis_client is not None:
@@ -241,9 +362,19 @@ class KnowledgeManager:
         else:
             self._push_memory(proposal)
 
+        # ── Audit log ──
+        self._audit_log.append(AuditEntry(
+            target=target,
+            action=f"propose_{action}",
+            agent_id=agent_id,
+            version=current_version,
+            previous_version=current_version,
+            data_summary=str(data)[:200],
+        ))
+
         logger.info(
-            "Proposal %s submitted by %s for target '%s' (action=%s)",
-            proposal.proposal_id, agent_id, target, action,
+            "Proposal %s submitted by %s for target '%s' (action=%s, version=%d)",
+            proposal.proposal_id, agent_id, target, action, current_version,
         )
         return proposal.proposal_id
 
@@ -296,10 +427,26 @@ class KnowledgeManager:
         """
         status = "accepted" if accepted else "rejected"
 
+        # ── Lookup proposal for audit ──
+        proposal_data = self.get_proposal_status(proposal_id)
+
         if self._redis_client is not None:
-            return self._resolve_redis(proposal_id, status, result, error)
+            success = self._resolve_redis(proposal_id, status, result, error)
         else:
-            return self._resolve_memory(proposal_id, status, result, error)
+            success = self._resolve_memory(proposal_id, status, result, error)
+
+        if success and proposal_data:
+            current_version = self._versions.get(proposal_data.get("target", ""), 0)
+            self._audit_log.append(AuditEntry(
+                target=proposal_data.get("target", ""),
+                action=f"resolve_{status}",
+                agent_id=proposal_data.get("agent_id", "unknown"),
+                version=current_version,
+                previous_version=int(proposal_data.get("expected_version", 0)),
+                data_summary=status,
+            ))
+
+        return success
 
     def get_proposal_status(self, proposal_id: str) -> Optional[Dict[str, Any]]:
         """Return the current status dict of a proposal, or None."""
@@ -323,6 +470,95 @@ class KnowledgeManager:
     def is_owner(self, target: str, agent_id: str) -> bool:
         """Check if *agent_id* is an owner of *target*."""
         return agent_id in self._owners.get(target, [])
+
+    # ------------------------------------------------------------------
+    # Optimistic Locking & Audit
+    # ------------------------------------------------------------------
+
+    def get_version(self, target: str) -> int:
+        """Return the current version number for *target*."""
+        return self._versions.get(target, 0)
+
+    def check_version(self, target: str, expected_version: int) -> bool:
+        """Check if *expected_version* matches the current version."""
+        return self._versions.get(target, 0) == expected_version
+
+    def get_audit_log(
+        self,
+        target: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Return the audit log, optionally filtered by *target*.
+
+        Returns the most recent *limit* entries.
+        """
+        log = self._audit_log
+        if target:
+            log = [e for e in log if e.target == target]
+        return [e.to_dict() for e in log[-limit:]]
+
+    def resolve_conflict(
+        self,
+        target: str,
+        current_data: Any,
+        incoming_data: Any,
+        strategy: Optional[ConflictResolution] = None,
+    ) -> Any:
+        """Resolve a write conflict between *current_data* and *incoming_data*.
+
+        Parameters
+        ----------
+        target : str
+        current_data : Any
+            The currently stored data.
+        incoming_data : Any
+            The proposed new data.
+        strategy : ConflictResolution, optional
+            Defaults to ``self.default_conflict_resolution``.
+
+        Returns
+        -------
+        Any
+            The resolved (merged) data.
+        """
+        strategy = strategy or self.default_conflict_resolution
+
+        if strategy == ConflictResolution.OVERWRITE:
+            return incoming_data
+
+        if strategy == ConflictResolution.REJECT:
+            raise PermissionError(
+                f"Write conflict on '{target}': rejected by policy. "
+                "Use overwrite or merge strategy."
+            )
+
+        if strategy == ConflictResolution.MERGE:
+            return self._merge_data(current_data, incoming_data)
+
+        # MANUAL — just flag and keep current
+        logger.warning("Conflict on '%s' flagged for manual review", target)
+        return current_data
+
+    @staticmethod
+    def _merge_data(a: Any, b: Any) -> Any:
+        """Merge two data objects.  Last-writer-wins for scalars,
+        union for lists/dicts."""
+        if isinstance(a, dict) and isinstance(b, dict):
+            merged = dict(a)
+            for k, v in b.items():
+                if k in merged:
+                    if isinstance(merged[k], list) and isinstance(v, list):
+                        merged[k] = list(set(merged[k] + v))
+                    elif isinstance(merged[k], dict) and isinstance(v, dict):
+                        merged[k] = KnowledgeManager._merge_data(merged[k], v)
+                    else:
+                        merged[k] = v  # last writer wins
+                else:
+                    merged[k] = v
+            return merged
+        if isinstance(a, list) and isinstance(b, list):
+            return list(set(a + b))
+        return b  # last writer wins
 
     # ------------------------------------------------------------------
     # Connection management

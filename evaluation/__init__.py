@@ -8,6 +8,23 @@ from .sample_efficiency import SampleEfficiencyEvaluator
 from .scientific_discovery import ScientificDiscoveryEvaluator, Theory
 from .structural_recovery import StructuralRecoveryEvaluator
 
+from .judges import Judge, RuleBasedJudge, LLMJudge
+from .metrics import (
+    ProgramAccuracyMetric,
+    InterventionEfficiencyMetric,
+    TransferSpeedMetric,
+    AttackSuccessRateMetric,
+    ExplanationScoreMetric,
+)
+from .evaluators import (
+    RQ0Evaluator,
+    RQ1Evaluator,
+    RQ2Evaluator,
+    RQ3Evaluator,
+    ASREvaluator,
+)
+from .utils import VictimWrapper, TestGenerator
+
 __all__ = [
     "ProgramEquivalenceChecker",
     "GroundTruthEvaluator",
@@ -19,4 +36,19 @@ __all__ = [
     "ScientificDiscoveryEvaluator",
     "Theory",
     "ExperimentTracker",
+    "Judge",
+    "RuleBasedJudge",
+    "LLMJudge",
+    "ProgramAccuracyMetric",
+    "InterventionEfficiencyMetric",
+    "TransferSpeedMetric",
+    "AttackSuccessRateMetric",
+    "ExplanationScoreMetric",
+    "RQ0Evaluator",
+    "RQ1Evaluator",
+    "RQ2Evaluator",
+    "RQ3Evaluator",
+    "ASREvaluator",
+    "VictimWrapper",
+    "TestGenerator",
 ]

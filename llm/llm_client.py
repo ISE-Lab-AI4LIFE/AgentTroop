@@ -1,84 +1,91 @@
 import os
+import json
 from typing import Any, Optional
 
-from dotenv import load_dotenv
-from google import genai
-from google.genai import types
-
-# Load environment variables from a local .env file if present
-load_dotenv()
+import requests
 
 
-class LLMClient:
-	"""Light wrapper around Google GenAI client providing a stable `generate()` method.
+class OpenRouterClient:
+	"""LLM client backed by OpenRouter API."""
 
-	The wrapper tries a few common client call patterns to be compatible with
-	different `google-genai` versions (e.g., `client.generate(...)` or
-	`client.responses.create(...)`).
-	"""
+	def __init__(
+		self,
+		api_key: Optional[str] = None,
+		model: str = "",
+		timeout_ms: int = 180000,
+	):
+		self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
+		if not self.api_key:
+			raise RuntimeError("OPENROUTER_API_KEY environment variable is not set.")
 
-	def __init__(self, api_key: Optional[str] = None, model_name: str = "gemma-4-31b-it"):
-		api_key = api_key or os.environ.get("GEMMA_API_KEY") or os.environ.get("GENAI_API_KEY")
-		if not api_key:
-			raise RuntimeError(
-				"GEMMA_API_KEY environment variable is not set. Set GEMMA_API_KEY (or GENAI_API_KEY) to your GenAI API key."
-			)
+		self.model = model or os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+		self.timeout_ms = timeout_ms
+		self._reasoning_history: Optional[dict] = None
 
-		self.client = genai.Client(api_key=api_key)
-		self.model = model_name
+	def generate(
+		self,
+		prompt: str,
+		max_tokens: int = 4096,
+		temperature: float = 0.0,
+		**kwargs,
+	) -> str:
+		"""Send a prompt and return model response text."""
 
-	def generate(self, prompt: str, max_tokens: int = 512, temperature: float = 0.0, **kwargs) -> str:
-		"""Generate text from the model.
+		enable_reasoning = kwargs.pop("reasoning", False)
 
-		Tries multiple client call patterns and returns the final text output.
-		"""
-		# 1) Try `client.generate(...)` (older/newer variants)
-		try:
-			if hasattr(self.client, "generate"):
-				resp = self.client.generate(model=self.model, prompt=prompt, max_output_tokens=max_tokens, temperature=temperature, **kwargs)
-				# Try to extract text sensibly
-				if hasattr(resp, "text"):
-					return resp.text
-				# Some versions return dict-like
-				if isinstance(resp, dict):
-					return resp.get("output_text") or resp.get("text") or str(resp)
+		body: dict[str, Any] = {
+			"model": self.model,
+			"messages": [
+				{"role": "user", "content": prompt},
+			],
+			"max_tokens": max_tokens,
+			"temperature": temperature,
+		}
 
-		except Exception:
-			pass
+		if enable_reasoning:
+			body["reasoning"] = {"enabled": True}
+			if self._reasoning_history is not None:
+				body["messages"].insert(0, self._reasoning_history)
 
-		# 2) Try `client.responses.create(...)` pattern
-		try:
-			if hasattr(self.client, "responses") and hasattr(self.client.responses, "create"):
-				resp = self.client.responses.create(model=self.model, input=prompt, max_output_tokens=max_tokens, temperature=temperature, **kwargs)
-				# Typical structure: resp.output[0].content[0].text OR resp.output_text
-				if hasattr(resp, "output_text"):
-					return resp.output_text
-				# Try nested extraction
-				out = getattr(resp, "output", None)
-				if out:
-					try:
-						# handle sequences of content
-						first = out[0]
-						content = getattr(first, "content", None)
-						if content and len(content) > 0 and hasattr(content[0], "text"):
-							return content[0].text
-					except Exception:
-						pass
-				return str(resp)
+		resp = requests.post(
+			url="https://openrouter.ai/api/v1/chat/completions",
+			headers={
+				"Authorization": f"Bearer {self.api_key}",
+				"Content-Type": "application/json",
+			},
+			data=json.dumps(body),
+			timeout=self.timeout_ms / 1000,
+		)
 
-		except Exception:
-			pass
+		resp.raise_for_status()
+		data = resp.json()
 
-		# 3) Fallback: return empty or raise
-		raise RuntimeError("Unable to call GenAI client: unsupported client API surface in installed google-genai package.")
+		choice = data.get("choices", [{}])[0]
+		message = choice.get("message", {})
+		content = message.get("content", "")
+
+		# store reasoning context if available
+		if enable_reasoning and "reasoning_details" in message:
+			self._reasoning_history = {
+				"role": "assistant",
+				"content": content,
+				"reasoning_details": message["reasoning_details"],
+			}
+		else:
+			self._reasoning_history = None
+
+		return content or ""
+
+	def reset_reasoning(self) -> None:
+		"""Clear cached reasoning state."""
+		self._reasoning_history = None
 
 
-def get_default_client() -> LLMClient:
-	"""Convenience helper to get a module-level LLMClient using env vars."""
-	return LLMClient()
+def get_default_client() -> OpenRouterClient:
+	"""Return OpenRouter client (only backend now)."""
+	return OpenRouterClient()
 
 
 if __name__ == "__main__":
-	# Quick smoke test when run directly
-	c = get_default_client()
-	print("Client ready — model:", c.model)
+	client = get_default_client()
+	print("Client ready — model:", client.model)

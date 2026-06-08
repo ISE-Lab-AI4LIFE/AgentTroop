@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from knowledge.manager import (
+    ConflictResolution,
     DEFAULT_OWNERS,
     KnowledgeManager,
     Proposal,
@@ -444,3 +445,242 @@ class TestEdgeCases:
             mgr_memory.write(
                 Target.DEFENSE_STORE.value, {}, "CognitiveAgent",
             )
+
+
+# ---------------------------------------------------------------------------
+# Optimistic Locking
+# ---------------------------------------------------------------------------
+
+
+class TestOptimisticLocking:
+    def test_version_starts_at_zero(self, mgr_memory: KnowledgeManager) -> None:
+        assert mgr_memory.get_version(Target.EPISODIC.value) == 0
+
+    def test_write_increments_version(self, mgr_memory: KnowledgeManager) -> None:
+        mgr_memory.write(Target.EPISODIC.value, {"v": 1}, "CognitiveAgent")
+        assert mgr_memory.get_version(Target.EPISODIC.value) == 1
+        mgr_memory.write(Target.EPISODIC.value, {"v": 2}, "CognitiveAgent")
+        assert mgr_memory.get_version(Target.EPISODIC.value) == 2
+
+    def test_write_with_correct_version_succeeds(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        mgr_memory.write(Target.EPISODIC.value, {"v": 1}, "CognitiveAgent")
+        # expected_version matches current
+        mgr_memory.write(
+            Target.EPISODIC.value, {"v": 2}, "CognitiveAgent", expected_version=1,
+        )
+        assert mgr_memory.get_version(Target.EPISODIC.value) == 2
+
+    def test_write_with_wrong_version_raises(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        mgr_memory.write(Target.EPISODIC.value, {"v": 1}, "CognitiveAgent")
+        with pytest.raises(PermissionError, match="Version conflict"):
+            mgr_memory.write(
+                Target.EPISODIC.value, {"v": 2}, "CognitiveAgent", expected_version=0,
+            )
+
+    def test_write_with_negative_version_skips_check(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        mgr_memory.write(Target.EPISODIC.value, {"v": 1}, "CognitiveAgent")
+        # expected_version=-1 means "skip check"
+        mgr_memory.write(
+            Target.EPISODIC.value, {"v": 2}, "CognitiveAgent", expected_version=-1,
+        )
+        assert mgr_memory.get_version(Target.EPISODIC.value) == 2
+
+    def test_check_version(self, mgr_memory: KnowledgeManager) -> None:
+        assert mgr_memory.check_version(Target.EPISODIC.value, 0)
+        mgr_memory.write(Target.EPISODIC.value, {}, "CognitiveAgent")
+        assert mgr_memory.check_version(Target.EPISODIC.value, 1)
+        assert not mgr_memory.check_version(Target.EPISODIC.value, 0)
+
+    def test_proposal_captures_expected_version(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        pid = mgr_memory.propose(
+            Target.CAUSAL.value, {"d": 1}, "CognitiveAgent",
+        )
+        status = mgr_memory.get_proposal_status(pid)
+        assert status is not None
+        assert status["expected_version"] == 0  # version before any writes
+
+
+# ---------------------------------------------------------------------------
+# Audit Log
+# ---------------------------------------------------------------------------
+
+
+class TestAuditLog:
+    def test_audit_log_initially_empty(self, mgr_memory: KnowledgeManager) -> None:
+        assert mgr_memory.get_audit_log() == []
+
+    def test_write_creates_audit_entry(self, mgr_memory: KnowledgeManager) -> None:
+        mgr_memory.write(Target.EPISODIC.value, {"k": "v"}, "CognitiveAgent")
+        log = mgr_memory.get_audit_log()
+        assert len(log) == 1
+        entry = log[0]
+        assert entry["target"] == Target.EPISODIC.value
+        assert entry["action"] == "write"
+        assert entry["agent_id"] == "CognitiveAgent"
+        assert entry["status"] == "committed"
+
+    def test_propose_creates_audit_entry(self, mgr_memory: KnowledgeManager) -> None:
+        mgr_memory.propose(Target.CAUSAL.value, {"x": 1}, "CognitiveAgent")
+        log = mgr_memory.get_audit_log()
+        assert len(log) == 1
+        assert log[0]["action"] == "propose_update"
+
+    def test_resolve_creates_audit_entry(self, mgr_memory: KnowledgeManager) -> None:
+        pid = mgr_memory.propose(
+            Target.CAUSAL.value, {"x": 1}, "CognitiveAgent",
+        )
+        assert len(mgr_memory.get_audit_log()) == 1
+        mgr_memory.poll_proposals("ResearcherAgent", Target.CAUSAL.value)
+        mgr_memory.resolve_proposal(pid, accepted=True)
+        log = mgr_memory.get_audit_log()
+        assert len(log) == 2
+        assert log[1]["action"] == "resolve_accepted"
+
+    def test_multiple_writes_create_multiple_entries(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        for i in range(3):
+            mgr_memory.write(Target.EPISODIC.value, {"i": i}, "CognitiveAgent")
+        assert len(mgr_memory.get_audit_log()) == 3
+
+    def test_audit_log_filter_by_target(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        mgr_memory.write(Target.EPISODIC.value, {}, "CognitiveAgent")
+        mgr_memory.write(Target.CAUSAL.value, {}, "ResearcherAgent")
+        epi_log = mgr_memory.get_audit_log(target=Target.EPISODIC.value)
+        cau_log = mgr_memory.get_audit_log(target=Target.CAUSAL.value)
+        assert len(epi_log) == 1
+        assert len(cau_log) == 1
+        assert epi_log[0]["target"] == Target.EPISODIC.value
+        assert cau_log[0]["target"] == Target.CAUSAL.value
+
+    def test_audit_log_respects_limit(self, mgr_memory: KnowledgeManager) -> None:
+        for i in range(10):
+            mgr_memory.write(Target.EPISODIC.value, {"i": i}, "CognitiveAgent")
+        assert len(mgr_memory.get_audit_log(limit=3)) == 3
+
+    def test_audit_log_tracks_version(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        mgr_memory.write(Target.EPISODIC.value, {}, "CognitiveAgent")
+        mgr_memory.write(Target.EPISODIC.value, {}, "CognitiveAgent")
+        log = mgr_memory.get_audit_log()
+        assert log[0]["version"] == 1
+        assert log[0]["previous_version"] == 0
+        assert log[1]["version"] == 2
+        assert log[1]["previous_version"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Conflict Resolution
+# ---------------------------------------------------------------------------
+
+
+class TestConflictResolution:
+    def test_overwrite_strategy(self, mgr_memory: KnowledgeManager) -> None:
+        result = mgr_memory.resolve_conflict(
+            Target.CAUSAL.value,
+            {"a": 1, "b": 2},
+            {"a": 99, "c": 3},
+            strategy=ConflictResolution.OVERWRITE,
+        )
+        assert result == {"a": 99, "c": 3}
+
+    def test_reject_strategy_raises(self, mgr_memory: KnowledgeManager) -> None:
+        with pytest.raises(PermissionError, match="rejected by policy"):
+            mgr_memory.resolve_conflict(
+                Target.CAUSAL.value,
+                {"a": 1},
+                {"a": 2},
+                strategy=ConflictResolution.REJECT,
+            )
+
+    def test_merge_strategy_dict(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        result = mgr_memory.resolve_conflict(
+            Target.CAUSAL.value,
+            {"a": 1, "b": 2},
+            {"b": 3, "c": 4},
+            strategy=ConflictResolution.MERGE,
+        )
+        # a preserved from current, b last-writer-wins, c new
+        assert result["a"] == 1
+        assert result["b"] == 3  # last writer wins
+        assert result["c"] == 4
+
+    def test_merge_strategy_list(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        result = mgr_memory.resolve_conflict(
+            Target.CAUSAL.value,
+            [1, 2, 3],
+            [3, 4, 5],
+            strategy=ConflictResolution.MERGE,
+        )
+        assert sorted(result) == [1, 2, 3, 4, 5]
+
+    def test_merge_strategy_nested_dict(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        result = mgr_memory.resolve_conflict(
+            Target.CAUSAL.value,
+            {"inner": {"a": 1, "b": 2}},
+            {"inner": {"b": 99, "c": 3}},
+            strategy=ConflictResolution.MERGE,
+        )
+        assert result["inner"]["a"] == 1
+        assert result["inner"]["b"] == 99
+        assert result["inner"]["c"] == 3
+
+    def test_merge_with_lists_in_dict(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        result = mgr_memory.resolve_conflict(
+            Target.CAUSAL.value,
+            {"items": [1, 2]},
+            {"items": [2, 3]},
+            strategy=ConflictResolution.MERGE,
+        )
+        assert sorted(result["items"]) == [1, 2, 3]
+
+    def test_manual_strategy_keeps_current(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        result = mgr_memory.resolve_conflict(
+            Target.CAUSAL.value,
+            {"original": "data"},
+            {"incoming": "data"},
+            strategy=ConflictResolution.MANUAL,
+        )
+        assert result == {"original": "data"}
+
+    def test_default_strategy_reject(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        with pytest.raises(PermissionError):
+            mgr_memory.resolve_conflict(
+                Target.CAUSAL.value,
+                {"a": 1},
+                {"a": 2},
+                # no strategy specified — uses default (REJECT)
+            )
+
+    def test_auto_merge_on_write_conflict(
+        self, mgr_memory: KnowledgeManager
+    ) -> None:
+        mgr = KnowledgeManager(use_redis=False, auto_merge=True)
+        _register_mock_stores(mgr)
+        # Write once to bump version to 1
+        mgr.write(Target.EPISODIC.value, {"data": "v1"}, "CognitiveAgent")
+        assert mgr.get_version(Target.EPISODIC.value) == 1
+        mgr.close()

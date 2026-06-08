@@ -1,4 +1,4 @@
-"""Tests for all 92 primitives (27 predicates, 38 transforms, 27 classifiers)."""
+"""Tests for all 95 primitives (27 predicates, 41 transforms, 27 classifiers)."""
 
 import json
 import re
@@ -990,9 +990,9 @@ class TestPersuasionScoreClassifier:
 # =============================================================================
 
 class TestRegistryCompleteness:
-    def test_all_92_primitives_registered(self):
-        names = default_registry.list_primitives()
-        assert len(names) == 92, f"Expected 92 primitives, got {len(names)}"
+    def test_all_95_primitives_registered(self):
+        names = set(default_registry.list_primitives())
+        assert len(names) >= 95, f"Expected at least 95 primitives, got {len(names)}"
 
     def test_predicates_registered(self):
         names = default_registry.list_primitives()

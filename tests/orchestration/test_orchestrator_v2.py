@@ -363,7 +363,63 @@ class TestInterventionBudget:
         session_memory.delete_session("budget_test")
 
 
-class TestResume:
+class TestForceExploration:
+    def test_force_exploration_interval_parameter(self) -> None:
+        from orchestration.orchestrator import Orchestrator
+        cog = MagicMock(spec=CognitiveAgent)
+        strat = MagicMock(spec=StrategistAgent)
+        res = MagicMock(spec=ResearcherAgent)
+        km = MagicMock(spec=KnowledgeManager)
+        sm = MagicMock(spec=SessionMemory)
+        sm.get_session.return_value = None
+        sm.create_session.return_value = True
+        vic = MagicMock()
+        vic.name = "TestVictim"
+
+        o = Orchestrator(
+            cognitive_agent=cog,
+            strategist_agent=strat,
+            researcher_agent=res,
+            knowledge_manager=km,
+            session_memory=sm,
+            victim=vic,
+            campaign_id="force_test",
+            max_iterations=5,
+            force_exploration_interval=2,
+        )
+        assert o.force_exploration_interval == 2
+
+    def test_force_exploration_after_stalled_iterations(
+        self,
+        cognitive: MagicMock,
+        strategist: MagicMock,
+        researcher: MagicMock,
+        km: KnowledgeManager,
+        session_memory: SessionMemory,
+        victim: MagicMock,
+    ) -> None:
+        from orchestration.orchestrator import Orchestrator
+
+        # Strategist always returns None — should trigger force exploration
+        strategist.select_hypothesis_pair.return_value = (None, None)
+
+        o = Orchestrator(
+            cognitive_agent=cognitive,
+            strategist_agent=strategist,
+            researcher_agent=researcher,
+            knowledge_manager=km,
+            session_memory=session_memory,
+            victim=victim,
+            campaign_id="force_stall_test",
+            max_iterations=10,
+            force_exploration_interval=2,
+            synthesis_interval=100,
+        )
+        result = o.run()
+        # Pipeline should not crash; may or may not succeed
+        assert result is not None
+        assert "campaign_id" in result
+        session_memory.delete_session("force_stall_test")
     def test_resume_nonexistent(self, orchestrator: Any) -> None:
         o2 = orchestrator
         o2.campaign_id = "nonexistent_campaign"

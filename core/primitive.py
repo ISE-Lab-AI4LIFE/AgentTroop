@@ -650,7 +650,7 @@ class IntentPredicate(Predicate):
 
 @dataclass
 class MatchesJailbreakPatternPredicate(Predicate):
-    pattern_library: str = "harmbench"
+    pattern_library: str = "default_library"
 
     def __post_init__(self) -> None:
         self.name = "matches_jailbreak_pattern"
@@ -1820,7 +1820,7 @@ class LanguageScoreClassifier(Classifier):
 
 @dataclass
 class JailbreakLikelihoodClassifier(Classifier):
-    database: str = "harmbench"
+    database: str = "default"
 
     def __post_init__(self) -> None:
         self.name = "jailbreak_likelihood"
@@ -2297,6 +2297,166 @@ class PersuasionScoreClassifier(Classifier):
 
 
 # =============================================================================
+# GRAMMAR CHANGE TRANSFORMS (Section 3.1 — harmony_v5v.md)
+# =============================================================================
+
+
+@dataclass
+class ToInterrogativeTransform(Transform):
+    """Convert a declarative or imperative prompt into a question."""
+
+    def __post_init__(self) -> None:
+        self.name = "to_interrogative"
+        self.parameters = {}
+        self.input_type = "String"
+        self.output_type = "TransformResult"
+        self.metadata = {
+            "description": "Convert prompt from declarative/imperative to interrogative form.",
+            "category": "transform",
+            "related_primitives": ["to_imperative", "add_prefix"],
+        }
+
+    _INTERROGATIVE_PREFIXES = (
+        "How can I ", "How do I ", "What is ", "Where can I ",
+        "Could you explain ", "Would it be possible to ",
+    )
+
+    def evaluate(self, prompt: Prompt) -> Prompt:
+        lower = prompt.strip()
+        if lower.endswith("?"):
+            return prompt
+        for prefix in self._INTERROGATIVE_PREFIXES:
+            if lower.startswith(prefix.lower()):
+                return prompt + "?"
+        # Remove leading imperative verbs like "tell me", "list", "describe"
+        cleaned = lower
+        for imp in ("tell me ", "list ", "describe ", "explain ", "show me "):
+            if cleaned.lower().startswith(imp):
+                cleaned = cleaned[len(imp):].strip()
+                break
+        if cleaned:
+            return f"How can I {cleaned[0].lower() + cleaned[1:]}?"
+        return f"How can I {lower}?"
+
+
+@dataclass
+class ToImperativeTransform(Transform):
+    """Convert a declarative or interrogative prompt into an imperative command."""
+
+    def __post_init__(self) -> None:
+        self.name = "to_imperative"
+        self.parameters = {}
+        self.input_type = "String"
+        self.output_type = "TransformResult"
+        self.metadata = {
+            "description": "Convert prompt from declarative/interrogative to imperative form.",
+            "category": "transform",
+            "related_primitives": ["to_interrogative", "add_prefix"],
+        }
+
+    _IMPERATIVE_PREFIXES = (
+        "Tell me ", "Give me ", "Explain ", "Show me ",
+        "Describe ", "List ", "Write ", "Create ",
+    )
+
+    def evaluate(self, prompt: Prompt) -> Prompt:
+        lower = prompt.strip().lower()
+        for prefix in self._IMPERATIVE_PREFIXES:
+            if lower.startswith(prefix.lower()):
+                return prompt
+        # Remove leading question words and prepend "Tell me "
+        for qw in ("how can i ", "how do i ", "what is ", "where can i ",
+                    "could you ", "would it be possible to "):
+            if lower.startswith(qw):
+                rest = prompt[len(qw):].strip().rstrip("?")
+                return f"Tell me {rest}"
+        return f"Tell me {prompt.strip().rstrip('?')}"
+
+
+@dataclass
+class ToDeclarativeTransform(Transform):
+    """Convert an interrogative or imperative prompt into a declarative statement."""
+
+    def __post_init__(self) -> None:
+        self.name = "to_declarative"
+        self.parameters = {}
+        self.input_type = "String"
+        self.output_type = "TransformResult"
+        self.metadata = {
+            "description": "Convert prompt from interrogative/imperative to declarative form.",
+            "category": "transform",
+            "related_primitives": ["to_interrogative", "to_imperative"],
+        }
+
+    _QUESTION_WORDS = ("how can i ", "how do i ", "what is ", "where can i ",
+                       "could you ", "would it be possible to ", "can you ",
+                       "do you ", "why is ", "why does ")
+
+    def evaluate(self, prompt: Prompt) -> Prompt:
+        lower = prompt.strip()
+        # Already declarative — no question mark, no leading question word
+        if not lower.endswith("?") and not any(
+            lower.lower().startswith(qw) for qw in self._QUESTION_WORDS
+        ):
+            for imp in ("tell me ", "give me ", "show me "):
+                if lower.lower().startswith(imp):
+                    rest = lower[len(imp):].strip()
+                    if rest:
+                        return f"The user asks to {rest[0].lower() + rest[1:]}."
+                    break
+            return prompt
+
+        # Interrogative → declarative
+        cleaned = lower.rstrip("?").strip()
+        for qw in self._QUESTION_WORDS:
+            if cleaned.lower().startswith(qw):
+                rest = cleaned[len(qw):].strip()
+                if rest:
+                    return f"The user is asking about {rest[0].lower() + rest[1:]}."
+                break
+
+        # Imperative with explicit verb prefix → "The user asks to ..."
+        for imp in ("tell me ", "list ", "describe ", "explain ", "show me "):
+            if cleaned.lower().startswith(imp):
+                rest = cleaned[len(imp):].strip()
+                if rest:
+                    return f"The user asks to {rest[0].lower() + rest[1:]}."
+                break
+
+        return f"The user asks about {cleaned[0].lower() + cleaned[1:]}."
+
+
+# =============================================================================
+# NULLIFICATION INTERVENTION TRANSFORMS (Section 3.1 — harmony_v5v.md)
+# =============================================================================
+
+
+@dataclass
+class AddIgnoreFilterTokenTransform(Transform):
+    """Prepend a sentinel token designed to test the existence of a
+    keyword-based filter component by attempting to disable it."""
+
+    token: str = "[IGNORE_FILTER]"
+
+    def __post_init__(self) -> None:
+        self.name = "add_ignore_filter_token"
+        self.parameters = {"token": self.token}
+        self.input_type = "String"
+        self.output_type = "TransformResult"
+        self.metadata = {
+            "description": (
+                "Prepend a sentinel token (e.g. [IGNORE_FILTER]) to test "
+                "whether a keyword filter component exists."
+            ),
+            "category": "transform",
+            "related_primitives": ["add_prefix", "add_suffix"],
+        }
+
+    def evaluate(self, prompt: Prompt) -> Prompt:
+        return f"{self.token} {prompt}"
+
+
+# =============================================================================
 # REGISTRY
 # =============================================================================
 
@@ -2371,6 +2531,10 @@ def _register_default_primitives() -> PrimitiveRegistry:
     registry.register(PadToLengthTransform)
     registry.register(RandomCaseTransform)
     registry.register(CharacterSubstitutionTransform)
+    registry.register(ToInterrogativeTransform)
+    registry.register(ToImperativeTransform)
+    registry.register(ToDeclarativeTransform)
+    registry.register(AddIgnoreFilterTokenTransform)
 
     # Classifiers (27)
     registry.register(ToxicityScoreClassifier)

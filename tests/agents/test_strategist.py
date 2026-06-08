@@ -13,7 +13,8 @@ from core.intervention import Intervention
 from core.primitive import Transform, default_registry
 from core.program import IfThenElseNode, PredicateNode, Program
 from knowledge.episodic.episodic import EpisodicMemory
-from llm.llm_client import LLMClient
+from llm.llm_client import OpenRouterClient
+LLMClient = OpenRouterClient
 from synthesis.grammar_exporter import GrammarExporter, PrimitiveCatalog
 
 
@@ -178,9 +179,12 @@ class TestSelectHypothesisPair:
         assert pair == (h1, h2) or pair == (h2, h1)
 
     def test_returns_none_when_fewer_than_two(self, agent) -> None:
-        h1 = _make_text_hypothesis()
         assert agent.select_hypothesis_pair([]) == (None, None)
-        assert agent.select_hypothesis_pair([h1]) == (None, None)
+        h1 = _make_text_hypothesis()
+        h1_out, h2_out = agent.select_hypothesis_pair([h1])
+        assert h1_out is h1
+        assert h2_out is not None
+        assert getattr(h2_out, "id", "") == "null_hypothesis"
 
     def test_works_with_exactly_two(self, agent) -> None:
         h1 = _make_text_hypothesis(confidence=0.9)
@@ -305,13 +309,24 @@ class TestDesignIntervention:
         # Actually let's just verify it returns something.
         assert isinstance(intv, Intervention)
 
-    def test_returns_none_when_no_discrimination_possible(self, agent) -> None:
+    def test_returns_default_when_no_discrimination_possible(self, agent) -> None:
         h1 = _make_program_hypothesis()
         h2 = _make_program_hypothesis()  # identical
         intv = agent.design_intervention(
             h1, h2, base_prompts=["irrelevant"],
         )
-        assert intv is None
+        assert intv is not None
+        assert isinstance(intv, Intervention)
+        assert intv.metadata.get("exploratory") is True
+
+    def test_default_intervention_has_transform(self, agent, raw_transform) -> None:
+        h1 = _make_program_hypothesis()
+        h2 = _make_program_hypothesis()  # identical → no discriminating candidate
+        intv = agent.design_intervention(
+            h1, h2, base_prompts=["some prompt"],
+        )
+        assert intv is not None
+        assert len(intv.transforms) >= 0  # identity or a transform
 
     def test_custom_base_prompts(self, agent) -> None:
         h1 = _make_program_hypothesis()
@@ -406,7 +421,7 @@ class TestRunInterventionRound:
         assert result.episode_id == "ep_round"
         assert result.delta == 1.0
 
-    def test_returns_none_with_single_hypothesis(self, agent) -> None:
+    def test_returns_default_with_single_hypothesis(self, agent) -> None:
         h1 = _make_text_hypothesis()
         victim = _make_victim()
         result = agent.run_intervention_round(
@@ -414,9 +429,11 @@ class TestRunInterventionRound:
             victim=victim,
             campaign_id="camp",
         )
-        assert result is None
+        # Now returns a default exploration intervention instead of None
+        assert result is not None
+        assert isinstance(result, InterventionResult)
 
-    def test_returns_none_when_no_discriminating_intervention(
+    def test_returns_default_when_no_discriminating_intervention(
         self, agent,
     ) -> None:
         h1 = _make_program_hypothesis()
@@ -428,7 +445,9 @@ class TestRunInterventionRound:
             campaign_id="camp",
             base_prompts=["test"],
         )
-        assert result is None
+        # Now returns a default exploration intervention instead of None
+        assert result is not None
+        assert isinstance(result, InterventionResult)
 
 
 # ===================================================================

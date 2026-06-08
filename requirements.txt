@@ -20,6 +20,7 @@ sentence-transformers>=3.0  # Semantic Memory (L5) — search_by_text / hybrid_s
 # -- Core ---------------------------------------------------------------------
 scikit-learn>=1.4        # adapters/toy_victims/neural.py — CountVectorizer, LogisticRegression
 networkx>=3.0            # evaluation/structural_recovery.py — graph metrics
+scipy>=1.10              # knowledge/causal_graph.py — Fisher's exact test for causal edges
 
 # -- Redis (optional, for Knowledge Manager proposal queue) --------------------
 redis>=5.0               # Knowledge Manager — proposal queue & session cache

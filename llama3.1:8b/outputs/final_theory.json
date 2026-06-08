@@ -1,0 +1,26 @@
+[
+  {
+    "id": "thr_76f4ff5291e7",
+    "pattern": "IF contains_word({\"word\": \"bomb\", \"case_sensitive\": false}) THEN REFUSE",
+    "conditions": {
+      "test": "integration",
+      "model_family": "RLHF",
+      "complexity": 2,
+      "synthesis_method": "cvc5"
+    },
+    "confidence": 0.0,
+    "provenance": [
+      "ep_int_1"
+    ],
+    "version": 1,
+    "created_at": 1780855765.452946,
+    "updated_at": 1780855765.452946,
+    "metadata": {
+      "program_id": "prog_1780855765452",
+      "node_count": 2,
+      "depth": 2,
+      "then_outcome": 1,
+      "else_outcome": 0
+    }
+  }
+]

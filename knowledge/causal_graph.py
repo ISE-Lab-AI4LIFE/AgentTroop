@@ -11,7 +11,19 @@ from typing import Any, Dict, List, Optional, Tuple
 from neo4j import GraphDatabase, Session
 from neo4j.exceptions import ServiceUnavailable
 
+try:
+    from scipy.stats import fisher_exact
+except ImportError:
+    fisher_exact = None
+
 logger = logging.getLogger(__name__)
+
+_MIN_INTERVENTIONS_FOR_EDGE = 3  # minimum trials per do-condition (report: "ít nhất 3 lần")
+# Minimum total observations across both conditions for statistical significance.
+# With Fisher's exact test, 5 per condition (10 total) is typically needed for p<0.05
+# with a perfect effect.  The report's "≥3" is a soft lower bound.
+_MIN_TOTAL_OBSERVATIONS = 6
+_P_VALUE_THRESHOLD = 0.05
 
 _CYPHER_PROP_RE = re.compile(r"[^a-zA-Z0-9_]")
 
@@ -274,7 +286,19 @@ class CausalGraph:
         strength: float,
         p_value: float,
         intervention_ids: List[str],
+        num_trials: int = 0,
     ) -> bool:
+        effective_trials = max(len(intervention_ids), num_trials)
+        if effective_trials < _MIN_INTERVENTIONS_FOR_EDGE:
+            raise ValueError(
+                f"Need at least {_MIN_INTERVENTIONS_FOR_EDGE} trials "
+                f"to establish a causal edge, got {effective_trials}"
+            )
+        if p_value >= _P_VALUE_THRESHOLD:
+            raise ValueError(
+                f"Causal edge requires p-value < {_P_VALUE_THRESHOLD}, "
+                f"got {p_value:.4f}. Use compute_p_value() to re-evaluate."
+            )
         strength = max(0.0, min(1.0, float(strength)))
         p_value = max(0.0, min(1.0, float(p_value)))
         edge = CausalEdge(
@@ -510,3 +534,152 @@ class CausalGraph:
             intervention_ids=intervention_ids,
             created_at=float(rel.get("created_at", time.time())),
         )
+
+    # ------------------------------------------------------------------
+    # Intervention-based causal discovery (Section 8 of harmony_v5v.md)
+    # ------------------------------------------------------------------
+
+    def do_intervention(
+        self,
+        intervention_id: str,
+        source_name: str,
+        target_name: str,
+        outcomes_do_x0: List[int],
+        outcomes_do_x1: List[int],
+    ) -> Dict[str, Any]:
+        """Record a do-operator intervention and update the causal edge.
+
+        Simulates do(X=x) by recording outcomes under two conditions
+        (X=x0 and X=x1), then computing the causal strength and p-value.
+
+        Parameters
+        ----------
+        intervention_id : str
+            Unique ID for this intervention.
+        source_name : str
+            Name of the cause node (X).
+        target_name : str
+            Name of the effect node (Y).
+        outcomes_do_x0 : list of int
+            Outcomes (0/1) observed when X is set to x0.
+        outcomes_do_x1 : list of int
+            Outcomes (0/1) observed when X is set to x1.
+
+        Returns
+        -------
+        dict with keys: strength, p_value, edge_added
+
+        Raises
+        ------
+        ValueError
+            If either outcome list has fewer than 3 observations.
+        """
+        if len(outcomes_do_x0) < _MIN_INTERVENTIONS_FOR_EDGE or len(outcomes_do_x1) < _MIN_INTERVENTIONS_FOR_EDGE:
+            raise ValueError(
+                f"Each do-condition needs at least {_MIN_INTERVENTIONS_FOR_EDGE} observations, "
+                f"got {len(outcomes_do_x0)} and {len(outcomes_do_x1)}"
+            )
+        if len(outcomes_do_x0) + len(outcomes_do_x1) < _MIN_TOTAL_OBSERVATIONS:
+            raise ValueError(
+                f"Need at least {_MIN_TOTAL_OBSERVATIONS} total observations "
+                f"across both do-conditions to achieve p < {_P_VALUE_THRESHOLD}, "
+                f"got {len(outcomes_do_x0) + len(outcomes_do_x1)}"
+            )
+
+        source_id = self.get_or_create_node(source_name, "primitive")
+        target_id = self.get_or_create_node(target_name, "primitive")
+
+        p_value = self._compute_fisher_p_value(outcomes_do_x0, outcomes_do_x1)
+        strength = self._compute_causal_strength(outcomes_do_x0, outcomes_do_x1)
+
+        total_trials = len(outcomes_do_x0) + len(outcomes_do_x1)
+
+        existing_edge = self.get_edge(source_id, target_id)
+        base_iids: List[str] = [intervention_id]
+
+        if existing_edge is not None:
+            base_iids = list(
+                set(existing_edge.intervention_ids + base_iids)
+            )
+            strength = max(strength, existing_edge.strength)
+            p_value = min(p_value, existing_edge.p_value)
+
+        edge_added = False
+        try:
+            edge_added = self.add_edge(
+                source_id=source_id,
+                target_id=target_id,
+                strength=strength,
+                p_value=p_value,
+                intervention_ids=base_iids,
+                num_trials=total_trials,
+            )
+        except ValueError as exc:
+            logger.warning(
+                "Edge not added for do(%s): %s",
+                intervention_id, exc,
+            )
+
+        return {
+            "strength": strength,
+            "p_value": p_value,
+            "edge_added": edge_added,
+            "source_id": source_id,
+            "target_id": target_id,
+        }
+
+    @staticmethod
+    def _compute_fisher_p_value(
+        outcomes_x0: List[int],
+        outcomes_x1: List[int],
+    ) -> float:
+        """Compute p-value using Fisher's exact test.
+
+        Builds a 2x2 contingency table:
+                        Y=0    Y=1
+            do(X=x0)   a      b
+            do(X=x1)   c      d
+
+        Returns 1.0 if scipy is not available.
+        """
+        a = outcomes_x0.count(0)
+        b = outcomes_x0.count(1)
+        c = outcomes_x1.count(0)
+        d = outcomes_x1.count(1)
+
+        if fisher_exact is not None:
+            _, p_value = fisher_exact([[a, b], [c, d]])
+            return float(p_value)
+        logger.warning(
+            "scipy.stats.fisher_exact not available; "
+            "falling back to heuristic p-value"
+        )
+        return _heuristic_p_value(a, b, c, d)
+
+    @staticmethod
+    def _compute_causal_strength(
+        outcomes_x0: List[int],
+        outcomes_x1: List[int],
+    ) -> float:
+        """strength(X->Y) = |P(Y=1|do(X=x1)) - P(Y=1|do(X=x0))|."""
+        p_x0 = sum(outcomes_x0) / max(len(outcomes_x0), 1)
+        p_x1 = sum(outcomes_x1) / max(len(outcomes_x1), 1)
+        return abs(p_x1 - p_x0)
+
+
+def _heuristic_p_value(a: int, b: int, c: int, d: int) -> float:
+    """Heuristic p-value approximation when scipy is unavailable.
+
+    Uses the chi-squared-like formula:
+        chi2 = (ad - bc)^2 * N / ((a+b)(c+d)(a+c)(b+d))
+    where N = a+b+c+d, then converts to approximate p-value.
+    """
+    n = a + b + c + d
+    if n == 0:
+        return 1.0
+    denom = (a + b) * (c + d) * (a + c) * (b + d)
+    if denom == 0:
+        return 1.0
+    chi2 = float((a * d - b * c) ** 2) * n / float(denom)
+    from math import exp
+    return exp(-chi2 / 2.0)
