@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 from knowledge.episodic import EpisodicMemory
 from evaluation.metrics.intervention_efficiency import InterventionEfficiencyMetric
@@ -13,6 +13,8 @@ class RQ1Evaluator:
     """RQ1: Are targeted interventions more query-efficient than random probing?
 
     Measures the number of interventions needed to reach accuracy >85%.
+    When ``predict_fn`` is provided, accuracy is the program's running prediction
+    accuracy against ground-truth episode outcomes.
     """
 
     def __init__(self, episodic_memory: EpisodicMemory) -> None:
@@ -23,6 +25,7 @@ class RQ1Evaluator:
         campaign_id: str,
         experiment_id: Optional[str] = None,
         threshold: float = 0.85,
+        predict_fn: Optional[Callable[[str], int]] = None,
         baseline_campaign_id: Optional[str] = None,
         baseline_experiment_id: Optional[str] = None,
     ) -> dict:
@@ -30,6 +33,7 @@ class RQ1Evaluator:
             campaign_id=campaign_id,
             experiment_id=experiment_id,
             threshold=threshold,
+            predict_fn=predict_fn,
             baseline_campaign_id=baseline_campaign_id,
             baseline_experiment_id=baseline_experiment_id,
         )

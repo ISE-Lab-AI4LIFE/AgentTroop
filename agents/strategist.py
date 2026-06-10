@@ -27,6 +27,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from adapters.base_victim import BaseVictim
+from core import ConditionRegistry
+from core.condition import registry as _condition_registry
 from core.executor import ProgramExecutor
 from core.intervention import Intervention
 from core.primitive import PrimitiveRegistry, Transform, default_registry
@@ -105,6 +107,7 @@ class StrategistAgent:
         max_candidates_heuristic: int = 100,
         max_candidates_llm: int = 20,
         num_trials: int = 1,
+        condition_registry: Optional[ConditionRegistry] = None,
         ontology_memory: Optional[Any] = None,
         allowed_transform_names: Optional[List[str]] = None,
         blocked_transform_names: Optional[List[str]] = None,
@@ -121,6 +124,7 @@ class StrategistAgent:
             )
         self.intervention_budget = max(_MIN_BUDGET, min(_MAX_BUDGET, intervention_budget))
 
+        self.condition_registry = condition_registry or _condition_registry
         self.episodic_memory = episodic_memory
         self.executor = executor or ProgramExecutor(primitive_registry)
         self.llm_client = llm_client
@@ -155,11 +159,26 @@ class StrategistAgent:
         # Backward-compat belief_updater reference (wraps VS)
         self._belief_updater = belief_updater
 
+        # Probe pool cache: ensures select_hypothesis_pair and
+        # design_intervention evaluate the same prompt set in a single cycle.
+        self._cached_probe_pool: Optional[List[str]] = None
+
+        # FIX 3: Failed-pair ban list — tracks pairs that repeatedly fail
+        # to produce discriminative interventions.
+        self._pair_failures: Dict[Tuple[str, str], int] = {}
+        self._pair_ban_until: Dict[Tuple[str, str], int] = {}
+        self._cycle_count: int = 0
+
+        # FIX 4: Intervention deduplication — avoids re-testing the same
+        # (prompt, transform) combinations.
+        self._prompt_visit_count: Dict[str, int] = {}
+        self._used_prompt_transform: Dict[str, set] = {}
+
         if efe_calculator is None and not disable_efe:
             from inference.efe import ExpectedFreeEnergy
             self.efe_calculator = ExpectedFreeEnergy(
                 version_space=self._version_space,
-                pragmatic_weight=0.0,
+                pragmatic_weight=0.1,
             )
             logger.info("StrategistAgent: auto-created EFE calculator")
         else:
@@ -197,6 +216,8 @@ class StrategistAgent:
     def select_hypothesis_pair(
         self,
         hypotheses: List[Any],
+        campaign_id: Optional[str] = None,
+        experiment_id: Optional[str] = None,
     ) -> Tuple[Optional[Any], Optional[Any]]:
         """Select the pair with the highest epistemic uncertainty.
 
@@ -208,7 +229,17 @@ class StrategistAgent:
         ``BayesianBeliefUpdater``) to compute uncertainty as
         ``1 - |b(h₁) - b(h₂)|``.
 
-        **Fallback 2**: confidence-based uncertainty ``1 - |conf₁ - conf₂|``.
+        **Fallback 2**: prediction-diverse pair selection.
+        Screens candidate pairs against a probe set of prompts to find
+        pairs that actually produce different predictions on at least
+        one prompt.  Among pairs with nonzero discriminative power,
+        selects the one with the highest prediction disagreement rate.
+        The probe set includes prompts from Episodic Memory (when
+        *campaign_id* is given) so that keyword-based hypotheses
+        extracted from anomaly prompts can actually match prompt text.
+
+        **Fallback 3**: confidence-based uncertainty ``1 - |conf₁ - conf₂|``
+        (lowest priority — only used when prediction screening fails).
 
         When only 1 hypothesis is provided, creates a null hypothesis that
         always predicts ACCEPT (0) to enable intervention design.
@@ -217,6 +248,11 @@ class StrategistAgent:
         ----------
         hypotheses : list
             Each element must have a ``confidence`` attribute (float).
+        campaign_id : str, optional
+            When provided, Episodic Memory prompts are included in the
+            probe set so the prediction-diversity check considers the
+            same prompts that ``design_intervention`` will use.
+        experiment_id : str, optional
 
         Returns
         -------
@@ -233,34 +269,137 @@ class StrategistAgent:
             null = _NullHypothesis()
             return h, null
 
-        # ── Primary: Version Space disagreement (disagreement-driven) ──
-        vs_result = self._select_from_version_space(hypotheses)
-        if vs_result is not None:
-            return vs_result
+        # FIX 3: Skip banned hypothesis pairs.  A pair is banned when
+        # it has failed to produce a discriminative intervention for
+        # ``FIX3_BAN_CYCLES`` consecutive cycles.
+        FIX3_BAN_CYCLES = 10
+        self._cycle_count += 1
+        now = self._cycle_count
 
-        # ── Fallback: confidence-based uncertainty ──
+        def _pair_key(a: Any, b: Any) -> Tuple[str, str]:
+            def _get_id(x: Any) -> str:
+                try:
+                    if hasattr(x, "id"):
+                        val = x.id
+                        if isinstance(val, str):
+                            return val
+                    if hasattr(x, "program_id"):
+                        val = x.program_id
+                        if isinstance(val, str):
+                            return val
+                except Exception:
+                    pass
+                return str(id(x))
+            aid = _get_id(a)
+            bid = _get_id(b)
+            return (aid, bid) if aid < bid else (bid, aid)
+
+        pairs_to_skip: set = set()
+        for (a_id, b_id), ban_until in list(self._pair_ban_until.items()):
+            if now < ban_until:
+                pairs_to_skip.add((a_id, b_id))
+
+        # ── Primary: Version Space disagreement (disagreement-driven) ──
+        vs_result = self._select_from_version_space(
+            hypotheses, campaign_id=campaign_id, experiment_id=experiment_id,
+        )
+        if vs_result is not None:
+            h1, h2 = vs_result
+            if _pair_key(h1, h2) not in pairs_to_skip:
+                return vs_result
+            logger.info("FIX3: Skipped banned VS pair (%s, %s)",
+                        getattr(h1, "id", "?"), getattr(h2, "id", "?"))
+
+        # ── Fallback 1: POMDP belief state ──
+        if self._belief_updater is not None:
+            belief_result = self._select_from_belief_state(hypotheses)
+            if belief_result is not None:
+                h1, h2 = belief_result
+                if _pair_key(h1, h2) not in pairs_to_skip:
+                    return belief_result
+                logger.info("FIX3: Skipped banned belief pair (%s, %s)",
+                            getattr(h1, "id", "?"), getattr(h2, "id", "?"))
+
+        # ── Fallback 2: prediction-diverse pair selection ──
+        # Probe prompt pool: include memory prompts (same as what
+        # design_intervention uses) so keyword hypotheses can match.
+        # Cache the resolved pool so design_intervention uses the same set.
+        if self._cached_probe_pool is None:
+            self._cached_probe_pool = self._resolve_base_prompts(
+                None, campaign_id, experiment_id,
+            )
+        probes = self._cached_probe_pool[:10]  # small probe — more would be redundant
+
+        # Streaming probe: test pairs one at a time, return the first
+        # pair with any prediction disagreement.  For large hypothesis
+        # sets this avoids probing all C(n,2) pairs.
+        # Also tracks:
+        #   best_fallback — highest confidence-uncertainty pair
+        #   best_diff     — highest confidence-uncertainty pair whose
+        #                   hypotheses have different condition_name values
+        #                   (MAX DIFFERENCE heuristic — ensures
+        #                   discriminative power even when disagreement=0).
+        best_fallback: Tuple[float, Any, Any] = (-1.0, None, None)
+        best_diff: Tuple[float, Any, Any] = (-1.0, None, None)
+        for h1, h2 in itertools.combinations(hypotheses, 2):
+            if _pair_key(h1, h2) in pairs_to_skip:
+                continue
+            pred_disagreement = self._probe_prediction_disagreement(
+                h1, h2, probes,
+            )
+            if pred_disagreement > 0.0:
+                logger.info(
+                    "Selected pair via prediction diversity "
+                    "disagreement=%.3f (probes=%d)",
+                    pred_disagreement, len(probes),
+                )
+                return h1, h2
+            conf_uncertainty = self._confidence_uncertainty(h1, h2)
+            if conf_uncertainty > best_fallback[0]:
+                best_fallback = (conf_uncertainty, h1, h2)
+            # MAX DIFFERENCE heuristic: favour pairs from different
+            # predicate families so the intervention can actually
+            # discriminate between two distinct hypotheses.
+            if h1.condition_name and h2.condition_name and h1.condition_name != h2.condition_name:
+                if conf_uncertainty > best_diff[0]:
+                    best_diff = (conf_uncertainty, h1, h2)
+
+        # No pair has nonzero prediction disagreement →
+        # fall through to confidence-only fallback with the best
+        # confidence-uncertainty pair found during streaming.
+        # When available, prefer a MAX DIFFERENCE pair (different
+        # condition families) over a same-family pair.
+        pick = best_diff if best_diff[0] > 0 else best_fallback
+        if pick[1] is not None and pick[2] is not None:
+            tag = "max-difference" if pick is best_diff else "confidence-uncertainty"
+            logger.info(
+                "No pair with prediction disagreement; "
+                "falling back to %s pair %.3f",
+                tag, pick[0],
+            )
+            return pick[1], pick[2]
+
+        # ── Fallback 3: confidence-based uncertainty (rescue) ──
+        # FIX 3: Exclude banned pairs from this fallback too.
         best_pair = (None, None)
         best_uncertainty = -1.0
-
         for h1, h2 in itertools.combinations(hypotheses, 2):
-            conf1 = getattr(h1, "confidence", 0.5)
-            conf2 = getattr(h2, "confidence", 0.5)
-            if not isinstance(conf1, (int, float)):
-                conf1 = 0.5
-            if not isinstance(conf2, (int, float)):
-                conf2 = 0.5
-            uncertainty = 1.0 - abs(conf1 - conf2)
+            if _pair_key(h1, h2) in pairs_to_skip:
+                continue
+            uncertainty = self._confidence_uncertainty(h1, h2)
             if uncertainty > best_uncertainty:
                 best_uncertainty = uncertainty
                 best_pair = (h1, h2)
 
-        logger.info("Selected pair via confidence uncertainty=%.3f (fallback)",
+        logger.info("Selected pair via confidence uncertainty=%.3f (last-resort fallback)",
                      best_uncertainty)
         return best_pair
 
     def _select_from_version_space(
         self,
         hypotheses: List[Any],
+        campaign_id: Optional[str] = None,
+        experiment_id: Optional[str] = None,
     ) -> Optional[Tuple[Any, Any]]:
         """Try to select a pair from version space disagreement.
 
@@ -275,7 +414,7 @@ class StrategistAgent:
             return None
 
         try:
-            prompts = self._resolve_base_prompts(None, None, None)
+            prompts = self._resolve_base_prompts(None, campaign_id, experiment_id)
         except Exception:
             prompts = []
 
@@ -283,7 +422,7 @@ class StrategistAgent:
             return None
 
         # Wrap the pair as Hypothesis-like objects for downstream compat
-        pair = vs.get_most_uncertain_pair(prompts, executor)
+        pair = vs.get_most_uncertain_pair(prompts, executor, use_posterior_tie_breaker=True)
         if pair is None:
             return None
 
@@ -353,6 +492,79 @@ class StrategistAgent:
         except Exception:
             return None
 
+    # ------------------------------------------------------------------
+    # Internal helpers — prediction-diverse pair selection
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _confidence_uncertainty(h1: Any, h2: Any) -> float:
+        """Confidence-based uncertainty ``1 - |conf₁ - conf₂|``."""
+        conf1 = getattr(h1, "confidence", 0.5)
+        conf2 = getattr(h2, "confidence", 0.5)
+        if not isinstance(conf1, (int, float)):
+            conf1 = 0.5
+        if not isinstance(conf2, (int, float)):
+            conf2 = 0.5
+        return 1.0 - abs(conf1 - conf2)
+
+    def _probe_prediction_disagreement(
+        self,
+        h1: Any,
+        h2: Any,
+        probes: List[str],
+    ) -> float:
+        """Prediction-disagreement check using stable (multi-trial) prediction.
+
+        Uses ``_predict_outcome_stable`` (majority vote over *num_trials*)
+        so that agreement with the subsequent ``_discriminative_power``
+        scoring in ``design_intervention`` is guaranteed.  A single-trial
+        probe can disagree with the multi-trial scorer when LLM predictions
+        are stochastic, causing the pair-selection vs intervention-design
+        mismatch.
+
+        Returns 1.0 as soon as *any* probe produces different predictions.
+        Caps the probe count at 10.
+
+        Returns a float in ``[0.0, 1.0]``.
+        """
+        if not probes:
+            return 0.0
+        for p in probes[:10]:
+            p1 = self._predict_outcome_stable(p, h1)
+            p2 = self._predict_outcome_stable(p, h2)
+            if p1 != p2:
+                return 1.0
+        return 0.0
+
+    def _select_from_belief_state(
+        self,
+        hypotheses: List[Any],
+    ) -> Optional[Tuple[Any, Any]]:
+        """Fallback: select pair using the POMDP belief state.
+
+        Returns (h1, h2) or None if belief state is unavailable.
+        """
+        if self._belief_updater is None:
+            return None
+        try:
+            belief = self._belief_updater.belief
+            # Find the two hypotheses with highest belief uncertainty
+            # (closest posterior probabilities).
+            pairs: List[Tuple[float, Any, Any]] = []
+            for h1, h2 in itertools.combinations(hypotheses, 2):
+                b1 = belief.probability(getattr(h1, "id", "h1"))
+                b2 = belief.probability(getattr(h2, "id", "h2"))
+                uncertainty = 1.0 - abs(b1 - b2)
+                pairs.append((uncertainty, h1, h2))
+            if not pairs:
+                return None
+            pairs.sort(key=lambda x: -x[0])
+            logger.info("Selected pair via POMDP belief uncertainty=%.3f",
+                         pairs[0][0])
+            return pairs[0][1], pairs[0][2]
+        except Exception:
+            return None
+
     def design_intervention(
         self,
         h1: Any,
@@ -395,7 +607,13 @@ class StrategistAgent:
         Intervention or None
             ``None`` if no discriminating candidate is found.
         """
-        prompts = self._resolve_base_prompts(base_prompts, campaign_id, experiment_id)
+        # Use cached probe pool when available (ensured consistent with
+        # select_hypothesis_pair), then clear for next cycle.
+        if self._cached_probe_pool is not None:
+            prompts = self._cached_probe_pool
+            self._cached_probe_pool = None
+        else:
+            prompts = self._resolve_base_prompts(base_prompts, campaign_id, experiment_id)
         transforms = self._get_transforms()
 
         candidates: List[Tuple[float, Intervention]] = []
@@ -449,12 +667,39 @@ class StrategistAgent:
                 if best_score2 > 0.0:
                     return best_intv2
 
+        # FIX 3: Track consecutive failures for this pair and ban when
+        # threshold is reached.
+        if best_score <= 0.0:
+            h1_id = getattr(h1, "id", "") or getattr(h1, "program_id", "") or str(id(h1))
+            h2_id = getattr(h2, "id", "") or getattr(h2, "program_id", "") or str(id(h2))
+            pair_key: Tuple[str, str] = (h1_id, h2_id) if h1_id < h2_id else (h2_id, h1_id)
+            fails = self._pair_failures.get(pair_key, 0) + 1
+            self._pair_failures[pair_key] = fails
+            logger.info("FIX3: Pair %s failure count = %d", pair_key, fails)
+            if fails >= 3:
+                ban_until = self._cycle_count + 10
+                self._pair_ban_until[pair_key] = ban_until
+                logger.warning("FIX3: Banned pair %s until cycle %d", pair_key, ban_until)
+                self._pair_failures.pop(pair_key, None)
+            else:
+                # Reset fail counter after ban expires
+                if self._pair_ban_until.get(pair_key, 0) <= self._cycle_count:
+                    self._pair_failures[pair_key] = fails
+
         if best_score <= 0.0:
             logger.warning(
                 "Best intervention has zero discriminative power; "
                 "creating default exploration intervention"
             )
             return self._create_default_intervention(prompts, transforms)
+
+        # FIX 3: Reset failure count on success (non-zero score found).
+        h1_id = getattr(h1, "id", "") or getattr(h1, "program_id", "") or str(id(h1))
+        h2_id = getattr(h2, "id", "") or getattr(h2, "program_id", "") or str(id(h2))
+        success_key: Tuple[str, str] = (h1_id, h2_id) if h1_id < h2_id else (h2_id, h1_id)
+        if success_key in self._pair_failures:
+            old_fails = self._pair_failures.pop(success_key, 0)
+            logger.info("FIX3: Pair %s succeeded — reset failure count from %d", success_key, old_fails)
 
         avg_score = sum(d for d, _ in candidates) / len(candidates)
         efe_label = "ACTIVE_INFERENCE" if efe_used else "HEURISTIC"
@@ -485,12 +730,41 @@ class StrategistAgent:
         if self.efe_calculator is None:
             return candidates
 
+        # FIX 1: Pre-compute predictions for ALL version space candidates
+        # so the EFE calculation reflects the true belief state rather than
+        # defaulting 28/30 candidates to ACCEPT (which makes EFE ~0 always).
+        vs_candidates = list(self._version_space.candidates) if self._version_space is not None else []
+        _pred_cache: Dict[Tuple[str, str], int] = {}
+
         def _predict_fn(state_id: str, prompt: str) -> int:
+            # h1/h2 may use condition_name path — try them first
             if state_id == getattr(h1, "id", "h1"):
                 return self._predict_outcome_stable(prompt, h1)
-            elif state_id == getattr(h2, "id", "h2"):
+            if state_id == getattr(h2, "id", "h2"):
                 return self._predict_outcome_stable(prompt, h2)
-            return 0
+            # All other VS candidates: use program execution, cached per
+            # (program_id, prompt) to avoid redundant evaluations.
+            key = (state_id, prompt)
+            if key not in _pred_cache:
+                pred = 0
+                for c in vs_candidates:
+                    if c.program_id == state_id:
+                        try:
+                            pred = self._predict_outcome_stable(prompt, c)
+                        except Exception:
+                            pred = 0
+                        break
+                _pred_cache[key] = pred
+            return _pred_cache[key]
+
+        # FIX 6: Cross-type pairs intrinsically provide more epistemic
+        # value, so add a small bonus to their EFE score.
+        cross_type_bonus = 0.0
+        c1 = getattr(h1, "condition_name", "")
+        c2 = getattr(h2, "condition_name", "")
+        if c1 and c2 and c1 != c2:
+            cross_type_bonus = 0.2
+            logger.debug("FIX6: Cross-type pair (%s vs %s) — +0.2 EFE bonus", c1, c2)
 
         rescored: List[Tuple[float, Intervention]] = []
         for old_score, intv in candidates:
@@ -502,7 +776,12 @@ class StrategistAgent:
             efe = self.efe_calculator.compute(action, _predict_fn)
             # Lower EFE = more informative.  Convert to score by negation
             # so that higher score = better (matching the Δ convention).
-            score = max(0.0, -efe)
+            # Only apply cross-type bonus when there is actual discriminative
+            # power (efe < 0).  Zero or positive EFE means no information
+            # gain — score stays 0.0 so the caller falls through to the
+            # default intervention (with transforms).
+            base_score = max(0.0, -efe)
+            score = base_score + cross_type_bonus if base_score > 0.0 else 0.0
             rescored.append((score, intv))
 
         if rescored:
@@ -522,16 +801,29 @@ class StrategistAgent:
         """Create a default exploration intervention when no discriminating
         candidate is found.
 
-        Picks the first available base prompt and applies a random transform
-        (or identity if no transforms exist), ensuring the pipeline produces
-        *some* data to learn from.
+        FIX 4: Picks the least-tested base prompt and least-used transform
+        rather than always using ``prompts[0]`` + ``random.choice(transforms)``.
+        This avoids repeatedly testing the same (prompt, transform) pair.
         """
         if not prompts:
             prompts = self._default_base_prompts()
-        bp = prompts[0]
+
+        # FIX 4: Pick the least-tested prompt.
+        bp = min(prompts, key=lambda p: self._prompt_visit_count.get(p, 0))
+        self._prompt_visit_count[bp] = self._prompt_visit_count.get(bp, 0) + 1
 
         if transforms:
-            t = random.choice(transforms)
+            # FIX 4: Pick the least-used transform for this prompt.
+            used_set = self._used_prompt_transform.setdefault(bp, set())
+            unused = [t for t in transforms if t.name not in used_set]
+            if unused:
+                t = unused[0]
+            else:
+                t = min(transforms, key=lambda tr: sum(
+                    1 for s in self._used_prompt_transform.values()
+                    if tr.name in s
+                ))
+            used_set.add(t.name)
             intv = Intervention(base_prompt=bp, transforms=[t])
             logger.info(
                 "Default intervention: prompt=%r transform=%s",
@@ -542,6 +834,7 @@ class StrategistAgent:
             logger.info("Default intervention (identity): prompt=%r", bp[:60])
 
         intv.metadata["exploratory"] = True
+        intv.metadata["prompt_visits"] = self._prompt_visit_count.get(bp, 0)
         return intv
 
     def execute_intervention(
@@ -888,6 +1181,18 @@ class StrategistAgent:
                     if len(result) >= 30:
                         break
 
+        # ALWAYS ensure at least 10 base prompts — necessary for the
+        # prediction-diversity probe to function when memory is sparse.
+        if len(result) < 10:
+            pool = self._default_base_prompts()
+            random.shuffle(pool)
+            for p in pool:
+                if p not in seen:
+                    seen.add(p)
+                    result.append(p)
+                if len(result) >= 10:
+                    break
+
         nh = max(self.intervention_budget // 2, 10)
         random.shuffle(result)
         result = result[:nh]
@@ -908,12 +1213,18 @@ class StrategistAgent:
         campaign_id: str,
         experiment_id: Optional[str] = None,
     ) -> List[str]:
-        """Query Episodic Memory for prompts that produced differing outcomes.
+        """Query Episodic Memory for prompts to use as intervention base prompts.
 
-        Episodes where outcome==0 and outcome==1 exist for the same
-        base prompt are especially useful because they indicate a
-        region of uncertainty where interventions are likely to be
-        discriminating.
+        Returns ALL episode prompts (not just those with mixed outcomes).
+        Mixed-outcome prompts are included first (they indicate uncertainty
+        regions), followed by the rest.
+
+        Previously this method only returned prompts where both outcome==0
+        and outcome==1 existed for the same base prompt.  That was too
+        restrictive — it excluded the very prompts needed to match
+        hypothesis keywords, causing all keyword-based hypotheses to
+        collapse to constant predictions and making discriminative power
+        universally zero.
         """
         try:
             ep_filter = EpisodeFilter(
@@ -925,8 +1236,11 @@ class StrategistAgent:
             logger.debug("Failed to fetch episodes from memory: %s", exc)
             return []
 
-        prompts_with_diff: set = set()
+        seen: set = set()
+        mixed_outcomes_first: List[str] = []
+        other_prompts: List[str] = []
         seen_outcomes: Dict[str, set] = {}
+
         for ep in episodes:
             bp = ep.intervention.prompt
             if bp not in seen_outcomes:
@@ -934,12 +1248,18 @@ class StrategistAgent:
             seen_outcomes[bp].add(int(ep.outcome))
 
         for bp, outcomes in seen_outcomes.items():
+            if bp in seen:
+                continue
+            seen.add(bp)
             if 0 in outcomes and 1 in outcomes:
-                prompts_with_diff.add(bp)
+                mixed_outcomes_first.append(bp)
+            else:
+                other_prompts.append(bp)
 
-        result = sorted(prompts_with_diff)
-        logger.debug("Fetched %d discriminating prompts from Episodic Memory",
-                     len(result))
+        result = mixed_outcomes_first + other_prompts
+        logger.debug("Fetched %d prompts from Episodic Memory "
+                     "(%d mixed-outcome, %d other)",
+                     len(result), len(mixed_outcomes_first), len(other_prompts))
         return result
 
     # ------------------------------------------------------------------
@@ -976,26 +1296,58 @@ class StrategistAgent:
     def _predict_outcome(self, prompt: str, hypothesis: Any) -> int:
         """Predict 0 (ACCEPT) or 1 (REFUSE) for *prompt* under *hypothesis*.
 
+        **Unified prediction engine**: all structured hypotheses go through
+        ``ProgramExecutor``.  ConditionRegistry is only used for compilation,
+        never for direct evaluation.
+
         Precedence:
-          1. ``hypothesis.program`` → use ``ProgramExecutor``
-          2. keyword fallback from ``hypothesis.condition``
-             (fast path for text-based hypotheses with keywords)
-          3. ``self.use_llm and self.llm_client`` → ask LLM (if no program
-             and keyword fallback is inconclusive)
+          1. ``hypothesis.condition_name`` → ConditionRegistry ``compile_to_node()``
+             → wrap as ``Program`` → ``ProgramExecutor.execute()``.
+          2. ``hypothesis.program`` → ``ProgramExecutor`` directly.
+          3. ``hypothesis.condition`` string → ``compile_condition_to_program()``
+             → ``ProgramExecutor.execute()``.
+          4. LLM fallback (``_ask_llm``).
+          5. ``_keyword_fallback`` (last resort for non-LLM setups).
         """
         program = getattr(hypothesis, "program", None)
+
+        # ── Primary: ConditionRegistry → compile → ProgramExecutor ──
+        cond_name = getattr(hypothesis, "condition_name", None)
+        if cond_name is not None and cond_name in self.condition_registry:
+            try:
+                from core.program import IfThenElseNode, Program
+                cond_def = self.condition_registry.get(cond_name)
+                params = getattr(hypothesis, "condition_params", {})
+                node = cond_def.compile_to_node(**params)
+                compiled = Program(
+                    root=IfThenElseNode(
+                        condition=node,
+                        then_outcome=1,
+                        else_outcome=0,
+                    )
+                )
+                return int(self.executor.execute(compiled, prompt))
+            except Exception as exc:
+                logger.debug("ConditionRegistry → compile → execute failed: %s", exc)
+
+        # ── Secondary: existing Program ──
         if program is not None:
             try:
                 return int(self.executor.execute(program, prompt))
             except Exception as exc:
                 logger.debug("Program execution failed: %s", exc)
 
-        # Fast keyword path: if hypothesis has a condition with keywords,
-        # use the deterministic keyword fallback directly without LLM.
+        # ── Tertiary: keyword compilation bridge ──
         cond = getattr(hypothesis, "condition", "")
         if isinstance(cond, str) and self._extract_keywords(cond):
-            return self._keyword_fallback(prompt, hypothesis)
+            compiled = self.compile_condition_to_program(cond)
+            if compiled is not None:
+                try:
+                    return int(self.executor.execute(compiled, prompt))
+                except Exception as exc:
+                    logger.debug("Compiled program execution failed: %s", exc)
 
+        # ── LLM fallback ──
         if self.use_llm and self.llm_client is not None:
             try:
                 return self._ask_llm(prompt, hypothesis)
@@ -1043,6 +1395,107 @@ class StrategistAgent:
         logger.debug("Ambiguous LLM response '%s', defaulting to ACCEPT", raw)
         return 0
 
+    # ------------------------------------------------------------------
+    # Hypothesis → Program compilation bridge
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def compile_condition_to_program(
+        condition: str,
+    ) -> Optional[Any]:
+        """Compile a hypothesis condition string into a DSL Program.
+
+        Handles ALL 29 predicate types (auto-discovered from
+        ``ConditionRegistry``) plus AND/OR/NOT composites.
+
+        Returns a ``Program`` (IF condition THEN REFUSE ELSE ACCEPT) or None.
+        """
+        from core.program import (
+            Program, IfThenElseNode, PredicateNode, ThresholdNode,
+            AndNode, OrNode, NotNode,
+        )
+        import re as _re
+
+        if not isinstance(condition, str) or not condition.strip():
+            return None
+
+        cond_lower = condition.lower()
+        predicts_refuse = "then refuse" in cond_lower
+        then_out = 1 if predicts_refuse else 0
+        else_out = 0 if predicts_refuse else 1
+
+        # ── Composite AND/OR: detect " AND " / " OR " with at least 2 parts ──
+        and_parts = cond_lower.split(" and ")
+        if len(and_parts) >= 2:
+            sub_conds = []
+            for part in [p.strip() for p in and_parts]:
+                sub = StrategistAgent._compile_single_condition(part, then_out, else_out)
+                if sub is None:
+                    break
+                sub_conds.append(sub.root.condition)
+            if len(sub_conds) >= 2:
+                combined = sub_conds[0]
+                for sc in sub_conds[1:]:
+                    combined = AndNode(left=combined, right=sc)
+                prog = Program(root=IfThenElseNode(
+                    condition=combined, then_outcome=then_out, else_outcome=else_out,
+                ))
+                prog.source = "compiled_from_condition"
+                return prog
+
+        or_parts = cond_lower.split(" or ")
+        if len(or_parts) >= 2:
+            sub_conds = []
+            for part in [p.strip() for p in or_parts]:
+                sub = StrategistAgent._compile_single_condition(part, then_out, else_out)
+                if sub is None:
+                    break
+                sub_conds.append(sub.root.condition)
+            if len(sub_conds) >= 2:
+                combined = sub_conds[0]
+                for sc in sub_conds[1:]:
+                    combined = OrNode(left=combined, right=sc)
+                prog = Program(root=IfThenElseNode(
+                    condition=combined, then_outcome=then_out, else_outcome=else_out,
+                ))
+                prog.source = "compiled_from_condition"
+                return prog
+
+        # NOT prefix (strip "if " first for accurate detection)
+        not_search = cond_lower
+        if not_search.startswith("if "):
+            not_search = not_search[3:]
+        if not_search.startswith("not "):
+            inner = not_search[4:]
+            # Re-attach IF for sub-compilation
+            inner_full = f"IF {inner}"
+            sub = StrategistAgent._compile_single_condition(inner_full, then_out, else_out)
+            if sub is not None:
+                not_cond = NotNode(child=sub.root.condition)
+                prog = Program(root=IfThenElseNode(
+                    condition=not_cond, then_outcome=then_out, else_outcome=else_out,
+                ))
+                prog.source = "compiled_from_condition"
+                return prog
+
+        # Fall through to single-condition compilation via ConditionRegistry
+        return StrategistAgent._compile_single_condition(cond_lower, then_out, else_out)
+
+    @staticmethod
+    def _compile_single_condition(
+        cond_lower: str,
+        then_out: int,
+        else_out: int,
+    ) -> Optional[Any]:
+        """Compile a single condition string to a Program via ConditionRegistry.
+
+        Delegates to ``ConditionRegistry.compile_condition_str()`` which
+        auto-discovers all registered predicate types.  No hard-coded
+        dispatch table needed.
+        """
+        from core.condition import registry as _cond_registry
+        return _cond_registry.compile_condition_str(cond_lower, then_out, else_out)
+
     def _keyword_fallback(self, prompt: str, hypothesis: Any) -> int:
         """Fallback evaluator when no program executor is available.
 
@@ -1083,11 +1536,14 @@ class StrategistAgent:
     def _score_condition(self, cond: str, prompt_lower: str) -> float:
         """Score how well a hypothesis *condition* matches *prompt_lower*.
 
-        Returns a float in [0.0, 1.0] where 1.0 = all sub-conditions match.
+        Uses ``ConditionRegistry`` to discover all predicate types
+        automatically.  Returns a float in [0.0, 1.0] where 1.0 = all
+        sub-conditions match.
         """
         import re
         cond_lower = cond.lower()
         scores: List[float] = []
+        from core.condition import registry as _cond_registry
 
         # --- contains_word('X') ---
         keywords = self._extract_keywords(cond)
@@ -1120,13 +1576,43 @@ class StrategistAgent:
                 else:
                     scores.append(1.0 if actual < threshold else 0.0)
 
-        # --- has_number(prompt) ---
-        if "has_number" in cond_lower:
-            scores.append(1.0 if re.search(r"\d", prompt_lower) else 0.0)
+        # --- No-argument predicate handlers (registry-driven) ---
+        # These predicates take no parameters and check a property of
+        # the prompt directly.  We auto-discover them from the registry
+        # rather than hard-coding each one.
+        no_arg_predicates = {
+            "starts_with_roleplay", "contains_system_override",
+            "matches_jailbreak_pattern", "contains_encoding_wrapper",
+            "contains_code_block", "contains_delimiter",
+            "contains_leet", "contains_rot13",
+            "contains_base64", "contains_hex",
+            "has_number", "has_special_char",
+            "has_emoji", "contains_url",
+            "is_all_caps", "is_empty",
+            "is_grammatical_question", "starts_with_imperative",
+            "is_repetitive",
+        }
+        for pred_name in no_arg_predicates:
+            if pred_name in cond_lower:
+                try:
+                    cd = _cond_registry.get(pred_name)
+                    if cd and cd.primitive_class:
+                        inst = cd.primitive_class()
+                        scores.append(1.0 if inst.evaluate(prompt_lower) else 0.0)
+                except Exception:
+                    scores.append(0.0)
 
-        # --- contains_leet(prompt) ---
-        if "contains_leet" in cond_lower:
-            scores.append(1.0 if self._prompt_has_leet(prompt_lower) else 0.0)
+        # --- starts_with('prefix') ---
+        if "starts_with" in cond_lower and "starts_with_roleplay" not in cond_lower and "starts_with_imperative" not in cond_lower:
+            prefix_m = re.findall(r"'([^']*)'", cond)
+            if prefix_m:
+                scores.append(1.0 if prompt_lower.startswith(prefix_m[0].lower()) else 0.0)
+
+        # --- ends_with('suffix') ---
+        if "ends_with" in cond_lower:
+            suffix_m = re.findall(r"'([^']*)'", cond)
+            if suffix_m:
+                scores.append(1.0 if prompt_lower.endswith(suffix_m[0].lower()) else 0.0)
 
         # --- matches_regex(r'...') ---
         if "matches_regex" in cond_lower:
@@ -1139,6 +1625,28 @@ class StrategistAgent:
                     pat = rx_m.group(1)
                     scores.append(1.0 if re.search(pat, prompt_lower) else 0.0)
                 except re.error:
+                    scores.append(0.0)
+
+        # --- sentiment(prompt) > T ---
+        if "sentiment" in cond_lower:
+            th_m = re.search(r">\s*([\d.]+)", cond)
+            if th_m:
+                try:
+                    from core.primitive import SentimentPredicate
+                    inst = SentimentPredicate(threshold=float(th_m.group(1)))
+                    scores.append(1.0 if inst.evaluate(prompt_lower) else 0.0)
+                except Exception:
+                    scores.append(0.0)
+
+        # --- intent(prompt) = 'X' ---
+        if "intent" in cond_lower:
+            it_m = re.search(r"=\s*'([^']+)'", cond)
+            if it_m:
+                try:
+                    from core.primitive import IntentPredicate
+                    inst = IntentPredicate(intent_type=it_m.group(1))
+                    scores.append(1.0 if inst.evaluate(prompt_lower) else 0.0)
+                except Exception:
                     scores.append(0.0)
 
         return sum(scores) / len(scores) if scores else 0.0
@@ -1317,6 +1825,11 @@ class StrategistAgent:
 
         Returns a dict with keys: ``epistemic_value``, ``pragmatic_value``,
         ``efe_score`` for experiment tracking.
+
+        **Fix P2**: This method does NOT call ``belief_updater.update()``.
+        The orchestrator owns the belief update lifecycle.  Epistemic value
+        is computed as the KL divergence between prior and posterior **on a
+        local copy** of the version space posterior, with zero side effects.
         """
         record: Dict[str, float] = {
             "epistemic_value": 0.0,
@@ -1332,9 +1845,7 @@ class StrategistAgent:
                 prompt=intervention.final_prompt,
                 metadata=intervention.metadata,
             )
-            obs = POMDPObservation(outcome=int(outcome))
 
-            # Compute EFE for this intervention (post-hoc)
             def _pred_fn(state_id: str, prompt: str) -> int:
                 if state_id == getattr(h1, "id", "h1"):
                     return self._predict_outcome_stable(prompt, h1)
@@ -1345,15 +1856,33 @@ class StrategistAgent:
             efe_val = self.efe_calculator.compute(action, _pred_fn)
             record["efe_score"] = efe_val
 
-            if self._belief_updater is not None:
-                prior_entropy = self._belief_updater.belief.entropy()
-                self._belief_updater.update(action, obs, _pred_fn)
-                posterior_entropy = self._belief_updater.belief.entropy()
-                record["epistemic_value"] = prior_entropy - posterior_entropy
+            # FIX P2: Compute epistemic value WITHOUT calling belief_updater.update()
+            # Use a local posterior copy just like efe_calculator does.
+            vs = self._version_space
+            if vs is not None and vs.num_candidates >= 2:
+                prior_b = vs.posterior.copy()
+                nl = vs.noise_level
+                n = len(vs.candidates)
+                posterior_copy = prior_b.copy()
+                log_p = np.log(np.clip(posterior_copy, 1e-12, 1.0))
+                for i, c in enumerate(vs.candidates):
+                    pred = _pred_fn(c.program_id, action.prompt)
+                    likelihood = (1.0 - nl) if pred == outcome else nl
+                    log_p[i] += np.log(max(likelihood, 1e-12))
+                log_p -= np.max(log_p)
+                posterior_sim = np.exp(log_p)
+                total = posterior_sim.sum()
+                if total > 0:
+                    posterior_sim /= total
+                else:
+                    posterior_sim = prior_b.copy()
+                # KL(P || Q) = sum(P_i * log(P_i / Q_i))
+                kl = float(np.sum(posterior_sim * np.log(np.clip(posterior_sim / np.clip(prior_b, 1e-12, None), 1e-12, None))))
+                record["epistemic_value"] = kl
 
             intervention.metadata["efe_log"] = record
             logger.debug(
-                "EFE log: intervention=%s efe=%.4f epistemic=%.4f",
+                "EFE log: intervention=%s efe=%.4f epistemic=%.4f (no side effects)",
                 intervention.id, efe_val, record["epistemic_value"],
             )
         except Exception as exc:

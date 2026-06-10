@@ -1,3 +1,4 @@
+from .condition import ConditionRegistry, ConditionDef, registry
 from .executor import ProgramExecutor
 from .grammar import Grammar
 from .hypothesis import Hypothesis
@@ -42,6 +43,9 @@ from .types import (
 from .utils import canonicalize_program, complexity, hash_program, program_equivalence
 
 __all__ = [
+    "ConditionRegistry",
+    "ConditionDef",
+    "registry",
     "ProgramExecutor",
     "Grammar",
     "Hypothesis",

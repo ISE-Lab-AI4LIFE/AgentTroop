@@ -19,4 +19,4 @@ pip install -r requirements.txt
 echo ""
 echo "=== Setup complete ==="
 echo "Run the experiment with:"
-echo "  python llama3.1:8b/run_experiment.py"
+echo "  python llama3_1_8b/run_experiment.py"

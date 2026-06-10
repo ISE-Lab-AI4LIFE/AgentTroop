@@ -193,8 +193,8 @@ class DefenseProgramStore:
                 root_node_id = self._ast_to_graph(tx, record.program.root)
 
                 tx.run(
-                    "MATCH (p:DefenseProgram {id: $pid, version: $ver}), "
-                    "(r:ASTNode {node_id: $rid}) "
+                    "MATCH (p:DefenseProgram {id: $pid, version: $ver}) "
+                    "MATCH (r:ASTNode {node_id: $rid}) "
                     "CREATE (p)-[:HAS_ROOT]->(r)",
                     pid=record.id, ver=record.version, rid=root_node_id,
                 )
@@ -700,40 +700,40 @@ class DefenseProgramStore:
             )
             inner_id = self._create_ast_node(tx, node.inner, prefix)
             tx.run(
-                "MATCH (n:ASTNode {node_id: $nid}), "
-                "(c:ASTNode {node_id: $cid}) "
-                "CREATE (n)-[:INNER]->(c)",
+"MATCH (n:ASTNode {node_id: $nid}) "
+"MATCH (c:ASTNode {node_id: $cid}) "
+"CREATE (n)-[:INNER]->(c)",
                 nid=node_id, cid=inner_id,
             )
         elif isinstance(node, BinaryNode):
             left_id = self._create_ast_node(tx, node.left, prefix)
             right_id = self._create_ast_node(tx, node.right, prefix)
             tx.run(
-                "MATCH (n:ASTNode {node_id: $nid}), "
-                "(l:ASTNode {node_id: $lid}) "
-                "CREATE (n)-[:LEFT]->(l)",
+"MATCH (n:ASTNode {node_id: $nid}) "
+"MATCH (l:ASTNode {node_id: $lid}) "
+"CREATE (n)-[:LEFT]->(l)",
                 nid=node_id, lid=left_id,
             )
             tx.run(
-                "MATCH (n:ASTNode {node_id: $nid}), "
-                "(r:ASTNode {node_id: $rid}) "
-                "CREATE (n)-[:RIGHT]->(r)",
+"MATCH (n:ASTNode {node_id: $nid}) "
+"MATCH (r:ASTNode {node_id: $rid}) "
+"CREATE (n)-[:RIGHT]->(r)",
                 nid=node_id, rid=right_id,
             )
         elif isinstance(node, NotNode):
             child_id = self._create_ast_node(tx, node.child, prefix)
             tx.run(
-                "MATCH (n:ASTNode {node_id: $nid}), "
-                "(c:ASTNode {node_id: $cid}) "
-                "CREATE (n)-[:CHILD]->(c)",
+"MATCH (n:ASTNode {node_id: $nid}) "
+"MATCH (c:ASTNode {node_id: $cid}) "
+"CREATE (n)-[:CHILD]->(c)",
                 nid=node_id, cid=child_id,
             )
         elif isinstance(node, IfThenElseNode):
             cond_id = self._create_ast_node(tx, node.condition, prefix)
             tx.run(
-                "MATCH (n:ASTNode {node_id: $nid}), "
-                "(c:ASTNode {node_id: $cid}) "
-                "CREATE (n)-[:CONDITION]->(c)",
+"MATCH (n:ASTNode {node_id: $nid}) "
+"MATCH (c:ASTNode {node_id: $cid}) "
+"CREATE (n)-[:CONDITION]->(c)",
                 nid=node_id, cid=cond_id,
             )
 
@@ -765,9 +765,9 @@ class DefenseProgramStore:
             created_at=__import__("time").time(),
         )
         tx.run(
-            "MATCH (n:ASTNode {node_id: $nid}), "
-            "(p:PrimitiveNode {name: $pname}) "
-            "CREATE (n)-[:PRIMITIVE]->(p)",
+"MATCH (n:ASTNode {node_id: $nid}) "
+"MATCH (p:PrimitiveNode {name: $pname}) "
+"CREATE (n)-[:PRIMITIVE]->(p)",
             nid=node_id, pname=pname,
         )
 

@@ -1,0 +1,44 @@
+{
+  "id": "prog_1781095265302702_b8e8",
+  "name": "prog_1781095265302702_b8e8",
+  "version": 1,
+  "confidence": 0.96,
+  "provenance": [
+    "llama31_8b_20260610_185728"
+  ],
+  "created_at": 1781095301.7915268,
+  "updated_at": 1781095301.7915268,
+  "metadata": {
+    "status": "verified"
+  },
+  "program": {
+    "id": "prog_1781095265302702_b8e8",
+    "version_id": "1.0",
+    "created_at": 1781095314.6870131,
+    "deprecated_at": null,
+    "metadata": {},
+    "root": {
+      "type": "IfThenElseNode",
+      "condition": {
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "is_grammatical_question",
+          "parameters": {},
+          "type": "IsGrammaticalQuestionPredicate",
+          "input_type": "String",
+          "output_type": "Boolean",
+          "version_id": "1.0",
+          "created_at": 0.0,
+          "deprecated_at": null,
+          "metadata": {
+            "description": "Check if the prompt is a grammatical question.",
+            "category": "discourse",
+            "related_primitives": []
+          }
+        }
+      },
+      "then_outcome": 0,
+      "else_outcome": 1
+    }
+  }
+}

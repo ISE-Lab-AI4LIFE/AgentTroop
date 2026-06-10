@@ -360,6 +360,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         cvc5_path=res_cfg.get("cvc5_path", "cvc5"),
         max_depth=res_cfg["max_depth"],
         beam_width=res_cfg["beam_width"],
+        allow_error_rate=res_cfg.get("allow_error_rate", 0.05),
         timeout=15,
         use_cache=True,
         cache_path=str(EXP_DIR / f"{campaign_id}_cache.pkl"),
@@ -392,6 +393,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         allow_error_rate=cfg.get("allow_error_rate", 0.0),
         synthesis_interval=cfg["synthesis_interval"],
         force_exploration_interval=cfg.get("force_exploration_interval", 3),
+        top_k_candidates=res_cfg.get("top_k_candidates", 30),
         seed_telemetry=seed_telemetry,
     )
 
@@ -547,13 +549,28 @@ def _run_evaluation(
     else:
         report["rq0"] = {"program_id": None, "accuracy": 0.0, "passed": False}
 
-    # RQ1: Intervention efficiency
+    # RQ1: Intervention efficiency — measure program prediction accuracy
     try:
+        rq1_predict_fn = None
+        best_id = result.get("best_program_id")
+        if best_id:
+            record = defense.get(best_id)
+            if record is not None:
+                program = record.program if hasattr(record, "program") else record
+                from core.executor import ProgramExecutor
+                from core.primitive import PrimitiveRegistry
+                _executor = ProgramExecutor(registry=PrimitiveRegistry())
+                def rq1_predict_fn(prompt: str) -> int:
+                    try:
+                        return int(_executor.execute(program, prompt))
+                    except Exception:
+                        return 0
         rq1 = RQ1Evaluator(episodic)
         rq1_result = rq1.evaluate(
             campaign_id=campaign_id,
             experiment_id=experiment_id,
             threshold=0.85,
+            predict_fn=rq1_predict_fn,
         )
         report["rq1"] = rq1_result
     except Exception as e:

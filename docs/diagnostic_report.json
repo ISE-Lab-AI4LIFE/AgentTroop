@@ -1,0 +1,209 @@
+{
+  "1_vs_candidate_usage": [
+    [
+      "source_counts",
+      {
+        "hypothesis_seed": 1,
+        "enumeration": 1,
+        "condition": 1,
+        "heuristic": 1,
+        "verification": 1,
+        "cvc5": 1,
+        "synthesized": 1
+      }
+    ],
+    [
+      "posterior_by_source",
+      {
+        "hypothesis_seed": 0.2641,
+        "enumeration": 0.2348,
+        "condition": 0.1048,
+        "heuristic": 0.1087,
+        "verification": 0.1068,
+        "cvc5": 0.0983,
+        "synthesized": 0.0826
+      }
+    ],
+    [
+      "max_source_mass",
+      0.2641
+    ],
+    [
+      "source_max_frac",
+      "PASS"
+    ]
+  ],
+  "2_posterior_dynamics": [
+    [
+      "bootstrap_before",
+      1.0
+    ],
+    [
+      "bootstrap_after",
+      1.0
+    ],
+    [
+      "enum_mass",
+      0.0
+    ],
+    [
+      "lock_in",
+      "WARN: enum(0.000) <= bootstrap(1.000)"
+    ]
+  ],
+  "3_condition_registry": [
+    [
+      "registry_size",
+      0
+    ],
+    [
+      "compile_failures",
+      "PASS: all 0 compile"
+    ],
+    [
+      "execution_path",
+      "PASS: ProgramExecutor.execute used"
+    ]
+  ],
+  "4_synthesis": [
+    [
+      "success",
+      true
+    ],
+    [
+      "stats",
+      {
+        "duration_ms": 11.41,
+        "depth_used": 1,
+        "programs_tried": 50,
+        "programs_skipped_cache": 0,
+        "cvc5_used": false,
+        "cvc5_success": false,
+        "enumeration_found": true,
+        "enumeration_tried": true,
+        "hybrid_mode": false,
+        "allow_error_rate": 0.0,
+        "max_errors": 0,
+        "errors_actual": 0,
+        "beam_width": 50,
+        "method": "enumeration",
+        "synthesized_candidates": 4,
+        "heuristic_fallback_candidates": 32,
+        "candidates_considered": 316
+      }
+    ]
+  ],
+  "5_holdout_evaluation": [
+    [
+      "train_vs_holdout",
+      "WARN: no train/holdout comparison in RQ0"
+    ],
+    [
+      "holdout_field",
+      true
+    ],
+    [
+      "holdout_reweighting",
+      "PASS: update_belief uses holdout_adjusted_score"
+    ]
+  ],
+  "6_posterior_update_correctness": [
+    [
+      "posterior",
+      [
+        0.9998,
+        0.0002
+      ]
+    ],
+    [
+      "correct_dominates",
+      "PASS"
+    ],
+    [
+      "info_gains_positive",
+      true
+    ]
+  ],
+  "7_executor_path": [
+    [
+      "condition_based",
+      "PASS: bomb=0, hello=1"
+    ]
+  ],
+  "8_unique_ids": [
+    [
+      "ids_unique",
+      "PASS"
+    ],
+    [
+      "cf_equal",
+      "PASS"
+    ],
+    [
+      "hash_mutates",
+      "WARN: __hash__ calls canonicalize() which mutates self"
+    ],
+    [
+      "vs_dedup",
+      "PASS: 1 after dedup"
+    ]
+  ],
+  "9_dsl_coverage": [
+    [
+      "registry_size",
+      0
+    ],
+    [
+      "compile_fails",
+      "PASS: all compile"
+    ]
+  ],
+  "10_telemetry_consistency": [
+    [
+      "entropy",
+      [
+        0.0,
+        0.4913,
+        0.8876,
+        1.2071,
+        1.4866
+      ]
+    ],
+    [
+      "entropy_decreasing",
+      false
+    ]
+  ],
+  "11_base_prompts_integration": [
+    [
+      "fetch_method",
+      "PASS: StrategistAgent._fetch_base_prompts_from_memory exists"
+    ],
+    [
+      "orchestrator_uses",
+      "WARN"
+    ]
+  ],
+  "12_fallback_proportion": [
+    [
+      "synth_fallback_stats",
+      {
+        "synth": 6,
+        "fb": 15,
+        "considered": 318
+      }
+    ],
+    [
+      "mass_by_source",
+      {
+        "enumeration": 0.4032,
+        "heuristic": 0.4032,
+        "hypothesis_seed": 0.1935
+      }
+    ],
+    [
+      "heuristic_dominance",
+      "PASS"
+    ]
+  ]
+}

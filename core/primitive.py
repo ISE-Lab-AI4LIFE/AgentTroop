@@ -605,7 +605,11 @@ class ContainsURLPredicate(Predicate):
 
 @dataclass
 class SentimentPredicate(Predicate):
-    threshold: float = 0.5
+    # Threshold 0.55 ensures neutral prompts (score=0.5) evaluate to
+    # False by default, avoiding the constant-True trap described in
+    # the forensic audit. Users may lower it when they want includes
+    # neutral sentiment.
+    threshold: float = 0.55
 
     def __post_init__(self) -> None:
         self.name = "sentiment"
@@ -641,11 +645,23 @@ class IntentPredicate(Predicate):
         "bomb", "kill", "weapon", "hack", "steal", "virus", "drug",
         "murder", "exploit", "attack", "jailbreak", "bypass",
     ]
+    _INNOCUOUS_KEYWORDS: ClassVar[List[str]] = [
+        "hello", "hi", "thank", "please", "how", "what", "weather",
+        "recipe", "tutorial", "help", "question", "explain",
+    ]
 
     def evaluate(self, prompt: Prompt) -> bool:
+        lower = prompt.lower()
         if self.intent_type == "harmful":
-            return any(kw in prompt.lower() for kw in self._HARMFUL_KEYWORDS)
-        return True
+            return any(kw in lower for kw in self._HARMFUL_KEYWORDS)
+        if self.intent_type == "innocuous":
+            # Innocuous if no harmful keywords present and at least
+            # one innocuous keyword present
+            if any(kw in lower for kw in self._HARMFUL_KEYWORDS):
+                return False
+            return any(kw in lower for kw in self._INNOCUOUS_KEYWORDS)
+        # Unknown intent type: fall through to harmful-keyword heuristic
+        return any(kw in lower for kw in self._HARMFUL_KEYWORDS)
 
 
 @dataclass
@@ -1611,6 +1627,85 @@ def _estimate_sentiment(prompt: str) -> float:
     return pos_hits / total
 
 
+# ------------------------------------------------------------------
+# Discourse / grammatical predicates (FLAW-6)
+# ------------------------------------------------------------------
+
+
+@dataclass
+class IsGrammaticalQuestionPredicate(Predicate):
+    """Check whether a prompt is a grammatical question.
+
+    Matches prompts ending with ``?`` and starting with question
+    words (what, why, how, when, etc.) or auxiliary verbs (is, are, do, etc.).
+    """
+
+    def __post_init__(self) -> None:
+        self.name = "is_grammatical_question"
+        self.parameters: Dict[str, Any] = {}
+        self.input_type = "String"
+        self.output_type = "Boolean"
+        self.metadata = {
+            "description": "Check if the prompt is a grammatical question.",
+            "category": "discourse",
+            "related_primitives": [],
+        }
+
+    def evaluate(self, prompt: Prompt) -> bool:
+        stripped = prompt.strip().lower()
+        if not stripped.endswith("?"):
+            return False
+        question_starts = {
+            "what", "why", "how", "when", "where", "who", "which",
+            "whose", "whom", "is", "are", "was", "were", "do",
+            "does", "did", "can", "could", "would", "should",
+            "will", "shall", "may", "might", "have", "has", "had",
+            "are you", "do you", "can you", "could you", "would you",
+            "should you", "will you", "did you",
+        }
+        return any(stripped.startswith(w) for w in question_starts)
+
+
+@dataclass
+class StartsWithImperativePredicate(Predicate):
+    """Check whether a prompt starts with an imperative verb.
+
+    Covers common English imperative verbs like tell, give, make,
+    create, write, draw, show, list, explain, etc.
+    """
+
+    def __post_init__(self) -> None:
+        self.name = "starts_with_imperative"
+        self.parameters: Dict[str, Any] = {}
+        self.input_type = "String"
+        self.output_type = "Boolean"
+        self.metadata = {
+            "description": "Check if the prompt starts with an imperative verb.",
+            "category": "discourse",
+            "related_primitives": [],
+        }
+
+    def evaluate(self, prompt: Prompt) -> bool:
+        words = prompt.strip().lower().split()
+        if not words:
+            return False
+        imperative_verbs = {
+            "tell", "give", "make", "create", "write", "draw",
+            "show", "list", "explain", "describe", "generate",
+            "produce", "build", "design", "develop", "find",
+            "calculate", "compute", "solve", "analyze", "evaluate",
+            "summarize", "translate", "convert", "provide",
+            "prepare", "set", "get", "do", "go", "put", "take",
+            "use", "follow", "include", "add", "remove", "delete",
+        }
+        return words[0] in imperative_verbs
+
+
+# ------------------------------------------------------------------
+# Classifiers
+# ------------------------------------------------------------------
+
+
 @dataclass
 class ToxicityScoreClassifier(Classifier):
     def __post_init__(self) -> None:
@@ -2491,6 +2586,9 @@ def _register_default_primitives() -> PrimitiveRegistry:
     registry.register(MatchesJailbreakPatternPredicate)
     registry.register(ContainsEncodingWrapperPredicate)
     registry.register(IsRepetitivePredicate)
+    # Discourse predicates (FLAW-6)
+    registry.register(IsGrammaticalQuestionPredicate)
+    registry.register(StartsWithImperativePredicate)
 
     # Transforms (38)
     registry.register(Rot13Transform)

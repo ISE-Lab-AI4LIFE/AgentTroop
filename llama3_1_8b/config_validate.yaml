@@ -1,0 +1,36 @@
+use_async: true
+num_seeds: 30
+orchestrator:
+  max_iterations: 50
+  max_interventions: 500
+  accuracy_threshold: 0.70
+  allow_error_rate: 0.05
+  synthesis_interval: 3
+  force_exploration_interval: 2
+  entropy_convergence_threshold: 0.1
+cognitive:
+  anomaly_threshold: 0.1
+  llm_model: "gemma"
+strategist:
+  use_llm: true
+  max_chain_depth: 2
+  max_candidates_heuristic: 100
+  max_candidates_llm: 10
+  num_trials: 3
+researcher:
+  max_depth: 4
+  beam_width: 200
+  allow_error_rate: 0.05
+  top_k_candidates: 30
+  use_cvc5: true
+  enforce_cvc5_first: true
+  cvc5_path: /opt/homebrew/bin/cvc5
+victim:
+  ollama_url: "http://localhost:11434"
+  model_name: "llama3.1:8b"
+  temperature: 0.0
+  max_tokens: 100
+transforms:
+  enabled: ["to_uppercase", "leet_speak", "reverse_text", "base64", "rot13"]
+  disabled: ["to_lowercase", "pig_latin", "morse_code", "remove_vowels",
+              "atbash_cipher", "caesar_cipher", "binary_encode", "hex_encode"]

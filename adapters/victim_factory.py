@@ -52,7 +52,7 @@ def create(
     builtins: Dict[str, tuple] = {
         "toy": ("experiments.toy_model", "ToyVictim", None),
         "llama31_8b": (None, "OllamaVictim", None),
-        "llama3.1:8b": (None, "OllamaVictim", None),
+        "llama3_1_8b": (None, "OllamaVictim", None),
         "gemma": ("llm.llm_client", "GemmaVictim", None),
         "openrouter": ("llm.llm_client", "OpenRouterVictim", None),
     }
@@ -65,13 +65,12 @@ def create(
     if name in builtins:
         module_path, class_name, file_override = builtins[name]
         try:
-            if name in ("llama31_8b", "llama3.1:8b"):
+            if name in ("llama31_8b", "llama3_1_8b"):
                 # Special handling for non-standard module name
                 import importlib.util
                 # Try multiple possible paths for the ollama_victim module
                 import_paths = [
-                    os.path.join(os.path.dirname(__file__), "..", "llama3.1:8b", "ollama_victim.py"),
-                    os.path.join(os.path.dirname(__file__), "..", "llama3.1_8b", "ollama_victim.py"),
+                    os.path.join(os.path.dirname(__file__), "..", "llama3_1_8b", "ollama_victim.py"),
                 ]
                 victim_mod = None
                 for path in import_paths:
@@ -116,7 +115,7 @@ try:
         import importlib.util
         import os
         paths = [
-            os.path.join(os.path.dirname(__file__), "..", "llama3.1:8b", "ollama_victim.py"),
+            os.path.join(os.path.dirname(__file__), "..", "llama3_1_8b", "ollama_victim.py"),
         ]
         for p in paths:
             p = os.path.abspath(p)
@@ -127,7 +126,7 @@ try:
                     spec.loader.exec_module(mod)
                     if hasattr(mod, "OllamaVictim"):
                         register("llama31_8b", mod.OllamaVictim)
-                        register("llama3.1:8b", mod.OllamaVictim)
+                        register("llama3_1_8b", mod.OllamaVictim)
                         break
     _register_ollama()
 except Exception:

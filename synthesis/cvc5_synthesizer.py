@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import pickle
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -31,10 +33,13 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from core import ConditionRegistry
+from core.condition import registry as _condition_registry
 from core.executor import ProgramExecutor
 from core.grammar import SMTConstraintBuilder
 from core.primitive import (
     Classifier,
+    ContainsWordPredicate,
     Predicate,
     PrimitiveRegistry,
     Transform,
@@ -76,6 +81,9 @@ class SynthesisStats:
     errors_actual: int = 0
     beam_width: int = 0
     method: str = "none"
+    synthesized_candidates: int = 0
+    heuristic_fallback_candidates: int = 0
+    candidates_considered: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -93,7 +101,50 @@ class SynthesisStats:
             "errors_actual": self.errors_actual,
             "beam_width": self.beam_width,
             "method": self.method,
+            "synthesized_candidates": self.synthesized_candidates,
+            "heuristic_fallback_candidates": self.heuristic_fallback_candidates,
+            "candidates_considered": self.candidates_considered,
         }
+
+
+def _classify_program_category(program: Program) -> str:
+    """Classify a program into: keyword, structural, jailbreak, semantic,
+    classifier, transform, composite, or unknown."""
+    from core.program import (
+        PredicateNode, ThresholdNode, AndNode, OrNode, NotNode, ApplyTransformNode,
+    )
+    root = program.root
+    node = root.condition if hasattr(root, "condition") else root
+    if isinstance(node, ApplyTransformNode):
+        return "transform"
+    if isinstance(node, (AndNode, OrNode, NotNode)):
+        return "composite"
+    if isinstance(node, ThresholdNode):
+        return "classifier"
+    if isinstance(node, PredicateNode):
+        name = node.primitive.name if hasattr(node.primitive, "name") else ""
+        keyword_preds = {"contains_word", "contains_any_word", "contains_all_words",
+                         "starts_with", "ends_with", "matches_regex"}
+        structural_preds = {"has_number", "has_special_char", "is_all_caps",
+                            "is_empty", "has_emoji", "contains_url", "is_repetitive",
+                            "char_count", "length_gt", "length_lt",
+                            "starts_with", "ends_with",
+                            "contains_rot13", "contains_base64", "contains_hex"}
+        jailbreak_preds = {"matches_jailbreak_pattern", "contains_system_override",
+                           "contains_encoding_wrapper"}
+        semantic_preds = {"starts_with_roleplay", "starts_with_imperative",
+                          "is_grammatical_question", "sentiment", "intent",
+                          "contains_leet"}
+        if name in keyword_preds:
+            return "keyword"
+        if name in structural_preds:
+            return "structural"
+        if name in jailbreak_preds:
+            return "jailbreak"
+        if name in semantic_preds:
+            return "semantic"
+        return "unknown"
+    return "unknown"
 
 
 def _compute_hash(program: Program, examples: List[Tuple[str, int]]) -> str:
@@ -123,13 +174,31 @@ def _safe_name(name: str) -> str:
     return safe if safe else "prim"
 
 
+def _default_cvc5_path() -> str:
+    """Resolve the CVC5 binary path from environment or system PATH.
+
+    Resolution order:
+    1. ``CVC5_PATH`` environment variable (if set and executable).
+    2. ``shutil.which("cvc5")`` found on system PATH.
+    3. Fallback to ``"cvc5"`` (rely on ``subprocess`` ``FileNotFoundError``).
+    """
+    env_path = os.environ.get("CVC5_PATH")
+    if env_path:
+        return env_path
+    resolved = shutil.which("cvc5")
+    if resolved:
+        return resolved
+    return "cvc5"
+
+
 class CVC5Synthesizer:
     """Program synthesizer with CVC5 as primary solver and enumeration fallback.
 
     Parameters
     ----------
-    cvc5_path : str
-        Path to CVC5 binary.
+    cvc5_path : str or None
+        Path to CVC5 binary.  If ``None`` the path is resolved automatically
+        via :func:`_default_cvc5_path` (respects ``CVC5_PATH`` env var).
     timeout : int
         Timeout per CVC5 call in seconds.
     max_depth : int
@@ -150,7 +219,7 @@ class CVC5Synthesizer:
 
     def __init__(
         self,
-        cvc5_path: str = "cvc5",
+        cvc5_path: Optional[str] = None,
         timeout: int = 30,
         max_depth: int = 3,
         allow_error_rate: float = 0.0,
@@ -159,8 +228,10 @@ class CVC5Synthesizer:
         cache_path: Optional[str] = None,
         hybrid: bool = True,
         enforce_cvc5_first: bool = True,
+        condition_registry: Optional[ConditionRegistry] = None,
     ) -> None:
-        self.cvc5_path = cvc5_path
+        self.cvc5_path = cvc5_path if cvc5_path is not None else _default_cvc5_path()
+        self.condition_registry = condition_registry or _condition_registry
         self.timeout = timeout
         self.max_depth = max(1, int(max_depth))
         self.allow_error_rate = max(0.0, min(1.0, float(allow_error_rate)))
@@ -171,6 +242,11 @@ class CVC5Synthesizer:
         self.enforce_cvc5_first = enforce_cvc5_first
         self._cache: Dict[str, bool] = {}
         self._cvc5_checked: Optional[bool] = None
+        self._synthesis_history: List[Tuple[str, str, int]] = []  # (predicate_name, category, timestamp)
+        # Seed with one dummy per category so the very first synthesis
+        # does not default to keyword.  Keyword is included so structural/
+        # jailbreak/semantic entries get preference on equal fitness.
+        self._reset_diversity_seed()
         if enforce_cvc5_first:
             logger.info("CVC5Synthesizer: enforce_cvc5_first=True (CVC5 primary, path=%s, timeout=%ds, max_depth=%d, beam=%d, hybrid=%s)",
                         cvc5_path, timeout, max_depth, beam_width, hybrid)
@@ -193,6 +269,13 @@ class CVC5Synthesizer:
                     pickle.dump(self._cache, f)
             except Exception as exc:
                 logger.warning("Failed to save cache: %s", exc)
+
+    def _reset_diversity_seed(self) -> None:
+        """Seed synthesis_history so the first real call gets diversity pressure."""
+        self._synthesis_history = [
+            ("_seed_keyword_0", "keyword", -7),
+            ("_seed_keyword_1", "keyword", -6),
+        ]
 
     # ------------------------------------------------------------------
     # Public API
@@ -236,51 +319,202 @@ class CVC5Synthesizer:
         registry = primitive_registry or default_registry
         exporter = GrammarExporter(
             primitive_registry=registry,
+            condition_registry=self.condition_registry,
             ontology_memory=ontology_memory,
             max_depth=self.max_depth,
         )
         if not examples:
             return []
 
-        max_errors = int(len(examples) * self.allow_error_rate)
+        max_errors = max(1, int(len(examples) * self.allow_error_rate)) if self.allow_error_rate > 0 else 0
         catalog = exporter.get_parameterized_primitives(examples)
         if catalog.is_empty():
+            logger.warning(
+                "CVC5: catalog is empty for %d examples (depth=%d, beam=%d, "
+                "allow_error_rate=%.2f) — no parameterized primitives could be "
+                "instantiated from the current examples",
+                len(examples), self.max_depth, getattr(exporter, "beam_width", "?"),
+                self.allow_error_rate,
+            )
             return []
 
         executor = ProgramExecutor(exporter.primitive_registry or default_registry)
+
+        # ── Stage-by-stage audit logging ──
+        _audit: Dict[str, Any] = {
+            "examples": len(examples),
+            "catalog_predicates": len(catalog.predicates),
+            "catalog_transforms": len(catalog.transforms),
+            "catalog_classifiers": len(catalog.classifiers),
+            "max_depth": self.max_depth,
+            "max_errors": max_errors,
+            "allow_error_rate": self.allow_error_rate,
+        }
+        logger.info("SYNTHESIS_AUDIT stage=init %s", json.dumps(_audit))
 
         # Collect all matching programs from enumeration
         all_matching: List[Program] = []
 
         for depth in range(1, min(self.max_depth + 2, 7)):
             programs = exporter.enumerate_programs(max_depth=depth, examples=examples)
+            _audit[f"depth_{depth}_enumerated"] = len(programs) if programs else 0
             if not programs:
                 continue
 
+            depth_matched = 0
             for prog in programs:
                 if self._matches_all(prog, examples, executor, max_errors=max_errors):
                     prog_id = getattr(prog, "id", None) or f"prog_{uuid.uuid4().hex[:12]}"
-                    if hasattr(prog, "id"):
+                    if not hasattr(prog, "id") or getattr(prog, "id", None) is None:
                         prog.id = prog_id
                     all_matching.append(prog)
+                    depth_matched += 1
                     if len(all_matching) >= k * 2:
                         break
+            _audit[f"depth_{depth}_matching"] = depth_matched
             if len(all_matching) >= k * 2:
                 break
 
-        # Score and return top-K
+        _audit["total_matching"] = len(all_matching)
+        logger.info("SYNTHESIS_AUDIT stage=enumeration %s", json.dumps(_audit))
+
+        # ── Fitness-based fallback when enumeration finds 0 exact matches ──
+        # Instead of generating arbitrary partial programs, score depth-1
+        # programs by fitness and keep those better than random (fitness > 0.5).
+        # This is fast (318 depth-1 programs * N examples) and ensures the
+        # version space receives programs with actual (weak) discriminative
+        # signal, which Bayesian belief can then amplify.
+        if not all_matching:
+            # Compute diversity bonus weights from synthesis history so rare
+            # families (structural, jailbreak, semantic) get a boost vs keyword.
+            from collections import defaultdict
+            fb_cat_counts: Dict[str, int] = defaultdict(int)
+            for _, cat, _ in self._synthesis_history:
+                fb_cat_counts[cat] += 1
+            fb_cat_counts["keyword"] = fb_cat_counts.get("keyword", 0) + 2
+            fb_total_count = sum(fb_cat_counts.values()) or 1
+
+            def _fb_diversity_bonus(prog: Program) -> float:
+                cat = _classify_program_category(prog)
+                count = fb_cat_counts.get(cat, 1)
+                decay = max(3.0, fb_total_count / max(len(fb_cat_counts), 1))
+                return 0.3 * math.exp(-count / decay)
+
+            scored_all: List[Tuple[float, Program]] = []
+            for depth in [1, 2]:
+                programs = exporter.enumerate_programs(max_depth=depth, examples=examples)
+                if not programs:
+                    continue
+                # At depth 2+, limit to first 500 programs for speed
+                if depth > 1:
+                    programs = programs[:500]
+                for prog in programs:
+                    prog_id = getattr(prog, "id", None) or f"prog_{uuid.uuid4().hex[:12]}"
+                    if not hasattr(prog, "id") or getattr(prog, "id", None) is None:
+                        prog.id = prog_id
+                    fitness = self._fitness_score(prog, examples, executor)
+                    if fitness > 0.65:
+                        bonus = _fb_diversity_bonus(prog)
+                        scored_all.append((fitness + bonus, prog))
+            # Sort by fitness+diversity descending, take top k*2
+            scored_all.sort(key=lambda x: -x[0])
+            all_matching = [p for _, p in scored_all[:k * 2]]
+            _audit["fitness_fallback"] = len(all_matching)
+            _audit["fitness_fallback_best"] = round(scored_all[0][0], 4) if scored_all else 0.0
+            if all_matching:
+                logger.info(
+                    "CVC5: 0 exact matches; keeping %d programs by fitness+diversity "
+                    "(best=%.3f, min_fitness=%.3f)",
+                    len(all_matching), scored_all[0][0], scored_all[-1][0] if len(scored_all) > 1 else 0.0,
+                )
+
+        # ── Absolute fallback: generate partial programs from catalog ──
+        import collections
+        if not all_matching:
+            majority = collections.Counter(o for _, o in examples).most_common(1)
+            default_outcome = majority[0][0] if majority else 1
+            logger.warning(
+                "CVC5: 0 matching programs after enumeration AND fitness fallback; "
+                "generating partial programs from catalog (examples=%d, "
+                "default_outcome=%d)", len(examples), default_outcome,
+            )
+            # Create programs from catalog predicates directly
+            for pred in catalog.predicates:
+                for to, eo in [(1, 0), (0, 1), (default_outcome, 1 - default_outcome)]:
+                    prog = Program(
+                        root=IfThenElseNode(
+                            condition=PredicateNode(primitive=pred),
+                            then_outcome=to,
+                            else_outcome=eo,
+                        )
+                    )
+                    prog.id = f"partial_{uuid.uuid4().hex[:12]}"
+                    all_matching.append(prog)
+            # Add ALWAYS_REFUSE and ALWAYS_ACCEPT baselines
+            for outcome in [0, 1]:
+                prog = Program(
+                    root=IfThenElseNode(
+                        condition=PredicateNode(
+                            primitive=ContainsWordPredicate(word="")
+                        ),
+                        then_outcome=outcome,
+                        else_outcome=outcome,
+                    )
+                )
+                prog.id = f"always_{'ACCEPT' if outcome == 0 else 'REFUSE'}_{uuid.uuid4().hex[:8]}"
+                all_matching.append(prog)
+            _audit["partial_generated"] = len(all_matching)
+            logger.info("SYNTHESIS_AUDIT stage=partial %s", json.dumps(_audit))
+
+        # Diversity-aware top-K selection:
+        # Ensures no single predicate family dominates the returned set.
+        # Applies diversity bonus to fitness so rare families (structural,
+        # jailbreak, semantic) get a boost over common ones (keyword).
+        from collections import defaultdict as _defaultdict
+        _cat_counts: Dict[str, int] = _defaultdict(int)
+        for _, cat, _ in self._synthesis_history:
+            _cat_counts[cat] += 1
+        _cat_counts["keyword"] = _cat_counts.get("keyword", 0) + 2
+        _total_cat = sum(_cat_counts.values()) or 1
+
+        def _topk_bonus(prog: Program) -> float:
+            cat = _classify_program_category(prog)
+            cnt = _cat_counts.get(cat, 1)
+            decay = max(3.0, _total_cat / max(len(_cat_counts), 1))
+            return 0.3 * math.exp(-cnt / decay)
+
+        from inference.version_space import _classify_program
         scored = []
         for prog in all_matching:
             fitness = self._fitness_score(prog, examples, executor)
             mdl = self._mdl_score(prog, examples, executor)
-            scored.append((fitness, -mdl, prog.complexity(), prog))
+            family = _classify_program(prog)
+            bonus = _topk_bonus(prog)
+            scored.append((fitness + bonus, -mdl, prog.complexity(), family, prog))
         scored.sort(key=lambda x: (-x[0], -x[1], x[2]))
 
-        results = [p for _, _, _, p in scored[:k]]
-        logger.info(
-            "synthesize_top_k: found %d matching programs, returning %d (%.1fs)",
-            len(all_matching), len(results), time.time() - start,
-        )
+        results: List[Program] = []
+        seen_families: Dict[str, int] = {}
+        max_per_family = max(1, k // 3)
+        for fitness, neg_mdl, comp, family, prog in scored:
+            if seen_families.get(family, 0) >= max_per_family:
+                continue
+            results.append(prog)
+            seen_families[family] = seen_families.get(family, 0) + 1
+            if len(results) >= k:
+                break
+        # If we didn't reach k, fill remaining from best scored regardless of family
+        if len(results) < k:
+            for fitness, neg_mdl, comp, family, prog in scored:
+                if prog not in results:
+                    results.append(prog)
+                    if len(results) >= k:
+                        break
+
+        _audit["returned"] = len(results)
+        _audit["families"] = dict(seen_families)
+        _audit["duration_s"] = round(time.time() - start, 2)
+        logger.info("SYNTHESIS_AUDIT stage=final %s", json.dumps(_audit))
         return results
 
     def synthesize_with_stats(
@@ -301,6 +535,7 @@ class CVC5Synthesizer:
         registry = primitive_registry or default_registry
         exporter = GrammarExporter(
             primitive_registry=registry,
+            condition_registry=self.condition_registry,
             ontology_memory=ontology_memory,
             max_depth=self.max_depth,
         )
@@ -310,7 +545,7 @@ class CVC5Synthesizer:
             stats.duration_ms = (time.time() - start) * 1000
             return None, stats
 
-        max_errors = int(len(examples) * self.allow_error_rate)
+        max_errors = max(1, int(len(examples) * self.allow_error_rate)) if self.allow_error_rate > 0 else 0
         stats.max_errors = max_errors
 
         # ------------------------------------------------------------------
@@ -397,6 +632,22 @@ class CVC5Synthesizer:
         elif enum_program is not None:
             program = enum_program
             stats.method = "enumeration"
+
+        # ------------------------------------------------------------------
+        # Synthesis history (for diversity-aware selection across calls)
+        # ------------------------------------------------------------------
+        if program is not None:
+            cat = _classify_program_category(program)
+            root_cond = program.root.condition if hasattr(program.root, 'condition') else program.root
+            if isinstance(root_cond, PredicateNode):
+                pname = root_cond.primitive.name if hasattr(root_cond.primitive, 'name') else type(root_cond).__name__
+            elif isinstance(root_cond, ApplyTransformNode):
+                pname = f"transform:{root_cond.transform.name}"
+            elif isinstance(root_cond, ThresholdNode):
+                pname = f"classifier:{root_cond.classifier.name}"
+            else:
+                pname = type(root_cond).__name__
+            self._synthesis_history.append((pname, cat, len(self._synthesis_history)))
 
         # ------------------------------------------------------------------
         # Stats
@@ -572,80 +823,46 @@ class CVC5Synthesizer:
     ) -> Optional[Program]:
         """Reconstruct a Program from the CVC5 model's define-funs.
 
+        Fully supports AST reconstruction including AND, OR, NOT,
+        PredicateNode, ThresholdNode, and ApplyTransformNode.
+
         Strategy:
-        1. Find the condition/condition_1 function — that's the root
-        2. Walk the S-expression tree and map to Program AST nodes
-        3. Build IfThenElseNode with the reconstructed condition
+        1. Find the main condition/depth function
+        2. Parse S-expression string into a raw tree (nested lists/atoms)
+        3. Convert the raw tree into Program AST nodes via ``_sexpr_to_ast``
         """
-        # Find the main condition function
-        condition_body = None
-        for name in ["condition", "condition_1", "depth_1"]:
-            if name in defined_fns:
-                condition_body = defined_fns[name]
-                break
-
-        if not condition_body:
-            # Try any depth function
-            for name in sorted(defined_fns.keys()):
-                if name.startswith("depth_"):
-                    condition_body = defined_fns[name]
-                    break
-
-        if not condition_body:
-            # Try any predicate that's directly defined as Bool
-            for name, body in defined_fns.items():
-                if any(p.name == name or _safe_name(p.name) == name
-                       for p in catalog.predicates):
-                    condition_body = body
-                    break
-
+        condition_body = self._find_condition_body(defined_fns, catalog)
         if not condition_body:
             return None
 
-        # Build program from the condition body
-        # Try to find which predicate is used
-        for p in catalog.predicates:
-            pn = p.name
-            pn_safe = _safe_name(pn)
-            if pn_safe in condition_body or pn in condition_body:
-                condition: Node = PredicateNode(primitive=p)
-                return Program(
-                    root=IfThenElseNode(condition=condition, then_outcome=1, else_outcome=0)
-                )
+        raw = _parse_sexpr_tree(condition_body)
+        if raw is None:
+            return None
 
-        # Try classifiers with thresholds
-        for c in catalog.classifiers:
-            cn = c.name
-            cn_safe = _safe_name(cn)
-            if cn_safe in condition_body:
-                # Extract threshold from model
-                tv = f"threshold_{cn_safe}"
-                threshold = 0.5
-                if tv in defined_fns:
-                    try:
-                        threshold = float(defined_fns[tv])
-                    except (ValueError, TypeError):
-                        pass
-                condition = ThresholdNode(classifier=c, threshold=threshold)
-                return Program(
-                    root=IfThenElseNode(condition=condition, then_outcome=1, else_outcome=0)
-                )
+        root_ast = _sexpr_to_ast(raw, catalog, defined_fns)
+        if not isinstance(root_ast, Node):
+            return None
 
-        # Try to find predicate+transform combinations
-        for t in catalog.transforms:
-            tn = _safe_name(t.name)
-            if tn in condition_body:
-                for p in catalog.predicates:
-                    pn = _safe_name(p.name)
-                    if pn in condition_body:
-                        inner_node: Node = ApplyTransformNode(
-                            transform=t,
-                            inner=PredicateNode(primitive=p)
-                        )
-                        return Program(
-                            root=IfThenElseNode(condition=inner_node, then_outcome=1, else_outcome=0)
-                        )
+        return Program(
+            root=IfThenElseNode(condition=root_ast, then_outcome=1, else_outcome=0)
+        )
 
+    def _find_condition_body(
+        self,
+        defined_fns: Dict[str, str],
+        catalog: PrimitiveCatalog,
+    ) -> Optional[str]:
+        """Locate the primary condition body from defined functions."""
+        for name in ["condition", "condition_1", "depth_1"]:
+            if name in defined_fns:
+                return defined_fns[name]
+        for name in sorted(defined_fns.keys()):
+            if name.startswith("depth_"):
+                return defined_fns[name]
+        for name, body in defined_fns.items():
+            if any(p.name == name or _safe_name(p.name) == name
+                   for p in catalog.predicates):
+                return body
         return None
 
     # ------------------------------------------------------------------
@@ -670,16 +887,70 @@ class CVC5Synthesizer:
             return None
 
         executor = ProgramExecutor(exporter.primitive_registry or default_registry)
-        programs.sort(key=lambda p: p.complexity())
 
+        # Stratify programs by category for fair beam coverage
+        from collections import defaultdict
+        by_type: Dict[str, List[Program]] = defaultdict(list)
+        for prog in programs:
+            cat = _classify_program_category(prog)
+            by_type[cat].append(prog)
+
+        # At depth 1, score ALL programs (they are few, ~100-150).
+        # At deeper depths, take a stratified sample from each category.
         if self.beam_width > 0:
             scored: List[Tuple[float, Program]] = []
-            for prog in programs[:self.beam_width * 2]:
-                score = self._fitness_score(prog, examples, executor)
-                scored.append((score, prog))
+            if d == 1:
+                for prog in programs:
+                    score = self._fitness_score(prog, examples, executor)
+                    scored.append((score, prog))
+            else:
+                # Per-category budget: ensure each category gets at least
+                # beam_width candidates scored.
+                per_cat = max(self.beam_width * 2, 15)
+                for cat in sorted(by_type.keys()):
+                    candidates = by_type[cat][:per_cat]
+                    for prog in candidates:
+                        score = self._fitness_score(prog, examples, executor)
+                        scored.append((score, prog))
+
             scored.sort(key=lambda x: (-x[0], x[1].complexity()))
             programs = [p for _, p in scored[:self.beam_width]]
+            stats.candidates_considered = len(scored)
 
+        # Track how many synthesized (diverse) vs heuristic (simple keyword) candidates
+        stats.synthesized_candidates += sum(
+            1 for p in programs
+            if _classify_program_category(p) in ("transform", "composite", "classifier")
+        )
+        stats.heuristic_fallback_candidates += sum(
+            1 for p in programs
+            if _classify_program_category(p) in ("keyword", "structural")
+        )
+
+        # Collect ALL perfect matches and prefer categories that are
+        # underrepresented.  Uses a continuous exponential-decay bonus
+        # so that rare categories (structural, jailbreak, semantic) are
+        # always slightly preferred over common ones (keyword), even after
+        # many cycles.
+        cat_counts: Dict[str, int] = defaultdict(int)
+        if hasattr(self, '_synthesis_history'):
+            for _, cat, _ in self._synthesis_history:
+                cat_counts[cat] += 1
+        # Seed: keyword gets 2 extra counts so it is never the most novel
+        for seed_cat in ("keyword",):
+            cat_counts[seed_cat] = cat_counts.get(seed_cat, 0) + 2
+
+        total_count = sum(cat_counts.values()) or 1
+
+        def _diversity_bonus(prog: Program) -> float:
+            cat = _classify_program_category(prog)
+            count = cat_counts.get(cat, 1)
+            # Exponential decay: bonus = 0.3 * exp(-count / decay_scale)
+            # decay_scale = max(3, total_count / len(cat_counts))
+            decay = max(3.0, total_count / max(len(cat_counts), 1))
+            return 0.3 * math.exp(-count / decay)
+
+        ordered: List[Tuple[float, int, Program]] = []  # (-bonus, complexity, prog)
         for prog in programs:
             stats.programs_tried += 1
             if self.use_cache:
@@ -687,15 +958,27 @@ class CVC5Synthesizer:
                 if h in self._cache:
                     stats.programs_skipped_cache += 1
                     if self._cache[h]:
-                        return prog
+                        ordered.append((
+                            -_diversity_bonus(prog),
+                            prog.complexity(),
+                            prog,
+                        ))
                     continue
                 is_match = self._matches_all(prog, examples, executor, max_errors=max_errors)
                 self._cache[h] = is_match
             else:
                 is_match = self._matches_all(prog, examples, executor, max_errors=max_errors)
             if is_match:
-                self._save_cache()
-                return prog
+                ordered.append((
+                    -_diversity_bonus(prog),
+                    prog.complexity(),
+                    prog,
+                ))
+
+        if ordered:
+            ordered.sort(key=lambda x: (x[0], x[1]))
+            self._save_cache()
+            return ordered[0][2]
 
         self._save_cache()
         return None
@@ -705,9 +988,12 @@ class CVC5Synthesizer:
     # ------------------------------------------------------------------
 
     def _cvc5_available(self) -> bool:
+        resolved = shutil.which(self.cvc5_path)
+        if not resolved:
+            return False
         try:
             result = subprocess.run(
-                [self.cvc5_path, "--version"],
+                [resolved, "--version"],
                 capture_output=True, text=True, timeout=5,
             )
             return result.returncode == 0
@@ -723,6 +1009,7 @@ class CVC5Synthesizer:
         """Fallback: use exporter to enumerate and find best program."""
         exporter = GrammarExporter(
             primitive_registry=default_registry,
+            condition_registry=self.condition_registry,
             max_depth=self.max_depth,
         )
         candidates = exporter.enumerate_programs(max_depth=self.max_depth, examples=examples)
@@ -916,9 +1203,164 @@ class CVC5Synthesizer:
         return defense_store.save(record)
 
 
+def _parse_sexpr_tree(body: str, start: int = 0):
+    """Parse an S-expression string into a raw Python tree.
+
+    Returns (raw_sexpr, next_index) where raw_sexpr is one of:
+      - list  (nested S-expression call)
+      - str   (symbol or string literal)
+      - float / int
+      - bool
+    """
+    body = body.strip()
+    i = start
+    while i < len(body) and body[i] in " \t\n\r":
+        i += 1
+    if i >= len(body):
+        return None, i
+
+    if body[i] == "(":
+        i += 1
+        items = []
+        while i < len(body):
+            while i < len(body) and body[i] in " \t\n\r":
+                i += 1
+            if i >= len(body) or body[i] == ")":
+                i += 1
+                break
+            item, i = _parse_sexpr_tree(body, i)
+            if item is not None:
+                items.append(item)
+        return items, i
+
+    if body[i] == '"':
+        i += 1
+        s_start = i
+        while i < len(body) and body[i] != '"':
+            i += 1
+        s_val = body[s_start:i]
+        i += 1 if i < len(body) else 0
+        return s_val, i
+
+    # Atom
+    a_start = i
+    while i < len(body) and body[i] not in " \t\n\r)":
+        i += 1
+    atom = body[a_start:i]
+    try:
+        return float(atom) if "." in atom else int(atom), i
+    except (ValueError, TypeError):
+        pass
+    if atom in ("true", "false"):
+        return True if atom == "true" else False, i
+    return atom, i
+
+
+def _sexpr_to_ast(
+    raw: Any,
+    catalog: PrimitiveCatalog,
+    defined_fns: Dict[str, str],
+) -> Optional[Node]:
+    """Convert a raw parsed S-expression tree into a Program AST Node.
+
+    ``raw`` is the output of ``_parse_sexpr_tree``, which is a nested
+    list/atom tree.  This function recursively maps it to Program AST
+    nodes (AndNode, OrNode, NotNode, PredicateNode, ThresholdNode,
+    ApplyTransformNode).
+    """
+    from core.program import (
+        AndNode, OrNode, NotNode, PredicateNode, ThresholdNode,
+        ApplyTransformNode, Node,
+    )
+
+    if not isinstance(raw, list) or len(raw) == 0:
+        return None
+
+    op = raw[0]
+    args = raw[1:] if isinstance(op, str) else raw
+
+    # --- Boolean combinators ---
+    if op == "and" and len(args) >= 2:
+        left = _sexpr_to_ast(args[0], catalog, defined_fns)
+        right = _sexpr_to_ast(args[1], catalog, defined_fns)
+        if isinstance(left, Node) and isinstance(right, Node):
+            return AndNode(left=left, right=right)
+
+    if op == "or" and len(args) >= 2:
+        left = _sexpr_to_ast(args[0], catalog, defined_fns)
+        right = _sexpr_to_ast(args[1], catalog, defined_fns)
+        if isinstance(left, Node) and isinstance(right, Node):
+            return OrNode(left=left, right=right)
+
+    if op == "not" and len(args) >= 1:
+        child = _sexpr_to_ast(args[0], catalog, defined_fns)
+        if isinstance(child, Node):
+            return NotNode(child=child)
+
+    # --- Threshold: (> (classifier x) value) ---
+    if op == ">" and len(args) >= 2:
+        if isinstance(args[0], list) and len(args[0]) >= 1:
+            cn = args[0][0]
+            threshold_val = args[1] if isinstance(args[1], (int, float)) else 0.5
+            for c in catalog.classifiers:
+                if _safe_name(c.name) == cn:
+                    return ThresholdNode(classifier=c, threshold=float(threshold_val))
+
+    # --- Direct predicate call: (predicate_name [transform_or_x]) ---
+    # Check if op matches a predicate name
+    predicate = _find_predicate_by_name(op, catalog)
+    if predicate is not None:
+        if len(args) == 0:
+            return PredicateNode(primitive=predicate)
+        inner = args[0]
+        if isinstance(inner, list) and len(inner) >= 1:
+            tn = inner[0]
+            transform = _find_transform_by_name(tn, catalog)
+            if transform is not None:
+                return ApplyTransformNode(
+                    transform=transform,
+                    inner=PredicateNode(primitive=predicate),
+                )
+        return PredicateNode(primitive=predicate)
+
+    # --- Standalone transform call: (transform_name x) ---
+    transform = _find_transform_by_name(op, catalog)
+    if transform is not None:
+        return None  # transforms alone don't form conditions
+
+    # --- Classifier name fallback ---
+    classifier = _find_classifier_by_name(op, catalog)
+    if classifier is not None:
+        return ThresholdNode(classifier=classifier, threshold=0.5)
+
+    return None
+
+
+def _find_predicate_by_name(name: str, catalog) -> Optional[Any]:
+    for p in catalog.predicates:
+        if _safe_name(p.name) == name:
+            return p
+    return None
+
+
+def _find_transform_by_name(name: str, catalog) -> Optional[Any]:
+    for t in catalog.transforms:
+        if _safe_name(t.name) == name:
+            return t
+    return None
+
+
+def _find_classifier_by_name(name: str, catalog) -> Optional[Any]:
+    for c in catalog.classifiers:
+        if _safe_name(c.name) == name:
+            return c
+    return None
+
+
 def build_simple_program(
     predicate_name: str,
     registry: Optional[PrimitiveRegistry] = None,
+    condition_registry: Optional[ConditionRegistry] = None,
     negate: bool = False,
     **params: Any,
 ) -> Optional[Program]:
@@ -926,12 +1368,20 @@ def build_simple_program(
     try:
         predicate = reg.get(predicate_name, params)
     except ValueError:
+        predicate = None
+    if predicate is not None and isinstance(predicate, Predicate):
+        condition: Node = PredicateNode(primitive=predicate)
+        if negate:
+            condition = NotNode(child=condition)
+        return Program(
+            root=IfThenElseNode(condition=condition, then_outcome=1, else_outcome=0)
+        )
+    # Fallback: try ConditionRegistry for name resolution
+    cond_reg = condition_registry or _condition_registry
+    try:
+        cond_reg.get(predicate_name)
+    except KeyError:
         return None
-    if not isinstance(predicate, Predicate):
-        return None
-    condition: Node = PredicateNode(primitive=predicate)
-    if negate:
-        condition = NotNode(child=condition)
-    return Program(
-        root=IfThenElseNode(condition=condition, then_outcome=1, else_outcome=0)
-    )
+    # Condition exists but cannot be wrapped as PredicateNode;
+    # return sentinel None indicating it must be looked up at runtime.
+    return None

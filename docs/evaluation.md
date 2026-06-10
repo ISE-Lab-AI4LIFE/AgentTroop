@@ -183,7 +183,7 @@ python experiments/run_evaluation.py \
 python experiments/run_evaluation.py \
     --campaign llama31_8b_test_001 \
     --program-id dfp_91f11d6edc31 \
-    --victim llama3.1:8b.ollama_victim.OllamaVictim \
+    --victim llama3_1_8b.ollama_victim.OllamaVictim \
     --judge llm \
     --llm-model gemma-4-31b-it \
     --num-test-prompts 100 \

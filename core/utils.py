@@ -18,7 +18,7 @@ def complexity(program: Program) -> int:
 
 
 def hash_program(program: Program) -> str:
-    canonical = repr(canonicalize_program(program))
+    canonical = program.canonical_form()
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 

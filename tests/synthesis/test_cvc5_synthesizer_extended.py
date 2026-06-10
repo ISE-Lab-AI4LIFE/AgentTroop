@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.conftest import cvc5_available
+
 from core.executor import ProgramExecutor
 from core.primitive import (
     ContainsWordPredicate,
@@ -27,22 +29,15 @@ from synthesis.grammar_exporter import GrammarExporter
 
 EXECUTOR = ProgramExecutor(default_registry)
 
+_SKIP_CVC5 = not cvc5_available()
+
 
 # =========================================================================
 # Item 1: Real CVC5 binary test
 # =========================================================================
 
-def _cvc5_available() -> bool:
-    import subprocess
-    try:
-        r = subprocess.run(["cvc5", "--version"], capture_output=True, text=True, timeout=5)
-        return r.returncode == 0
-    except Exception:
-        return False
-
-
 class TestCVC5RealBinary:
-    @pytest.mark.skipif(not _cvc5_available(), reason="CVC5 binary not in PATH")
+    @pytest.mark.skipif(_SKIP_CVC5, reason="CVC5 binary not in PATH")
     def test_cvc5_finds_simple_solution(self) -> None:
         synth = CVC5Synthesizer(cvc5_path="cvc5", timeout=10, max_depth=1)
         examples = [("bomb", 1), ("hello", 0)]
@@ -54,21 +49,21 @@ class TestCVC5RealBinary:
         assert EXECUTOR.execute(program, "bomb") == 1
         assert EXECUTOR.execute(program, "hello") == 0
 
-    @pytest.mark.skipif(not _cvc5_available(), reason="CVC5 binary not in PATH")
+    @pytest.mark.skipif(_SKIP_CVC5, reason="CVC5 binary not in PATH")
     def test_cvc5_syntax_error_falls_back(self) -> None:
         synth = CVC5Synthesizer(cvc5_path="cvc5", timeout=5, max_depth=2)
         examples = [("bomb", 1), ("hello", 0)]
         program = synth.synthesize(examples, primitive_registry=default_registry)
         assert program is not None
 
-    @pytest.mark.skipif(not _cvc5_available(), reason="CVC5 binary not in PATH")
+    @pytest.mark.skipif(_SKIP_CVC5, reason="CVC5 binary not in PATH")
     def test_cvc5_unsat_returns_none(self) -> None:
         synth = CVC5Synthesizer(cvc5_path="cvc5", timeout=10, max_depth=1)
         examples = [("hello", 0), ("hello", 1)]
         program = synth.synthesize(examples, primitive_registry=default_registry)
         assert program is None
 
-    @pytest.mark.skipif(not _cvc5_available(), reason="CVC5 binary not in PATH")
+    @pytest.mark.skipif(_SKIP_CVC5, reason="CVC5 binary not in PATH")
     def test_cvc5_timeout_handled_gracefully(self) -> None:
         synth = CVC5Synthesizer(cvc5_path="cvc5", timeout=1, max_depth=3)
         examples = [("a" * 10, 1), ("b" * 10, 0)]
@@ -259,7 +254,7 @@ class TestFreeThresholds:
         thresholds = synth._extract_thresholds_from_model(model)
         assert thresholds["toxicity_score"] == 1.0
 
-    @pytest.mark.skipif(not _cvc5_available(), reason="CVC5 binary not in PATH")
+    @pytest.mark.skipif(_SKIP_CVC5, reason="CVC5 binary not in PATH")
     def test_cvc5_free_threshold_finds_solution(self) -> None:
         synth = CVC5Synthesizer(cvc5_path="cvc5", timeout=10, max_depth=1)
         examples = [("bad", 1), ("neutral", 0)]

@@ -18,12 +18,12 @@ outcomes → **0 anomalies** → **0 hypotheses** → pipeline exit at
 
 | File | Change | Scope |
 |------|--------|-------|
-| `llama3.1:8b/seed_strategy.py` | **New file** — multi-tier transformation framework | 303 lines |
+| `llama3_1_8b/seed_strategy.py` | **New file** — multi-tier transformation framework | 303 lines |
 | `agents/cognitive.py` | Extended `Anomaly` dataclass with metadata fields; updated `detect_anomalies()` to extract transform family | ~20 lines |
-| `llama3.1:8b/run_experiment.py` | Rewrote `seed_episodic_memory()` to use `MultiTierSeedStrategy`; added dotenv loading; added `_exp_dir` to sys.path; updated `print_report()` | ~50 lines |
+| `llama3_1_8b/run_experiment.py` | Rewrote `seed_episodic_memory()` to use `MultiTierSeedStrategy`; added dotenv loading; added `_exp_dir` to sys.path; updated `print_report()` | ~50 lines |
 | `orchestration/orchestrator.py` | Added `_anomaly_telemetry` + `_seed_telemetry` tracking; `_compute_anomaly_telemetry()` method; telemetry in `_result()`; fixed `_fetch_episodes()` store key; convergence guard (`num_candidates >= 2`) | ~50 lines |
-| `llama3.1:8b/run_exp.sh` | Added `.env` auto-loading | 6 lines |
-| `llama3.1:8b/config.yaml` | Updated `max_interventions: 500`, disabled `cvc5`, added `entropy_convergence_threshold` | ~5 lines |
+| `llama3_1_8b/run_exp.sh` | Added `.env` auto-loading | 6 lines |
+| `llama3_1_8b/config.yaml` | Updated `max_interventions: 500`, disabled `cvc5`, added `entropy_convergence_threshold` | ~5 lines |
 
 ## 4. Design Decisions
 

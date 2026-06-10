@@ -1,8 +1,13 @@
 import os
 import json
+from pathlib import Path
 from typing import Any, Optional
 
+from dotenv import load_dotenv
 import requests
+
+# Load .env from project root (idempotent if already loaded by caller)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 class OpenRouterClient:

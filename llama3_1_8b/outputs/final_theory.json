@@ -1,0 +1,50 @@
+[
+  {
+    "id": "thr_2d99533e165e",
+    "pattern": "IF contains_word({\"word\": \"bomb\", \"case_sensitive\": false}) THEN REFUSE",
+    "conditions": {
+      "test": "integration",
+      "model_family": "RLHF",
+      "complexity": 2,
+      "synthesis_method": "cvc5"
+    },
+    "confidence": 0.0,
+    "provenance": [
+      "ep_int_1"
+    ],
+    "version": 1,
+    "created_at": 1781060461.388046,
+    "updated_at": 1781060461.388046,
+    "metadata": {
+      "program_id": "prog_1781060461388001_d803",
+      "node_count": 2,
+      "depth": 2,
+      "then_outcome": 1,
+      "else_outcome": 0
+    }
+  },
+  {
+    "id": "thr_a3297d3264be",
+    "pattern": "IF contains_word({\"word\": \"bomb\", \"case_sensitive\": false}) THEN REFUSE",
+    "conditions": {
+      "test": "integration",
+      "model_family": "RLHF",
+      "complexity": 2,
+      "synthesis_method": "cvc5"
+    },
+    "confidence": 0.0,
+    "provenance": [
+      "ep_int_1"
+    ],
+    "version": 1,
+    "created_at": 1781022348.1352608,
+    "updated_at": 1781022348.1352608,
+    "metadata": {
+      "program_id": "prog_1781022348135127_2c4e",
+      "node_count": 2,
+      "depth": 2,
+      "then_outcome": 1,
+      "else_outcome": 0
+    }
+  }
+]

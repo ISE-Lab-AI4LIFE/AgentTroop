@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import random
 import time
 from enum import Enum
@@ -28,13 +29,18 @@ from typing import Any, Dict, List, Optional, Tuple
 from agents.cognitive import Anomaly, CognitiveAgent, Hypothesis
 from agents.researcher import ResearcherAgent
 from agents.strategist import StrategistAgent
+from core import ConditionRegistry
+from core.condition import registry as _condition_registry
 from core.intervention import Intervention
 from core.executor import ProgramExecutor
+from core.primitive import ContainsWordPredicate
 from inference.belief_updater import BayesianBeliefUpdater
 from inference.pomdp import POMDPAction, POMDPObservation
 from inference.version_space import VersionSpace
 from knowledge.manager import KnowledgeManager, Target
 from knowledge.session_memory import SessionMemory
+from orchestration.surrogate_policy_model import SurrogatePolicyModel
+from orchestration.counterfactual_learner import CounterfactualLearner
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +135,7 @@ class Orchestrator:
         entropy_convergence_threshold: float = 0.1,
         belief_updater: Any = None,
         version_space: Optional[VersionSpace] = None,
-        top_k_candidates: int = 10,
+        top_k_candidates: int = 30,
         seed_telemetry: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.cognitive = cognitive_agent
@@ -163,11 +169,29 @@ class Orchestrator:
         self._belief_history: List[float] = []
         self._entropy_history: List[float] = []
         self._efe_log: List[Dict[str, Any]] = []
+        # Synthesis telemetry counters
+        self._synthesis_attempts: int = 0
+        self._synthesis_successes: int = 0
+        self._synthesis_total_candidates: int = 0
+        self._synthesis_fallbacks: int = 0
+
+        # Surrogate Policy Model — trained on all episodes to provide signal
+        # when victim outcome is uniform (≈100% REFUSE or ≈100% ACCEPT)
+        self.surrogate = SurrogatePolicyModel()
+        self._surrogate_training_stats: List[Dict[str, Any]] = []
+
+        # Counterfactual Learning Layer — generates counterfactual prompt pairs
+        # to extract invariant features from uniform outcomes
+        self.counterfactual_learner = CounterfactualLearner()
+        self._counterfactual_pairs: List[Any] = []
 
         # Anomaly-source telemetry
         self._seed_telemetry = seed_telemetry or {}
         self._anomaly_telemetry: Dict[str, Any] = {}
         self._intervention_telemetry: Dict[str, int] = {}
+
+        # Diversity tracking
+        self._diversity_history: List[Dict[str, Any]] = []
 
         self._session_created = self._ensure_session()
         logger.info(
@@ -240,6 +264,10 @@ class Orchestrator:
         self._belief_history = []
         self._entropy_history = []
         self._efe_log = []
+        self._synthesis_attempts = 0
+        self._synthesis_successes = 0
+        self._synthesis_total_candidates = 0
+        self._synthesis_fallbacks = 0
 
         try:
             # Phase 1-2: Cognitive Agent → hypotheses
@@ -295,11 +323,30 @@ class Orchestrator:
                             "Force exploration after %d stalled iterations",
                             stalled_iterations,
                         )
-                        intervention = self._force_exploration_intervention(hypotheses)
-                        if intervention is None:
-                            logger.warning("Force exploration also failed; stopping")
-                            break
-                        stalled_iterations = 0
+                        # Try counterfactual prompts before force exploration
+                        if self._counterfactual_pairs:
+                            cf_pair = self._counterfactual_pairs.pop(0)
+                            from core.intervention import Intervention
+                            intervention = Intervention(
+                                base_prompt=cf_pair.counterfactual_prompt,
+                                transforms=[],
+                                metadata={
+                                    "counterfactual": True,
+                                    "pair_id": cf_pair.pair_id,
+                                    "feature_changed": cf_pair.feature_changed,
+                                },
+                            )
+                            stalled_iterations = 0
+                            logger.info(
+                                "Using counterfactual prompt (feature=%s) as intervention",
+                                cf_pair.feature_changed,
+                            )
+                        else:
+                            intervention = self._force_exploration_intervention(hypotheses)
+                            if intervention is None:
+                                logger.warning("Force exploration also failed; stopping")
+                                break
+                            stalled_iterations = 0
                     else:
                         continue
 
@@ -336,35 +383,90 @@ class Orchestrator:
                 self._poll_and_process_proposals()
 
                 # ── Phase 5: Top-K Program Synthesis → Version Space ──
-                if total_interventions % self.synthesis_interval == 0:
+                if iteration == 1 or total_interventions % self.synthesis_interval == 0:
                     self._synthesize_and_update_version_space()
+
+                # ── Holdout evaluation → posterior reweight (every cycle) ──
+                # Running every cycle differentiates near-identical candidates
+                # (e.g. multiple keyword programs) that make the same training
+                # predictions but diverge on unseen holdout prompts.
+                if total_interventions >= 3:
+                    holdout_result = self.evaluate_on_holdout(holdout_prompts=[])
+                    if holdout_result and holdout_result.get("holdout_size", 0) > 0:
+                        best = self.version_space.most_likely()
+                        if best is not None:
+                            self.version_space.set_holdout_accuracy(
+                                holdout_result.get("holdout_accuracy", 0.0)
+                            )
+                        # Reweight posterior using holdout-adjusted scores so
+                        # candidates with verified holdout accuracy dominate
+                        # over unsubstantiated seeds.
+                        self.version_space.reweight_by_holdout()
+                        # Feed holdout failures back into EpisodicMemory
+                        # to amplify signal for candidates with large generalization gap.
+                        self._feed_holdout_failures(holdout_result)
+
+                # ── Diversity telemetry per cycle ──
+
+                # ── Diversity telemetry per cycle ──
+                self._emit_diversity_telemetry()
+
+                # ── VS-level entropy recording for convergence detection ──
+                self.version_space.record_entropy()
 
                 # ── Entropy-based convergence check ──
                 current_entropy = self._get_current_entropy()
                 if len(self._entropy_history) >= 5 and self.version_space.num_candidates >= 2:
                     recent = self._entropy_history[-5:]
                     if all(e < self.entropy_convergence_threshold for e in recent):
-                        converged_by_entropy = True
-                        logger.info(
-                            "Version space entropy below %.3f for 5 cycles "
-                            "(%d candidates); converged",
-                            self.entropy_convergence_threshold,
-                            self.version_space.num_candidates,
-                        )
-                        break
+                        best = self.version_space.most_likely()
+                        real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
+                        if real_holdout >= 0.65:
+                            converged_by_entropy = True
+                            logger.info(
+                                "Version space entropy below %.3f for 5 cycles "
+                                "(%d candidates, holdout=%.3f); converged by entropy",
+                                self.entropy_convergence_threshold,
+                                self.version_space.num_candidates,
+                                real_holdout,
+                            )
+                            self._emit_vs_telemetry(
+                                "converged_by_entropy",
+                                threshold=self.entropy_convergence_threshold,
+                            )
+                            break
 
-                # ── Accuracy convergence check (most likely candidate) ──
+                # ── Holdout-based convergence check ──
+                # Convergence is purely evidence-driven: if the candidate
+                # with the highest posterior also has high accuracy on both
+                # train and holdout with a small generalization gap, it has
+                # genuinely learned the policy — regardless of whether the
+                # predicate is keyword, structural, or semantic.
                 best = self.version_space.most_likely()
-                if best is not None and best.accuracy >= self.accuracy_threshold:
-                    converged_by_accuracy = True
-                    logger.info(
-                        "Best candidate accuracy %.2f >= threshold %.2f; converged",
-                        best.accuracy, self.accuracy_threshold,
-                    )
-                    self.session_memory.set_best_program(
-                        self.campaign_id, best.program_id, best.accuracy,
-                    )
-                    break
+                if best is not None:
+                    real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
+                    if (real_holdout > 0.0
+                            and best.accuracy >= self.accuracy_threshold):
+                        gap = abs(best.accuracy - real_holdout)
+                        if gap < 0.15:  # generalization gap < 15%
+                            converged_by_accuracy = True
+                            logger.info(
+                                "Best candidate train=%.3f holdout=%.3f gap=%.3f "
+                                "type=%s >= threshold; converged by holdout",
+                                best.accuracy, real_holdout, gap,
+                                best.predicate_type,
+                            )
+                            self.session_memory.set_best_program(
+                                self.campaign_id, best.program_id, best.accuracy,
+                            )
+                            self._emit_vs_telemetry(
+                                "converged_by_accuracy",
+                                best_id=best.program_id,
+                                best_accuracy=best.accuracy,
+                                holdout_accuracy=real_holdout,
+                                predicate_type=best.predicate_type,
+                            )
+                            break
 
             # ── Finalize ──
             self.session_memory.set_status(self.campaign_id, "completed")
@@ -467,11 +569,30 @@ class Orchestrator:
                             "Force exploration after %d stalled iterations",
                             stalled_iterations,
                         )
-                        intervention = self._force_exploration_intervention(hypotheses)
-                        if intervention is None:
-                            logger.warning("Force exploration also failed; stopping")
-                            break
-                        stalled_iterations = 0
+                        # Try counterfactual prompts before force exploration
+                        if self._counterfactual_pairs:
+                            cf_pair = self._counterfactual_pairs.pop(0)
+                            from core.intervention import Intervention
+                            intervention = Intervention(
+                                base_prompt=cf_pair.counterfactual_prompt,
+                                transforms=[],
+                                metadata={
+                                    "counterfactual": True,
+                                    "pair_id": cf_pair.pair_id,
+                                    "feature_changed": cf_pair.feature_changed,
+                                },
+                            )
+                            stalled_iterations = 0
+                            logger.info(
+                                "Using counterfactual prompt (feature=%s) as intervention",
+                                cf_pair.feature_changed,
+                            )
+                        else:
+                            intervention = self._force_exploration_intervention(hypotheses)
+                            if intervention is None:
+                                logger.warning("Force exploration also failed; stopping")
+                                break
+                            stalled_iterations = 0
                     else:
                         continue
                 elif intervention.metadata.get("exploratory"):
@@ -504,33 +625,61 @@ class Orchestrator:
                 self._update_causal_graph(intervention)
                 self._poll_and_process_proposals()
 
-                if total_interventions % self.synthesis_interval == 0:
+                if iteration == 1 or total_interventions % self.synthesis_interval == 0:
                     self._synthesize_and_update_version_space()
+
+                # ── Holdout evaluation (async) ──
+                if total_interventions >= 3 and total_interventions % max(2, self.synthesis_interval) == 0:
+                    holdout_result = self.evaluate_on_holdout(holdout_prompts=[])
+                    if holdout_result and holdout_result.get("holdout_size", 0) > 0:
+                        best = self.version_space.most_likely()
+                        if best is not None:
+                            self.version_space.set_holdout_accuracy(
+                                holdout_result.get("holdout_accuracy", 0.0)
+                            )
+
+                # ── Diversity telemetry per cycle ──
+                self._emit_diversity_telemetry()
+
+                # ── VS-level entropy recording for convergence detection ──
+                self.version_space.record_entropy()
 
                 current_entropy = self._get_current_entropy()
                 if len(self._entropy_history) >= 5 and self.version_space.num_candidates >= 2:
                     recent = self._entropy_history[-5:]
                     if all(e < self.entropy_convergence_threshold for e in recent):
-                        converged_by_entropy = True
-                        logger.info(
-                            "Version space entropy below %.3f for 5 cycles "
-                            "(%d candidates); converged",
-                            self.entropy_convergence_threshold,
-                            self.version_space.num_candidates,
-                        )
-                        break
+                        best = self.version_space.most_likely()
+                        real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
+                        if real_holdout >= 0.65:
+                            converged_by_entropy = True
+                            logger.info(
+                                "Version space entropy below %.3f for 5 cycles "
+                                "(%d candidates, holdout=%.3f); converged by entropy",
+                                self.entropy_convergence_threshold,
+                                self.version_space.num_candidates,
+                                real_holdout,
+                            )
+                            break
 
+                # ── Holdout-based convergence check (async) ──
                 best = self.version_space.most_likely()
-                if best is not None and best.accuracy >= self.accuracy_threshold:
-                    converged_by_accuracy = True
-                    logger.info(
-                        "Best candidate accuracy %.2f >= threshold %.2f; converged",
-                        best.accuracy, self.accuracy_threshold,
-                    )
-                    self.session_memory.set_best_program(
-                        self.campaign_id, best.program_id, best.accuracy,
-                    )
-                    break
+                if best is not None:
+                    real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
+                    if (real_holdout > 0.0
+                            and best.accuracy >= self.accuracy_threshold):
+                        gap = abs(best.accuracy - real_holdout)
+                        if gap < 0.15:
+                            converged_by_accuracy = True
+                            logger.info(
+                                "Best candidate train=%.3f holdout=%.3f gap=%.3f "
+                                "type=%s >= threshold; converged by holdout",
+                                best.accuracy, real_holdout, gap,
+                                best.predicate_type,
+                            )
+                            self.session_memory.set_best_program(
+                                self.campaign_id, best.program_id, best.accuracy,
+                            )
+                            break
 
             self.session_memory.set_status(self.campaign_id, "completed")
             self._persist_belief_history()
@@ -624,27 +773,10 @@ class Orchestrator:
             except Exception:
                 pass
 
-        # Propose hypotheses to Defense Program Store via KnowledgeManager
-        try:
-            proposal_data = [
-                {
-                    "id": h.id,
-                    "description": h.description,
-                    "condition": h.condition,
-                    "confidence": h.confidence,
-                    "supporting_anomaly_ids": h.supporting_anomaly_ids,
-                }
-                for h in hypotheses
-            ]
-            self.knowledge_manager.propose(
-                target="defense_program_store",
-                data={"action": "register_hypotheses", "hypotheses": proposal_data},
-                agent_id="Orchestrator",
-                action="register_hypotheses",
-            )
-        except Exception as exc:
-            logger.warning("Failed to propose hypotheses: %s", exc)
-
+        # Hypotheses are persisted directly through cognitive.store_hypotheses()
+        # and loaded as priors via _load_prior_hypotheses → cognitive.get_stored_hypotheses().
+        # No separate proposal to defense_program_store is needed (the store type
+        # is for synthesized programs, not hypotheses).
         return anomalies, hypotheses
 
     def _load_prior_hypotheses(self) -> Optional[List[Hypothesis]]:
@@ -676,7 +808,11 @@ class Orchestrator:
         self.phase = OrchestratorPhase.INTERVENTION_DESIGN
         logger.info("Phase 3/6: intervention design (%d hypotheses)", len(hypotheses))
 
-        h1, h2 = self.strategist.select_hypothesis_pair(hypotheses)
+        h1, h2 = self.strategist.select_hypothesis_pair(
+            hypotheses,
+            campaign_id=self.campaign_id,
+            experiment_id=self.experiment_id,
+        )
         if h1 is None or h2 is None:
             return None
 
@@ -876,9 +1012,20 @@ class Orchestrator:
         If synthesis returns 0 programs, generates heuristic fallback
         candidates from keyword-based predicates to ensure the VS is
         never empty.
+
+        **Fix P1**: No longer calls ``reset_belief()``.  New candidates
+        are added incrementally with near-zero initial posterior, and
+        existing posteriors are preserved.  When synthesis returns
+        duplicate programs (same program_id as existing candidates),
+        only accuracy is updated — posterior mass remains untouched.
+
+        **Fix P4**: ``_generate_heuristic_candidates`` now includes
+        all predicate families (keyword, structural, jailbreak,
+        semantic, discourse) for balanced coverage.
         """
         try:
             from synthesis.cvc5_synthesizer import CVC5Synthesizer
+            from inference.version_space import _classify_program
             synthesizer = getattr(self.researcher, "synthesizer", None)
             if synthesizer is None:
                 logger.warning("No synthesizer available on researcher agent")
@@ -893,39 +1040,153 @@ class Orchestrator:
                 getattr(self.strategist, "primitive_registry", None),
             )
 
+            # FIX P3: Adaptive error tolerance — auto-increase when
+            # consecutive synthesis rounds return 0 programs.
+            consecutive = getattr(self, '_consecutive_synthesis_failures', 0)
+            if consecutive >= 2:
+                new_rate = min(0.45, 0.15 + consecutive * 0.05)
+                old_rate = synthesizer.allow_error_rate
+                synthesizer.allow_error_rate = new_rate
+                logger.info(
+                    "Adaptive error tolerance: allow_error_rate=%.2f -> %.2f "
+                    "(%d consecutive failures)",
+                    old_rate, new_rate, consecutive,
+                )
+
             programs = synthesizer.synthesize_top_k(
                 episodes, k=self.top_k_candidates,
             )
+
+            # ── Track synthesis success/failure ──
+            if not programs:
+                self._consecutive_synthesis_failures = getattr(self, '_consecutive_synthesis_failures', 0) + 1
+            else:
+                self._consecutive_synthesis_failures = 0
 
             # ── Heuristic fallback: if synthesis found 0 programs ──
             if not programs:
                 logger.warning(
                     "Synthesis found 0 matching programs; "
-                    "generating heuristic fallback candidates"
+                    "generating full-family heuristic fallback candidates"
                 )
                 programs = self._generate_heuristic_candidates(episodes, executor)
 
+            # FIX P1: Incremental addition — preserve existing posterior
+            existing_ids = set(self.version_space.program_ids)
+            entropy_before = self.version_space.entropy()
             added = 0
+            updated = 0
             for prog in programs:
                 accuracy = self._compute_accuracy(prog, episodes, executor)
                 source = getattr(prog, "source", "enumeration")
-                self.version_space.add_candidate(
-                    program=prog,
-                    accuracy=accuracy,
-                    source=source,
-                    episodes_matched=int(accuracy * len(episodes)),
-                    total_episodes=len(episodes),
-                )
-                added += 1
+                prog_id = getattr(prog, "id", "") or ""
+                if prog_id in existing_ids:
+                    # Update accuracy only — posterior preserved
+                    self.version_space.add_candidate(
+                        program=prog, accuracy=accuracy, source=source,
+                        episodes_matched=int(accuracy * len(episodes)),
+                        total_episodes=len(episodes),
+                    )
+                    updated += 1
+                else:
+                    # New candidate — initial posterior scales with accuracy
+                    # so substantiated programs (>0.0) start higher than seeds
+                    self.version_space.add_candidate(
+                        program=prog, accuracy=accuracy, source=source,
+                        episodes_matched=int(accuracy * len(episodes)),
+                        total_episodes=len(episodes),
+                    )
+                    added += 1
 
-            self.version_space.reset_belief(uniform=True)
+            # FIX P1: DO NOT reset_belief — posterior preserved
+            entropy_after = self.version_space.entropy()
             logger.info(
-                "Version space: added %d programs (total=%d, entropy=%.3f, "
-                "info_gain=%.4f)",
-                added, self.version_space.num_candidates,
-                self.version_space.entropy(),
-                self.version_space.total_info_gain,
+                "Version space: added=%d updated=%d (total=%d, "
+                "entropy_before=%.3f entropy_after=%.3f)",
+                added, updated, self.version_space.num_candidates,
+                entropy_before, entropy_after,
             )
+
+            # FIX 2: Type diversity survival guarantee — ensure at least
+            # 3 candidates of each core predicate type survive pruning.
+            vs = self.version_space
+            core_types = {"keyword", "structural", "semantic", "composite"}
+            type_counts = vs.count_by_predicate_type()
+            for ptype in core_types:
+                count = type_counts.get(ptype, 0)
+                if count >= 3 or vs.num_candidates == 0:
+                    continue
+
+                # Boost existing candidates of this type so they survive pruning
+                for i, c in enumerate(vs.candidates):
+                    if (c.predicate_type or c.family or "") == ptype:
+                        if i < len(vs.posterior):
+                            vs.posterior[i] = max(vs.posterior[i], 0.5)
+
+                # If type has 0 candidates, rescue from synthesis/heuristic pool
+                if count == 0:
+                    rescue_candidates = [
+                        p for p in (programs or [])
+                        if p not in vs.program_ids
+                        and hasattr(p, 'root')
+                        and _classify_program(p) == ptype
+                    ]
+                    # If synthesis pool has none of this type, generate fresh
+                    # heuristic candidates for the missing type(s).
+                    if not rescue_candidates:
+                        try:
+                            heur = self._generate_heuristic_candidates(
+                                episodes, executor,
+                            )
+                            rescue_candidates = [
+                                p for p in heur
+                                if p not in vs.program_ids
+                                and hasattr(p, 'root')
+                                and _classify_program(p) == ptype
+                            ]
+                        except Exception as exc:
+                            logger.debug(
+                                "FIX2: Heuristic generation failed for type '%s': %s",
+                                ptype, exc,
+                            )
+                    rescue_candidates.sort(
+                        key=lambda p: self._compute_accuracy(p, episodes, executor)
+                        if episodes else 0.0,
+                        reverse=True,
+                    )
+                    for p in rescue_candidates[:3 - count]:
+                        acc = self._compute_accuracy(p, episodes, executor) if episodes else 0.0
+                        vs.add_candidate(
+                            program=p, accuracy=acc, source="type_rescue",
+                            episodes_matched=int(acc * len(episodes)) if episodes else 0,
+                            total_episodes=len(episodes) if episodes else 0,
+                        )
+
+                logger.info(
+                    "FIX2: Protected/boosted type '%s' (count=%d -> target=3)",
+                    ptype, count,
+                )
+
+            # Cap: no single predicate type exceeds 40% of max_candidates
+            max_per_type = max(3, int(self.top_k_candidates * 0.4))
+            type_counts = vs.count_by_predicate_type()
+            for ptype, count in type_counts.items():
+                if count > max_per_type:
+                    excess = count - max_per_type
+                    candidates_of_type = [
+                        c for c in vs.candidates
+                        if (c.predicate_type or c.family or "") == ptype
+                    ]
+                    candidates_of_type.sort(
+                        key=lambda c: vs.posterior[vs.candidates.index(c)]
+                        if vs.candidates.index(c) < len(vs.posterior) else 0.0
+                    )
+                    for c in candidates_of_type[:excess]:
+                        vs.remove_candidate(c.program_id)
+                    logger.info(
+                        "Capped type '%s' from %d to %d (removed %d lowest-posterior)",
+                        ptype, count, max_per_type, excess,
+                    )
 
             # Persist to SessionMemory for resume support
             try:
@@ -937,6 +1198,7 @@ class Orchestrator:
                             self.version_space.posterior[i]
                         ) if i < len(self.version_space.posterior) else 0.0,
                         "source": c.source,
+                        "family": getattr(c, "family", "unknown"),
                     }
                     for i, c in enumerate(self.version_space.candidates)
                 ]
@@ -963,16 +1225,31 @@ class Orchestrator:
         episodes: List[Tuple[str, int]],
         executor: ProgramExecutor,
     ) -> List[Any]:
-        """Generate heuristic fallback candidates when synthesis finds nothing.
+        """Generate diverse heuristic fallback candidates from all predicate
+        families when synthesis finds nothing.
 
-        Creates keyword-based programs from frequently-occurring words
-        in REFUSE examples, ensuring the Version Space always has ≥ 10
-        candidates.
+        Includes keyword, length, roleplay, jailbreak, encoding, override,
+        and structural predicates to ensure the VS has diverse candidates.
         """
         import re
         from collections import Counter
         from core.program import Program, IfThenElseNode, PredicateNode
-        from core.primitive import ContainsWordPredicate
+        from core.primitive import (
+            ContainsWordPredicate, ContainsAnyWordPredicate,
+            LengthGtPredicate, LengthLtPredicate,
+            StartsWithRoleplayPredicate, ContainsSystemOverridePredicate,
+            MatchesJailbreakPatternPredicate, ContainsEncodingWrapperPredicate,
+            ContainsCodeBlockPredicate, ContainsDelimiterPredicate,
+            ContainsLeetPredicate, ContainsRot13Predicate,
+            ContainsBase64Predicate, ContainsHexPredicate,
+            HasNumberPredicate, HasSpecialCharPredicate,
+            IsAllCapsPredicate, IsEmptyPredicate,
+            HasEmojiPredicate, ContainsURLPredicate,
+            IsGrammaticalQuestionPredicate, StartsWithImperativePredicate,
+            IsRepetitivePredicate,
+            SentimentPredicate, IntentPredicate,
+        )
+        from core.condition import registry as _cond_registry
 
         if not episodes:
             return []
@@ -990,52 +1267,121 @@ class Orchestrator:
 
         programs: List[Program] = []
 
-        # Keyword → REFUSE programs
-        for kw in top_kw[:8]:
-            for then_out, else_out in [(1, 0), (0, 1)]:
-                prog = Program(
-                    root=IfThenElseNode(
-                        condition=PredicateNode(
-                            primitive=ContainsWordPredicate(word=kw)
-                        ),
-                        then_outcome=then_out,
-                        else_outcome=else_out,
-                    )
+        def _make_prog(primitive, then_out=1, else_out=0, source="heuristic"):
+            prog = Program(
+                root=IfThenElseNode(
+                    condition=PredicateNode(primitive=primitive),
+                    then_outcome=then_out,
+                    else_outcome=else_out,
                 )
-                programs.append(prog)
-                prog.source = "heuristic"
+            )
+            prog.source = source
+            return prog
 
-        # Length-based programs
+        # 1. Keyword predicates
+        for kw in top_kw[:5]:
+            for to, eo in [(1, 0), (0, 1)]:
+                programs.append(_make_prog(ContainsWordPredicate(word=kw), to, eo))
+
+        # 2. ContainsAnyWord
+        if len(top_kw) >= 2:
+            programs.append(_make_prog(ContainsAnyWordPredicate(words=top_kw[:3]), 1, 0))
+            programs.append(_make_prog(ContainsAnyWordPredicate(words=top_kw[:3]), 0, 1))
+
+        # 3. Length predicates
         for threshold in [30, 50, 100, 200]:
-            from core.primitive import LengthGtPredicate
-            for then_out, else_out in [(1, 0), (0, 1)]:
-                prog = Program(
-                    root=IfThenElseNode(
-                        condition=PredicateNode(
-                            primitive=LengthGtPredicate(threshold=threshold)
-                        ),
-                        then_outcome=then_out,
-                        else_outcome=else_out,
-                    )
-                )
-                programs.append(prog)
-                prog.source = "heuristic"
+            for to, eo in [(1, 0), (0, 1)]:
+                programs.append(_make_prog(LengthGtPredicate(threshold=threshold), to, eo))
+                programs.append(_make_prog(LengthLtPredicate(threshold=threshold), to, eo))
 
-        # Filter: only keep programs with accuracy > random
+        # 4. Structural predicates (no-arg, one instance each)
+        structural_preds = [
+            StartsWithRoleplayPredicate(), ContainsSystemOverridePredicate(),
+            MatchesJailbreakPatternPredicate(), ContainsEncodingWrapperPredicate(),
+            ContainsCodeBlockPredicate(), ContainsDelimiterPredicate(),
+            ContainsLeetPredicate(), ContainsRot13Predicate(),
+            ContainsBase64Predicate(), ContainsHexPredicate(),
+            HasNumberPredicate(), HasSpecialCharPredicate(),
+            IsAllCapsPredicate(), IsEmptyPredicate(),
+            HasEmojiPredicate(), ContainsURLPredicate(),
+            IsGrammaticalQuestionPredicate(), StartsWithImperativePredicate(),
+            IsRepetitivePredicate(),
+        ]
+        for sp in structural_preds:
+            for to, eo in [(1, 0), (0, 1)]:
+                programs.append(_make_prog(sp, to, eo))
+
+        # 5. Semantic predicates
+        programs.append(_make_prog(SentimentPredicate(threshold=0.55), 1, 0))
+        programs.append(_make_prog(SentimentPredicate(threshold=0.55), 0, 1))
+        programs.append(_make_prog(IntentPredicate(intent_type="harmful"), 1, 0))
+        programs.append(_make_prog(IntentPredicate(intent_type="harmful"), 0, 1))
+        programs.append(_make_prog(IntentPredicate(intent_type="innocuous"), 1, 0))
+        programs.append(_make_prog(IntentPredicate(intent_type="innocuous"), 0, 1))
+
+        # FIX 5: Check which core types are extinct in version space and
+        # lower the threshold for reintroducing them.
+        extinct_types: set = set()
+        vs = getattr(self, "version_space", None)
+        if vs is not None and vs.num_candidates > 0:
+            type_counts = vs.count_by_predicate_type()
+            core_types = {"keyword", "structural", "semantic"}
+            for ptype in core_types:
+                if type_counts.get(ptype, 0) == 0:
+                    extinct_types.add(ptype)
+                    logger.info("FIX5: Type '%s' is extinct — lowering reintroduction threshold", ptype)
+
+        # Filter: keep diverse candidates; keyword candidates pass through
+        # even with low accuracy since they provide a useful baseline posterior
+        # signal.  The Bayesian update will naturally demote low-accuracy
+        # programs over time.
         valid: List[Any] = []
+        from inference.version_space import _classify_program
         for prog in programs:
             acc = self._compute_accuracy(prog, episodes, executor)
-            if acc > 0.5 or acc == 0.5:
+            ptype = ""
+            cond_ok = hasattr(prog, 'root') and hasattr(prog.root, 'condition')
+            if cond_ok:
+                ptype = _classify_program(prog)
+            if acc >= 0.6:
                 valid.append(prog)
-                if len(valid) >= self.top_k_candidates:
-                    break
+            elif acc >= 0.4:
+                valid.append(prog)
+            elif ptype in extinct_types and cond_ok:
+                existing_of_type = sum(1 for p in valid if _classify_program(p) == ptype)
+                if existing_of_type < 3:
+                    valid.append(prog)
+            elif ptype in ("keyword", "structural", "semantic") and cond_ok:
+                existing_of_type = sum(1 for p in valid if _classify_program(p) == ptype)
+                if existing_of_type < 3:
+                    valid.append(prog)
+
+        # Ensure diversity: no single predicate family >50% of valid set
+        if len(valid) > 2:
+            from collections import Counter as _Counter
+            fam_count: _Counter = _Counter()
+            for p in valid:
+                root = p.root
+                if hasattr(root, "condition") and hasattr(root.condition, "primitive"):
+                    fam_count[type(root.condition.primitive).__name__] += 1
+            total = len(valid)
+            for fam, cnt in fam_count.most_common():
+                if cnt / total > 0.5:
+                    excess = cnt - int(total * 0.5)
+                    valid = [p for p in valid if not (
+                        hasattr(p.root, "condition") and
+                        hasattr(p.root.condition, "primitive") and
+                        type(p.root.condition.primitive).__name__ == fam and
+                        (excess := excess - 1) >= -1
+                    )]
 
         if not valid:
             valid = programs[:self.top_k_candidates]
 
         logger.info(
-            "Generated %d heuristic candidates (from %d raw, %d keywords, %d lengths)",
-            len(valid), len(programs), len(top_kw), 4,
+            "Generated %d diverse heuristic candidates from %d raw "
+            "(keywords=%d, structural=%d, semantic=%d, length=%d)",
+            len(valid), len(programs), len(top_kw), len(structural_preds), 6, 4,
         )
         return valid
 
@@ -1112,16 +1458,242 @@ class Orchestrator:
 
         When no candidate programs exist yet, seeds the version space by
         converting hypotheses into heuristic candidate programs.
+        Every hypothesis with a ``program`` attribute is added directly.
+        For keyword-only hypotheses, uses the Strategist's compilation
+        bridge to convert condition strings into DSL Programs (supports
+        all 27 predicate types), so the VS has semantically rich
+        candidates from cycle 1.
+
+        Uses ``absorb_candidates`` so posterior is uniform (no prior data),
+        and the same entry-point is used as the synthesis path for
+        consistent provenance tracking.
         """
         if self.version_space.num_candidates > 0:
             return
         if not hypotheses:
             return
-        logger.info(
-            "Version space: no candidate programs yet, seeding from %d hypotheses",
-            len(hypotheses),
+        import re
+        from core.program import Program, IfThenElseNode, PredicateNode
+        from core.primitive import ContainsWordPredicate
+
+        condition_registry = getattr(self.strategist, "condition_registry", _condition_registry)
+        new_entries: List[Tuple[Program, float, str, int, int]] = []
+        seen_conditions: set = set()
+        compile_stats = {"compiled": 0, "keyword_only": 0, "failed": 0}
+        for h in hypotheses:
+            prog = getattr(h, "program", None)
+            if prog is not None:
+                accuracy = getattr(h, "confidence", 0.0)
+                new_entries.append((prog, accuracy, "hypothesis", 0, 0))
+                continue
+
+            # Try compilation bridge first (handles all 27 predicate types)
+            cond = getattr(h, "condition", "") or getattr(h, "description", "")
+            if not cond:
+                continue
+
+            # Primary: ConditionRegistry lookup when hypothesis has condition_name
+            cond_name = getattr(h, "condition_name", None)
+            if cond_name is not None and cond_name in condition_registry:
+                compiled = StrategistAgent.compile_condition_to_program(cond)
+                if compiled is not None:
+                    compiled.source = "compiled_from_condition"
+                    new_entries.append((compiled, 0.0, "compiled_from_condition", 0, 0))
+                    compile_stats["compiled"] += 1
+                    continue
+
+            # Secondary: Strategist's compilation bridge
+            compiled = StrategistAgent.compile_condition_to_program(cond)
+            if compiled is not None:
+                compiled.source = "compiled_from_condition"
+                new_entries.append((compiled, 0.0, "compiled_from_condition", 0, 0))
+                compile_stats["compiled"] += 1
+                continue
+
+            # Legacy fallback: keyword-only programs from single-quoted tokens
+            keywords = re.findall(r"'([^']*)'", cond)
+            keywords = [kw for kw in keywords if kw not in seen_conditions]
+            if not keywords:
+                compile_stats["failed"] += 1
+                continue
+            for kw in keywords[:3]:  # limit per hypothesis
+                seen_conditions.add(kw)
+                heuristic_prog = Program(
+                    root=IfThenElseNode(
+                        condition=PredicateNode(
+                            primitive=ContainsWordPredicate(word=kw)
+                        ),
+                        then_outcome=1,
+                        else_outcome=0,
+                    )
+                )
+                heuristic_prog.source = "hypothesis_seed"
+                new_entries.append((heuristic_prog, 0.0, "hypothesis_seed", 0, 0))
+                compile_stats["keyword_only"] += 1
+
+        added = self.version_space.absorb_candidates(new_entries, balance_types=True)
+
+        # ── Always generate heuristic candidates for diverse starting pool ──
+        # Even if hypotheses produced programs, we supplement with heuristic
+        # candidates (keyword, structural, length, semantic) so the VS has
+        # broad coverage from cycle 1.  This prevents the common failure
+        # mode where all hypotheses point to the same predicate type.
+        executor = ProgramExecutor(
+            getattr(self.strategist, "primitive_registry", None),
         )
-        self.version_space.reset_belief(uniform=True)
+        episodes = self._fetch_episodes()
+        if episodes:
+            heuristic = self._generate_heuristic_candidates(episodes, executor)
+            if heuristic:
+                heur_entries = []
+                for p in heuristic:
+                    acc = self._compute_accuracy(p, episodes, executor)
+                    heur_entries.append((p, acc, "init_heuristic", int(acc * len(episodes)), len(episodes)))
+                added += self.version_space.absorb_candidates(heur_entries, balance_types=True)
+                logger.info(
+                    "Pre-seeded %d heuristic candidates for diverse starting pool "
+                    "(total candidates=%d)", len(heur_entries),
+                    self.version_space.num_candidates,
+                )
+
+        if added > 0:
+            logger.info(
+                "Version space: seeded %d candidate programs from %d hypotheses "
+                "(candidates=%d, sources=%s, compiled=%d, keyword=%d, failed=%d)",
+                added, len(hypotheses), self.version_space.num_candidates,
+                self.version_space.count_by_source(),
+                compile_stats["compiled"], compile_stats["keyword_only"],
+                compile_stats["failed"],
+            )
+            self._emit_vs_telemetry(
+                "init_belief", seeded=added, hypotheses=len(hypotheses),
+                compile_stats=compile_stats,
+            )
+        else:
+            logger.info(
+                "Version space: no candidate programs could be created from %d hypotheses "
+                "(compiled=%d, keyword=%d, failed=%d)",
+                len(hypotheses),
+                compile_stats["compiled"], compile_stats["keyword_only"],
+                compile_stats["failed"],
+            )
+
+    def _emit_vs_telemetry(self, event: str, **extra: Any) -> None:
+        """Emit structured version-space telemetry without affecting runtime."""
+        vs = self.version_space
+        telemetry = {
+            "event": event,
+            "campaign_id": self.campaign_id,
+            "iteration": self.iteration,
+            "candidate_count": vs.num_candidates,
+            "entropy": self._get_current_entropy(),
+            "posterior": vs.posterior.tolist() if vs.num_candidates > 0 else [],
+            "total_info_gain": vs.total_info_gain,
+            "posterior_by_source": vs.posterior_by_source(),
+            "source_lifetime_stats": vs.source_lifetime_stats(),
+            "survival_rate_by_source": vs.survival_rate_by_source(),
+            "synthesis_attemps": self._synthesis_attempts,
+            "synthesis_successes": self._synthesis_successes,
+            "synthesis_fallbacks": self._synthesis_fallbacks,
+        }
+        telemetry.update(extra)
+        logger.info("VS_TELEMETRY %s", json.dumps(telemetry))
+
+    def _emit_diversity_telemetry(self) -> None:
+        """Emit family diversity metrics every cycle."""
+        vs = self.version_space
+        if vs.num_candidates == 0:
+            return
+        by_type = vs.count_by_predicate_type()
+        by_posterior = vs.posterior_by_predicate_type()
+        total = sum(by_type.values())
+        diversity = {
+            "iteration": self.iteration,
+            "entropy": self._get_current_entropy(),
+            "total_candidates": total,
+            "count_by_type": by_type,
+            "posterior_by_type": {k: round(v, 4) for k, v in by_posterior.items()},
+            "dominant_type": max(by_type, key=by_type.get) if by_type else "none",
+            "dominant_pct": round(max(by_type.values()) / max(total, 1) * 100, 1) if by_type else 0.0,
+        }
+        if total > 0:
+            diversity["posterior_entropy"] = round(
+                -sum(p * __import__("math").log(p + 1e-10) for p in by_posterior.values() if p > 0)
+                / __import__("math").log(max(len(by_posterior), 2)),
+                4,
+            )
+        self._diversity_history.append(diversity)
+        logger.info("DIVERSITY %s", json.dumps(diversity))
+
+    def _feed_holdout_failures(self, holdout_result: Dict[str, Any]) -> None:
+        """Feed holdout evaluation failures back into EpisodicMemory.
+
+        **Fix P5**: When a candidate with high posterior has a large
+        generalization gap on holdout, its failures are re-inserted
+        as new episodes with lower weight (noise_level=0.2) so the
+        belief update can incorporate holdout signal without
+        overfitting to artifacts.
+
+        If no specific failures are available, uses the best candidate's
+        mismatched holdout prompts (weighted by gap magnitude).
+        """
+        try:
+            vs = self.version_space
+            best = vs.most_likely()
+            if best is None:
+                return
+            gap = getattr(best, "generalization_gap", 0.0)
+            if gap < 0.05:
+                return  # Generalization gap too small to warrant correction
+
+            holdout_size = holdout_result.get("holdout_size", 0)
+            episodes = self._fetch_episodes()
+            if not episodes:
+                return
+
+            executor = ProgramExecutor(
+                getattr(self.strategist, "primitive_registry", None),
+            )
+
+            # Find prompts in holdout (last ~20% of episodes by default)
+            split = max(1, len(episodes) - holdout_size)
+            holdout_episodes = episodes[split:]
+
+            failures_fed = 0
+            for prompt, true_outcome in holdout_episodes:
+                try:
+                    pred = int(executor.execute(best.program, prompt))
+                    if pred != true_outcome:
+                        self.strategist.store_intervention(
+                            intervention=Intervention(
+                                base_prompt=prompt,
+                                transforms=[],
+                                metadata={
+                                    "source": "holdout_feedback",
+                                    "program_id": best.program_id,
+                                    "original_outcome": true_outcome,
+                                    "predicted_outcome": pred,
+                                    "generalization_gap": gap,
+                                },
+                            ),
+                            outcome=true_outcome,
+                            campaign_id=self.campaign_id,
+                            h1=best,
+                            h2=None,
+                            experiment_id=self.experiment_id,
+                            victim_name=getattr(self.victim, "name", "victim"),
+                        )
+                        failures_fed += 1
+                except Exception:
+                    continue
+
+            if failures_fed > 0:
+                logger.info(
+                    "Holdout feedback: fed %d failures (gap=%.3f) into episodic memory",
+                    failures_fed, gap,
+                )
+        except Exception as exc:
+            logger.debug("_feed_holdout_failures failed: %s", exc)
 
     def _record_belief_state(self) -> None:
         """Record current version space entropy to history."""
@@ -1134,7 +1706,8 @@ class Orchestrator:
 
     def _get_current_entropy(self) -> float:
         try:
-            return self.version_space.entropy()
+            e = self.version_space.entropy()
+            return e if e >= 0.0 else 0.0
         except Exception:
             return 0.0
 
@@ -1147,6 +1720,8 @@ class Orchestrator:
         """Update version space posterior after observing intervention outcome.
 
         Delegates to VersionSpace.update_belief to reweight candidates.
+        Also trains the Surrogate Policy Model and generates counterfactual
+        prompt pairs for additional signal extraction.
         """
         vs = self.version_space
         if vs.is_empty:
@@ -1161,16 +1736,70 @@ class Orchestrator:
             def _predict(program: Any, p: str) -> int:
                 try:
                     return int(executor.execute(program, p))
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Executor failure for %s: %s",
+                                 getattr(program, "id", "?"), exc)
+                    if not hasattr(self, "_execution_failures"):
+                        self._execution_failures = 0
+                    self._execution_failures += 1
                     return 0
 
             entropy_before = vs.entropy()
+            posterior_before = vs.posterior.tolist() if vs.num_candidates > 0 else []
             vs.update_belief(prompt, int(outcome), _predict)
             entropy_after = vs.entropy()
+            posterior_after = vs.posterior.tolist() if vs.num_candidates > 0 else []
             ig = entropy_before - entropy_after
             logger.info(
                 "Belief update: H=%.3f→%.3f IG=%.4f candidates=%d",
                 entropy_before, entropy_after, ig, vs.num_candidates,
+            )
+
+            # ── Train Surrogate Policy Model on all episodes ──
+            episodes = self._fetch_episodes()
+            if len(episodes) >= 3:
+                stats = self.surrogate.train(episodes)
+                self._surrogate_training_stats.append({
+                    "iteration": self.iteration,
+                    "n_episodes": stats.n_episodes,
+                    "train_accuracy": stats.train_accuracy,
+                    "n_refuse": stats.n_refuse,
+                    "n_accept": stats.n_accept,
+                    "duration_ms": stats.duration_ms,
+                })
+                # Log surrogate-predicted outcome for this intervention
+                spred = self.surrogate.predict(prompt)
+                logger.info(
+                    "Surrogate: predicted=%d (conf=%.3f, unc=%.3f) vs actual=%d",
+                    spred.predicted_outcome, spred.confidence,
+                    spred.uncertainty, outcome,
+                )
+
+            # ── Generate counterfactual pairs for uniform-outcome cases ──
+            if episodes and len(set(o for _, o in episodes)) == 1:
+                # All outcomes are the same → need counterfactual signal
+                from orchestration.counterfactual_learner import CounterfactualLearner
+                prompts = [p for p, _ in episodes[-10:]]
+                outcomes = [o for _, o in episodes[-10:]]
+                pairs = self.counterfactual_learner.generate_counterfactual_pairs(
+                    prompts, outcomes, max_pairs=3,
+                )
+                for pair in pairs:
+                    pair.original_outcome = outcome
+                    self._counterfactual_pairs.append(pair)
+                if pairs:
+                    logger.info(
+                        "Counterfactual: generated %d pairs for uniform-outcome learning",
+                        len(pairs),
+                    )
+
+            self._emit_vs_telemetry(
+                "belief_update",
+                entropy_before=round(entropy_before, 4),
+                entropy_after=round(entropy_after, 4),
+                info_gain=round(ig, 4),
+                posterior_before=posterior_before[:10],
+                posterior_after=posterior_after[:10],
             )
         except Exception as exc:
             logger.warning("Version space belief update failed: %s", exc)
@@ -1211,6 +1840,122 @@ class Orchestrator:
             logger.debug("Failed to persist belief history: %s", exc)
 
     # ------------------------------------------------------------------
+    # Holdout evaluation
+    # ------------------------------------------------------------------
+
+    def evaluate_on_holdout(
+        self,
+        holdout_prompts: List[Tuple[str, int]],
+    ) -> Optional[Dict[str, Any]]:
+        """Evaluate ALL candidates on a holdout set to detect overfitting.
+
+        Every candidate in the version space gets ``holdout_accuracy``,
+        ``train_accuracy`` and ``generalization_gap`` stored directly on
+        the object so that ``holdout_adjusted_score()`` and
+        ``update_belief()`` always have real holdout data to work with.
+
+        If no holdout set is provided, splits available episodes into
+        train/holdout (80/20) and recomputes both accuracies.
+
+        Returns a dict with aggregated results, or None if insufficient
+        data.
+        """
+        if self.version_space.is_empty:
+            return None
+
+        executor = ProgramExecutor(
+            getattr(self.strategist, "primitive_registry", None),
+        )
+
+        # If surrogate has been trained, use it to add EIG-prioritized
+        # holdout evaluation — evaluate prompts with highest disagreement first
+        if hasattr(self, "surrogate") and self.surrogate._is_trained:
+            vs = self.version_space
+            if vs.num_candidates >= 2:
+                exec_preds = {
+                    c.program_id: int(executor.execute(c.program, ""))
+                    for c in vs.candidates
+                }
+                # Compute disagreement for each holdout prompt
+                holdout_disagreement = {}
+                for p, _ in holdout_prompts:
+                    preds = [int(executor.execute(c.program, p)) for c in vs.candidates]
+                    n_refuse = sum(1 for pr in preds if pr == 1)
+                    n_tot = len(preds)
+                    p_r = n_refuse / max(n_tot, 1)
+                    if 0 < p_r < 1:
+                        disc = -p_r * math.log(p_r) - (1 - p_r) * math.log(1 - p_r)
+                        holdout_disagreement[p] = disc / math.log(2)
+                    else:
+                        holdout_disagreement[p] = 0.0
+                # Sort holdout by disagreement (descending) to prioritize
+                holdout_prompts = sorted(holdout_prompts, key=lambda x: -holdout_disagreement.get(x[0], 0.0))
+
+        if not holdout_prompts:
+            episodes = self._fetch_episodes()
+            if len(episodes) >= 5:
+                split = int(len(episodes) * 0.8)
+                import random as _random
+                _random.shuffle(episodes)
+                train = episodes[:split]
+                holdout_prompts = episodes[split:]
+            else:
+                logger.info("Too few episodes (%d) for holdout split", len(episodes))
+                return None
+        else:
+            train = []
+
+        best_id = None
+        best_holdout = 0.0
+        best_train = 0.0
+        best_gap = 0.0
+        evaluated_count = 0
+
+        for candidate in self.version_space.candidates:
+            try:
+                if train:
+                    train_acc = self._compute_accuracy(candidate.program, train, executor)
+                else:
+                    train_acc = candidate.accuracy
+                hold_acc = self._compute_accuracy(candidate.program, holdout_prompts, executor)
+                gap = train_acc - hold_acc
+
+                candidate.holdout_accuracy = hold_acc
+                candidate.train_accuracy = train_acc
+                candidate.generalization_gap = gap
+
+                if hold_acc > best_holdout:
+                    best_holdout = hold_acc
+                    best_train = train_acc
+                    best_gap = gap
+                    best_id = candidate.program_id
+
+                evaluated_count += 1
+            except Exception as exc:
+                logger.debug("Holdout eval failed for %s: %s", candidate.program_id, exc)
+                continue
+
+        if best_id is None:
+            return None
+
+        logger.info(
+            "Holdout evaluation: evaluated %d/%d candidates, "
+            "best=%s train=%.3f holdout=%.3f gap=%.3f (holdout_n=%d)",
+            evaluated_count, len(self.version_space.candidates),
+            best_id, best_train, best_holdout, best_gap,
+            len(holdout_prompts),
+        )
+
+        return {
+            "best_program_id": best_id,
+            "train_accuracy": best_train,
+            "holdout_accuracy": best_holdout,
+            "generalization_gap": best_gap,
+            "holdout_size": len(holdout_prompts),
+            "evaluated_count": evaluated_count,
+        }
+
+    # ------------------------------------------------------------------
     # Result builder
     # ------------------------------------------------------------------
 
@@ -1228,6 +1973,7 @@ class Orchestrator:
             "success": success,
             "campaign_id": self.campaign_id,
             "best_program_id": best_program_id or (best.program_id if best else None),
+            "best_predicate_type": best.predicate_type if best else None,
             "best_accuracy": best_accuracy or (best.accuracy if best else 0.0),
             "total_interventions": total_interventions,
             "total_iterations": self.iteration,

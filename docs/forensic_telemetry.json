@@ -1,0 +1,44 @@
+{
+  "timestamp": 1780987577.03218,
+  "results": {
+    "Holdout: all candidates": {
+      "status": "PASS",
+      "error": null
+    },
+    "Holdout: new candidates": {
+      "status": "PASS",
+      "error": null
+    },
+    "Diversity mechanism": {
+      "status": "PASS",
+      "error": null
+    },
+    "Convergence paths": {
+      "status": "PASS",
+      "error": null
+    },
+    "Candidate lifecycle": {
+      "status": "PASS",
+      "error": null
+    },
+    "Posterior mathematics": {
+      "status": "PASS",
+      "error": null
+    },
+    "Synthesis effectiveness": {
+      "status": "PASS",
+      "error": null
+    },
+    "End-to-end pipeline": {
+      "status": "PASS",
+      "error": null
+    },
+    "Scientific learning": {
+      "status": "ERROR",
+      "error": "name 'kw_acc_adv' is not defined"
+    }
+  },
+  "passed": 8,
+  "failed": 1,
+  "total": 9
+}

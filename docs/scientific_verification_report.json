@@ -1,0 +1,182 @@
+{
+  "report_title": "HARMONY-X Scientific Verification Report",
+  "timestamp": "2026-06-08T19:21:05.118841",
+  "pipeline_version": "post-remediation-2026-06-09",
+  "tests": [
+    {
+      "id": "T1-compilation",
+      "description": "All 29 predicate types compile to Program",
+      "passed": true,
+      "detail": "29/29 compiled",
+      "failing": []
+    },
+    {
+      "id": "T2-composites",
+      "description": "AND, OR, NOT, AND+NOT, transform wrapping compile correctly",
+      "passed": true,
+      "detail": "{'AND': True, 'OR': True, 'NOT': True, 'AND+NOT': True, 'transform': True}"
+    },
+    {
+      "id": "T3-cvc5-reconstruction",
+      "description": "CVC5 S-expression parser handles AND/OR/NOT/Predicate/Transform/Threshold",
+      "passed": true,
+      "detail": "6/6 pass"
+    },
+    {
+      "id": "T4-synthesizer",
+      "description": "Synthesizer learns policies across all categories",
+      "passed": true,
+      "detail": {
+        "total": 11,
+        "passed": 11,
+        "by_category": {
+          "keyword": {
+            "total": 1,
+            "passed": 1
+          },
+          "structural": {
+            "total": 5,
+            "passed": 5
+          },
+          "semantic": {
+            "total": 2,
+            "passed": 2
+          },
+          "jailbreak": {
+            "total": 1,
+            "passed": 1
+          },
+          "composite": {
+            "total": 2,
+            "passed": 2
+          }
+        },
+        "results": {
+          "keyword_single": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "keyword"
+          },
+          "length_threshold": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "structural"
+          },
+          "has_number": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "structural"
+          },
+          "all_caps": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "structural"
+          },
+          "emoji": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "structural"
+          },
+          "url_detection": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "structural"
+          },
+          "roleplay": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "semantic"
+          },
+          "imperative": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "semantic"
+          },
+          "jailbreak": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "jailbreak"
+          },
+          "and_composite": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "composite"
+          },
+          "or_composite": {
+            "passed": true,
+            "accuracy": 1.0,
+            "method": "enumeration",
+            "depth": 1,
+            "category": "composite"
+          }
+        }
+      }
+    },
+    {
+      "id": "T5-parameterization",
+      "description": "Grammar exporter generates diverse, parameterized primitives",
+      "passed": true,
+      "detail": {
+        "total_predicates": 49,
+        "unique_predicates": 29,
+        "predicate_families": 29,
+        "total_transforms": 8,
+        "unique_transforms": 8,
+        "total_classifiers": 27
+      }
+    },
+    {
+      "id": "T6-hypothesis-spec",
+      "description": "as_hypothesis_spec() includes transform-wrapped examples",
+      "passed": true,
+      "detail": "transform examples present"
+    },
+    {
+      "id": "T7-source-quota",
+      "description": "VersionSpace enforces source quota to prevent source dominance",
+      "passed": true,
+      "detail": {
+        "source_max_fraction": 0.5,
+        "synthesized_min_quota": 0.05
+      }
+    },
+    {
+      "id": "T8-synthesizer-metrics",
+      "description": "SynthesisStats tracks synthesized vs heuristic candidates",
+      "passed": true,
+      "detail": {
+        "synthesized_candidates": 0,
+        "heuristic_fallback_candidates": 4,
+        "candidates_considered": 302
+      }
+    }
+  ],
+  "summary": {
+    "tests_passed": 8,
+    "tests_total": 8,
+    "pass_rate": "8/8",
+    "all_pass": true,
+    "registry_size": 98,
+    "synthesizer_coverage": "11/11 policy categories"
+  }
+}

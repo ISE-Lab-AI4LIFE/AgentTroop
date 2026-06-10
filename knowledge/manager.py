@@ -206,8 +206,12 @@ class KnowledgeManager:
         if use_redis:
             self._init_redis()
 
-        if not use_redis or self._redis_client is None:
-            self._init_memory_queues()
+        # Always initialise in-memory queues as a fallback, even when
+        # Redis is configured.  This guarantees propose() never fails due
+        # to a missing queue — if Redis is available and working, proposals
+        # go to Redis; if Redis fails (or was never configured), the
+        # in-memory fallback is ready.
+        self._init_memory_queues()
 
     # ------------------------------------------------------------------
     # Store registration
@@ -358,7 +362,11 @@ class KnowledgeManager:
         )
 
         if self._redis_client is not None:
-            self._push_redis(proposal)
+            try:
+                self._push_redis(proposal)
+            except Exception as exc:
+                logger.warning("Redis push failed, falling back to memory: %s", exc)
+                self._push_memory(proposal)
         else:
             self._push_memory(proposal)
 
@@ -612,7 +620,10 @@ class KnowledgeManager:
         pipe = self._redis_client.pipeline()
         pipe.hset(
             self._status_key(proposal.proposal_id),
-            mapping=proposal.to_dict(),
+            mapping={
+                k: json.dumps(v, ensure_ascii=False) if not isinstance(v, (str, bytes, int, float)) else v
+                for k, v in proposal.to_dict().items()
+            },
         )
         pipe.rpush(self._queue_key(proposal.target), proposal.proposal_id)
         pipe.execute()
@@ -639,6 +650,12 @@ class KnowledgeManager:
             data = self._redis_client.hgetall(self._status_key(pid))
             if data:
                 data.setdefault("status", "pending")
+                for key in ("data", "result"):
+                    if key in data and isinstance(data[key], str):
+                        try:
+                            data[key] = json.loads(data[key])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
                 proposals.append(data)
         return proposals
 
@@ -669,7 +686,14 @@ class KnowledgeManager:
         data = self._redis_client.hgetall(self._status_key(proposal_id))
         if not data:
             return None
-        return dict(data)
+        result = dict(data)
+        for key in ("data", "result"):
+            if key in result and isinstance(result[key], str):
+                try:
+                    result[key] = json.loads(result[key])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return result
 
     # ------------------------------------------------------------------
     # In-memory backend

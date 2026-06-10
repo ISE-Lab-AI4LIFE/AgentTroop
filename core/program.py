@@ -1,5 +1,6 @@
 import abc
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Type
 
@@ -243,7 +244,7 @@ class IfThenElseNode(Node):
 @dataclass
 class Program:
     root: IfThenElseNode
-    id: ProgramID = field(default_factory=lambda: f"prog_{int(time.time() * 1000)}")
+    id: ProgramID = field(default_factory=lambda: f"prog_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:4]}")
     version_id: str = "1.0"
     created_at: float = field(default_factory=time.time)
     deprecated_at: Optional[float] = None
@@ -361,8 +362,10 @@ class Program:
         return 0
 
     def canonical_form(self) -> str:
-        self.canonicalize()
-        return repr(self)
+        import copy
+        root_copy = copy.deepcopy(self.root)
+        self._canonicalize_node(root_copy.condition)
+        return repr(root_copy)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Program):

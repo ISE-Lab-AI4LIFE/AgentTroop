@@ -165,6 +165,10 @@ class OllamaVictim(BaseVictim):
 
     def _classify(self, text: str) -> bool:
         text_lower = text.strip().lower()
+        # Normalise Unicode apostrophe (U+2019 / right single quotation mark)
+        # to ASCII apostrophe (U+0027) — Llama-3.1-8B frequently uses the
+        # curly variant in refusal responses (e.g. "i can\u2019t").
+        text_lower = text_lower.replace("\u2019", "'")
         for pattern in self._patterns:
             if pattern in text_lower:
                 return True

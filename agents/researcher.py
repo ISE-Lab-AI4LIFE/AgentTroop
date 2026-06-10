@@ -97,6 +97,8 @@ class ResearcherAgent:
         self._graph_reasoner = GraphReasoner()
         self._init_graphrag()
 
+
+
         self.synthesizer = synthesizer or CVC5Synthesizer(
             max_depth=3,
             beam_width=200,
@@ -317,6 +319,7 @@ class ResearcherAgent:
         """
         metadata: Dict[str, Any] = {"status": status}
         record = DefenseProgramRecord(
+            id=name or program.id or "",
             name=name or f"synth_{program.id}",
             program=program,
             confidence=confidence,
@@ -410,7 +413,7 @@ class ResearcherAgent:
             report = self.verify_program(
                 program=program,
                 victim=victim,
-                num_test_interventions=5,
+                num_test_interventions=25,
                 accuracy_threshold=0.7,
             )
             if report.verified:

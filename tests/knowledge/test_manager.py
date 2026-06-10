@@ -32,7 +32,9 @@ def redis_url() -> Generator[str, None, None]:
     container.start()
     time.sleep(1)
     try:
-        yield container.get_connection_url()
+        host = container.get_container_host_ip()
+        port = container.get_exposed_port(6379)
+        yield f"redis://{host}:{port}"
     finally:
         container.stop()
 

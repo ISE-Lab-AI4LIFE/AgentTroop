@@ -38,13 +38,13 @@ ollama run llama3.1:8b "Hello" --nowordwrap
 Hoặc chạy script tự động:
 
 ```bash
-bash llama3.1:8b/setup.sh
+bash llama3_1_8b/setup.sh
 ```
 
 ### 2. Cài đặt Python dependencies
 
 ```bash
-pip install -r llama3.1:8b/requirements.txt
+pip install -r llama3_1_8b/requirements.txt
 ```
 
 ### 3. Đảm bảo Redis và Neo4j đang chạy
@@ -69,7 +69,7 @@ Cognitive Agent dùng **Gemma-4-31b-it** (qua Google GenAI API) để sinh hypot
 
 ## Cấu hình
 
-Xem và sửa `llama3.1:8b/config.yaml`:
+Xem và sửa `llama3_1_8b/config.yaml`:
 
 ```yaml
 use_async: false            # true: dùng async pipeline (Orchestrator.async_run)
@@ -86,7 +86,7 @@ orchestrator:
 
 ```bash
 cd /path/to/HARMONY_X
-bash llama3.1:8b/run_exp.sh --num-seeds 100
+bash llama3_1_8b/run_exp.sh --num-seeds 100
 ```
 
 Các tham số:
@@ -101,12 +101,12 @@ Các tham số:
 
 ```bash
 cd /path/to/HARMONY_X
-GEMMA_API_KEY=$(head -1 .env | cut -d= -f2) python llama3.1:8b/run_experiment.py [--num-seeds N] [--full] [--prior-campaign ID]
+GEMMA_API_KEY=$(head -1 .env | cut -d= -f2) python llama3_1_8b/run_experiment.py [--num-seeds N] [--full] [--prior-campaign ID]
 ```
 
 ### Kết quả
 
-Sau khi chạy, các file đầu ra nằm trong `llama3.1:8b/outputs/`:
+Sau khi chạy, các file đầu ra nằm trong `llama3_1_8b/outputs/`:
 
 | File | Nội dung |
 |------|----------|
@@ -115,20 +115,20 @@ Sau khi chạy, các file đầu ra nằm trong `llama3.1:8b/outputs/`:
 | `interventions_history.json` | Lịch sử các can thiệp (prompt, outcome) |
 | `hypotheses_history.json` | Thông tin tổng quan kết quả thí nghiệm |
 
-Log chi tiết nằm trong `llama3.1:8b/logs/experiment_YYYYMMDD_HHMMSS.log`.
+Log chi tiết nằm trong `llama3_1_8b/logs/experiment_YYYYMMDD_HHMMSS.log`.
 
 ## Phân tích kết quả
 
 Mở Jupyter notebook:
 
 ```bash
-jupyter notebook llama3.1:8b/analysis.ipynb
+jupyter notebook llama3_1_8b/analysis.ipynb
 ```
 
 ## Cấu trúc thư mục
 
 ```
-llama3.1:8b/
+llama3_1_8b/
 ├── README.md                  # Hướng dẫn
 ├── requirements.txt           # Python dependencies
 ├── setup.sh                   # Script cài đặt
