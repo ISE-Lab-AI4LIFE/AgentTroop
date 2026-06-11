@@ -1,0 +1,47 @@
+{
+  "A": {
+    "num_runs": 5,
+    "test_accuracy_mean": 0.8,
+    "test_accuracy_stdev": 0.2739,
+    "test_accuracy_min": 0.5,
+    "test_accuracy_max": 1.0,
+    "interventions_mean": 16.8,
+    "interventions_stdev": 4.09,
+    "time_mean": 24.07,
+    "rerank_rate_mean": 0.0,
+    "sel_change_rate_mean": 0.0,
+    "n_seeded_mean": 0,
+    "exact_match_count": 3,
+    "exact_match_rate": 0.6
+  },
+  "B": {
+    "num_runs": 5,
+    "test_accuracy_mean": 0.9,
+    "test_accuracy_stdev": 0.2236,
+    "test_accuracy_min": 0.5,
+    "test_accuracy_max": 1.0,
+    "interventions_mean": 17,
+    "interventions_stdev": 3.67,
+    "time_mean": 32.54,
+    "rerank_rate_mean": 0.7333,
+    "sel_change_rate_mean": 0.36,
+    "n_seeded_mean": 0,
+    "exact_match_count": 4,
+    "exact_match_rate": 0.8
+  },
+  "C": {
+    "num_runs": 5,
+    "test_accuracy_mean": 0.9,
+    "test_accuracy_stdev": 0.2236,
+    "test_accuracy_min": 0.5,
+    "test_accuracy_max": 1.0,
+    "interventions_mean": 18.4,
+    "interventions_stdev": 2.51,
+    "time_mean": 40.09,
+    "rerank_rate_mean": 0.9167,
+    "sel_change_rate_mean": 0.57,
+    "n_seeded_mean": 1,
+    "exact_match_count": 4,
+    "exact_match_rate": 0.8
+  }
+}

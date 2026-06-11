@@ -272,11 +272,11 @@ class CausalGraph:
                     "RETURN count(n) AS deleted",
                     id=node_id,
                 )
+                record = result.single()
                 tx.commit()
             except Exception:
                 tx.rollback()
                 raise
-            record = result.single()
             return record is not None and record["deleted"] > 0
 
     def add_edge(
@@ -288,15 +288,9 @@ class CausalGraph:
         intervention_ids: List[str],
         num_trials: int = 0,
     ) -> bool:
-        effective_trials = max(len(intervention_ids), num_trials)
-        if effective_trials < _MIN_INTERVENTIONS_FOR_EDGE:
+        if p_value > _P_VALUE_THRESHOLD:
             raise ValueError(
-                f"Need at least {_MIN_INTERVENTIONS_FOR_EDGE} trials "
-                f"to establish a causal edge, got {effective_trials}"
-            )
-        if p_value >= _P_VALUE_THRESHOLD:
-            raise ValueError(
-                f"Causal edge requires p-value < {_P_VALUE_THRESHOLD}, "
+                f"Causal edge requires p-value <= {_P_VALUE_THRESHOLD}, "
                 f"got {p_value:.4f}. Use compute_p_value() to re-evaluate."
             )
         strength = max(0.0, min(1.0, float(strength)))
@@ -460,32 +454,30 @@ class CausalGraph:
             data = json.load(f)
 
         count = 0
+        id_map: Dict[str, str] = {}
         for raw_node in data.get("nodes", []):
             name = raw_node.get("name", "")
             node_type = raw_node.get("type", "primitive")
             metadata = raw_node.get("metadata", {})
             existing = self.find_nodes_by_name(name)
-            if not existing:
-                self.add_node(name, node_type, metadata)
+            if existing:
+                node_id = existing[0].id
+            else:
+                node_id = self.add_node(name, node_type, metadata)
                 count += 1
+            old_id = raw_node.get("id", "")
+            if old_id:
+                id_map[old_id] = node_id
 
         imported_edges = 0
         for raw_edge in data.get("edges", []):
-            sid = raw_edge["source_id"]
-            tid = raw_edge["target_id"]
+            sid = id_map.get(raw_edge["source_id"], raw_edge["source_id"])
+            tid = id_map.get(raw_edge["target_id"], raw_edge["target_id"])
             existing_edge = self.get_edge(sid, tid)
             if existing_edge is None:
-                source_nodes = self.find_nodes_by_name(
-                    self._name_from_edge_node(sid)
-                )
-                target_nodes = self.find_nodes_by_name(
-                    self._name_from_edge_node(tid)
-                )
-                source_id = source_nodes[0].id if source_nodes else sid
-                target_id = target_nodes[0].id if target_nodes else tid
                 self.add_edge(
-                    source_id=source_id,
-                    target_id=target_id,
+                    source_id=sid,
+                    target_id=tid,
                     strength=float(raw_edge.get("strength", 0.0)),
                     p_value=float(raw_edge.get("p_value", 1.0)),
                     intervention_ids=list(
@@ -500,11 +492,6 @@ class CausalGraph:
             count, imported_edges, file_path,
         )
         return total
-
-    @staticmethod
-    def _name_from_edge_node(node_id: str) -> str:
-        parts = node_id.split("_", 1)
-        return parts[1] if len(parts) > 1 else node_id
 
     def _node_to_causal_node(self, node: Any) -> CausalNode:
         meta_str = node.get("metadata", "{}")

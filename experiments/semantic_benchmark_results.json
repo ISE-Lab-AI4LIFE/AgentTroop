@@ -1,0 +1,39 @@
+{
+  "results": [
+    {
+      "victim_name": "InstructionalOnly",
+      "num_rounds": 30,
+      "converged": true,
+      "accuracy": 0.88,
+      "concepts_found": []
+    },
+    {
+      "victim_name": "InstructionalAndHarmful",
+      "num_rounds": 30,
+      "converged": true,
+      "accuracy": 0.7143,
+      "concepts_found": []
+    },
+    {
+      "victim_name": "JailbreakOnly",
+      "num_rounds": 30,
+      "converged": true,
+      "accuracy": 0.9524,
+      "concepts_found": []
+    },
+    {
+      "victim_name": "HarmfulOrJailbreak",
+      "num_rounds": 30,
+      "converged": true,
+      "accuracy": 0.8065,
+      "concepts_found": []
+    },
+    {
+      "victim_name": "MixedSymbolicSemantic",
+      "num_rounds": 30,
+      "converged": true,
+      "accuracy": 0.8065,
+      "concepts_found": []
+    }
+  ]
+}

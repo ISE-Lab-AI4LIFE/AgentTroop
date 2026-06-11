@@ -1,0 +1,16 @@
+config,seed_index,pipeline_success,best_accuracy,test_accuracy,total_interventions,total_iterations,converged_by,num_candidates,n_seeded_candidates,elapsed_seconds,semantic_rerank_count,semantic_selection_change,semantic_total_cycles,semantic_rerank_rate,semantic_selection_change_rate
+A,0,True,1.0,1.0,11,11,accuracyiteration_limit,30,0,21.3,0,0,0,0.0,0.0
+A,1,True,0.6562,0.5,20,20,iteration_limit,30,0,37.68,0,0,0,0.0,0.0
+A,2,True,1.0,1.0,19,19,accuracyiteration_limit,30,0,21.98,0,0,0,0.0,0.0
+A,3,True,1.0,1.0,14,14,accuracyiteration_limit,30,0,12.36,0,0,0,0.0,0.0
+A,4,True,0.6833,0.5,20,20,iteration_limit,30,0,27.05,0,0,0,0.0,0.0
+B,0,True,1.0,1.0,11,11,accuracyiteration_limit,30,0,26.98,0,0,1,0.0,0.0
+B,1,True,1.0,1.0,19,19,accuracyiteration_limit,30,0,34.41,3,2,3,1.0,0.6667
+B,2,True,1.0,1.0,16,16,accuracyiteration_limit,30,0,26.73,6,0,6,1.0,0.0
+B,3,True,1.0,1.0,19,19,accuracyiteration_limit,30,0,34.26,5,4,5,1.0,0.8
+B,4,True,0.6667,0.5,20,20,iteration_limit,30,0,40.32,2,1,3,0.6667,0.3333
+C,0,True,1.0,1.0,19,19,accuracyiteration_limit,30,1,37.4,4,3,4,1.0,0.75
+C,1,True,1.0,1.0,19,19,accuracyiteration_limit,30,1,32.29,5,3,6,0.8333,0.5
+C,2,True,0.7258,0.5,20,20,iteration_limit,30,1,44.39,10,6,10,1.0,0.6
+C,3,True,0.6667,1.0,20,20,iteration_limit,30,1,62.99,4,3,4,1.0,0.75
+C,4,True,1.0,1.0,14,14,accuracyiteration_limit,30,1,23.37,3,1,4,0.75,0.25

@@ -1,0 +1,85 @@
+[
+  {
+    "victim_name": "InstructionalOnly",
+    "num_rounds": 30,
+    "converged": true,
+    "accuracy": 0.88,
+    "num_observations": 30,
+    "traditional_concepts_found": [
+      "instructional_intent",
+      "concept_0",
+      "concept_1",
+      "concept_2"
+    ],
+    "active_concepts_found": [],
+    "active_concept_details": [],
+    "proposals_for_memory": []
+  },
+  {
+    "victim_name": "InstructionalAndHarmful",
+    "num_rounds": 30,
+    "converged": true,
+    "accuracy": 0.7143,
+    "num_observations": 30,
+    "traditional_concepts_found": [
+      "instructional_intent",
+      "concept_1",
+      "concept_4",
+      "concept_0",
+      "concept_2",
+      "concept_3"
+    ],
+    "active_concepts_found": [],
+    "active_concept_details": [],
+    "proposals_for_memory": []
+  },
+  {
+    "victim_name": "JailbreakOnly",
+    "num_rounds": 30,
+    "converged": true,
+    "accuracy": 0.9524,
+    "num_observations": 30,
+    "traditional_concepts_found": [
+      "instructional_intent",
+      "concept_0",
+      "concept_1",
+      "concept_2",
+      "concept_3"
+    ],
+    "active_concepts_found": [],
+    "active_concept_details": [],
+    "proposals_for_memory": []
+  },
+  {
+    "victim_name": "HarmfulOrJailbreak",
+    "num_rounds": 30,
+    "converged": true,
+    "accuracy": 0.8065,
+    "num_observations": 30,
+    "traditional_concepts_found": [
+      "instructional_intent",
+      "concept_0",
+      "concept_1",
+      "concept_2"
+    ],
+    "active_concepts_found": [],
+    "active_concept_details": [],
+    "proposals_for_memory": []
+  },
+  {
+    "victim_name": "MixedSymbolicSemantic",
+    "num_rounds": 30,
+    "converged": true,
+    "accuracy": 0.8065,
+    "num_observations": 30,
+    "traditional_concepts_found": [
+      "instructional_intent",
+      "concept_0",
+      "concept_1",
+      "concept_2"
+    ],
+    "active_concepts_found": [],
+    "active_concept_details": [],
+    "proposals_for_memory": []
+  }
+]

@@ -17,6 +17,7 @@ Requirements:
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
@@ -244,8 +245,109 @@ def seed_episodic_memory(
                 len(seed_prompts), len(transform_configs))
 
 
+# ── SDE Victim Wrapper ───────────────────────────────────────────────
+class _SDEVictimWrapper:
+    """Wraps a victim to feed every response into the SDE engine.
+
+    This is the integration point between the structural pipeline and
+    the semantic discovery engine. Every intervention outcome is
+    scored by the embedding scorer and fed to ``engine.observe_outcome``.
+    """
+
+    def __init__(self, victim: Any, engine: Any) -> None:
+        self._victim = victim
+        self._engine = engine
+        self.name = getattr(victim, "name", "wrapped")
+
+    def respond(self, prompt: str) -> int:
+        outcome = self._victim.respond(prompt)
+        # Feed outcome to the SDE engine
+        try:
+            # The engine scores the prompt internally via embedding scorer
+            self._engine.observe_outcome(
+                prompt=prompt,
+                score=0.0,  # engine recomputes scores from embedding scorer
+                outcome=outcome,
+                primitive_name=None,
+            )
+        except Exception as exc:
+            logger.debug("SDE observation feed failed: %s", exc)
+        return outcome
+
+    async def async_query(self, prompt: str) -> int:
+        outcome = await self._victim.async_query(prompt)
+        try:
+            self._engine.observe_outcome(
+                prompt=prompt,
+                score=0.0,
+                outcome=outcome,
+                primitive_name=None,
+            )
+        except Exception as exc:
+            logger.debug("SDE observation feed failed: %s", exc)
+        return outcome
+
+
+def _create_sde_engine() -> Any:
+    """Create a default-configured SDE engine."""
+    from sde.engine import SemanticDiscoveryEngine
+    eng = SemanticDiscoveryEngine(
+        convergence_std=0.05,
+        max_rounds=50,
+    )
+    return eng
+
+
+def _run_semantic_discovery(
+    engine: Any,
+    victim: Any,
+    seed_prompts: List[str],
+    max_rounds: int = 30,
+) -> Dict[str, Any]:
+    """Run a standalone semantic discovery loop."""
+    engine.initialise("toy_semantic_discovery")
+    for prompt in seed_prompts[:10]:
+        outcome = victim.respond(prompt)
+        engine.observe_outcome(prompt, 0.0, outcome)
+    # Propose and execute interventions
+    for _ in range(max_rounds):
+        if engine.should_stop():
+            break
+        try:
+            from sde.engine import SemanticIntervention
+            inter = engine.propose_intervention(seed_prompts[0])
+            outcome = victim.respond(inter.prompt)
+            engine.observe_outcome(
+                inter.prompt, inter.actual_score, outcome, inter.primitive_name,
+            )
+        except Exception as exc:
+            logger.debug("SDE intervention round failed: %s", exc)
+            break
+    state = engine.get_state()
+    concept_expl = engine.get_concept_explanation()
+    return {
+        "state": state.to_dict(),
+        "concepts": [
+            c.to_dict() if hasattr(c, "to_dict") else str(c)
+            for c in getattr(concept_expl, "concepts", [])
+        ] if concept_expl else [],
+        "num_observations": state.num_observations,
+        "surviving_primitives": [
+            n for n, e in engine.boundary_estimators.items()
+            if e.num_observations > 0
+        ],
+    }
+
+
 # ── Main ─────────────────────────────────────────────────────────────────
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Toy victim experiment")
+    parser.add_argument("--semantic", action="store_true",
+                        help="Enable semantic discovery engine integration")
+    parser.add_argument("--semantic-only", action="store_true",
+                        help="Run only semantic discovery (skip structural pipeline)")
+    args = parser.parse_args()
+
     logger.info("=" * 70)
     logger.info("Toy Victim Test: Reverse-Engineer KeywordFilterVictim(['bomb'])")
     logger.info("=" * 70)
@@ -261,6 +363,21 @@ def main() -> None:
     victim = KeywordFilterVictim(keywords=["bomb"])
     victim.name = "ToyBombFilter"
     logger.info("Victim: KeywordFilterVictim(keywords=['bomb'])")
+
+    # Optionally create SDE engine and wrap victim
+    sde_engine = None
+    if args.semantic or args.semantic_only:
+        sde_engine = _create_sde_engine()
+        logger.info("SDE engine created and attached")
+        if not args.semantic_only:
+            # Wrap victim for live observation feeding
+            victim = _SDEVictimWrapper(victim, sde_engine)
+
+    if args.semantic_only:
+        logger.info("Running semantic-only discovery...")
+        sem_results = _run_semantic_discovery(sde_engine, victim, [p for p, _ in TEST_SET])
+        logger.info("Semantic discovery results: %s", json.dumps(sem_results, indent=2))
+        return
 
     # ── In-memory stores ─────────────────────────────────────────────
     from knowledge.episodic import EpisodicMemory
@@ -307,7 +424,11 @@ def main() -> None:
     from orchestration.orchestrator import Orchestrator
 
     cognitive = CognitiveAgent(episodic_memory=episodic_memory)
-    strategist = StrategistAgent(episodic_memory=episodic_memory, disable_efe=False)
+    strategist = StrategistAgent(
+        episodic_memory=episodic_memory,
+        disable_efe=False,
+        sde_engine=sde_engine,
+    )
     researcher = ResearcherAgent(
         episodic_memory=episodic_memory,
         defense_store=defense_store,
@@ -470,6 +591,20 @@ def main() -> None:
     logger.info("Pipeline discriminative power: %s", "YES" if pipeline_discriminative else "NO")
     logger.info("CVC5 discriminative power:     %s", "YES" if cvc5_discriminative else "NO")
 
+    # ── SDE results ──────────────────────────────────────────────────
+    sde_result = None
+    if sde_engine is not None:
+        sem_ev = sde_engine.get_semantic_evidence()
+        sde_result = {
+            "semantic_evidence": sem_ev,
+            "state": sde_engine.get_state().to_dict(),
+            "concept_explanation": (
+                str(sde_engine.get_concept_explanation())
+                if sde_engine.get_concept_explanation() else None
+            ),
+        }
+        logger.info("SDE evidence: %s", json.dumps(sem_ev, indent=2))
+
     # ── Dump JSON ────────────────────────────────────────────────────
     out_path = Path(_project_root) / "experiments" / f"toy_victim_result_{campaign_id}.json"
     out_data = {
@@ -489,6 +624,7 @@ def main() -> None:
             "test_accuracy": syn_acc if syn_program else None,
             "exact_match": bool(syn_program and syn_acc >= 1.0),
         },
+        "sde": sde_result,
         "ground_truth": str(ground_truth),
         "test_set_size": len(TEST_SET),
     }

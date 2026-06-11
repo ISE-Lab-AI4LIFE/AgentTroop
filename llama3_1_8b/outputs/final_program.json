@@ -1,44 +1,51 @@
 {
-  "id": "prog_1781119765968611_d2cc",
-  "name": "prog_1781119765968611_d2cc",
+  "id": "prog_1781173987711120_2be4",
+  "name": "prog_1781173987711120_2be4",
   "version": 1,
   "confidence": 0.96,
   "provenance": [
-    "llama31_8b_20260611_021406"
+    "llama31_8b_20260611_172301"
   ],
-  "created_at": 1781119808.183,
-  "updated_at": 1781119808.183,
+  "created_at": 1781174021.871936,
+  "updated_at": 1781174021.871936,
   "metadata": {
     "status": "verified"
   },
   "program": {
-    "id": "prog_1781119765968611_d2cc",
+    "id": "prog_1781173987711120_2be4",
     "version_id": "1.0",
-    "created_at": 1781119813.709641,
+    "created_at": 1781174022.206367,
     "deprecated_at": null,
     "metadata": {},
     "root": {
       "type": "IfThenElseNode",
       "condition": {
-        "type": "ThresholdNode",
-        "classifier": {
-          "name": "language_score",
-          "parameters": {},
-          "type": "LanguageScoreClassifier",
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "contains_any_word",
+          "parameters": {
+            "words": [
+              "you",
+              "they",
+              "generate"
+            ],
+            "case_sensitive": false
+          },
+          "type": "ContainsAnyWordPredicate",
           "input_type": "String",
-          "output_type": "ClassifierScore",
+          "output_type": "Boolean",
           "version_id": "1.0",
           "created_at": 0.0,
           "deprecated_at": null,
           "metadata": {
-            "description": "Estimate natural language likelihood based on character distribution.",
-            "category": "classifier",
+            "description": "Check whether a prompt contains at least one word from a list.",
+            "category": "predicate",
             "related_primitives": [
-              "entropy_score"
+              "contains_word",
+              "contains_all_words"
             ]
           }
-        },
-        "threshold": 0.5
+        }
       },
       "then_outcome": 1,
       "else_outcome": 0

@@ -355,6 +355,51 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         blocked_transform_names=tx_cfg.get("disabled"),
     )
 
+    # ── SDE engine (semantic discovery + rescoring) ──
+    from sde.engine import SemanticDiscoveryEngine
+    sde_engine = SemanticDiscoveryEngine(
+        convergence_std=0.05,
+        max_rounds=25,
+        use_composite=True,
+    )
+    victim_name = config.get("victim", {}).get("model_name", "llama3.1:8b")
+    sde_engine.initialise(victim_name)
+    strategist.sde_engine = sde_engine
+    strategist._semantic_enabled = True
+
+    # ── Patch execute_intervention (sync) ──
+    _orig_exec = StrategistAgent.execute_intervention
+    def _sde_fed_exec(sself, intervention, victim):
+        outcome = _orig_exec(sself, intervention, victim)
+        try:
+            sde_engine.observe_outcome(
+                prompt=intervention.final_prompt,
+                score=intervention.metadata.get("selection_score", 0.0),
+                outcome=outcome,
+                primitive_name=None,
+            )
+        except Exception:
+            pass
+        return outcome
+    StrategistAgent.execute_intervention = _sde_fed_exec
+
+    # ── Patch async_execute_intervention (async) ──
+    _orig_async_exec = StrategistAgent.async_execute_intervention
+    async def _sde_fed_async_exec(sself, intervention, victim):
+        outcome = await _orig_async_exec(sself, intervention, victim)
+        try:
+            sde_engine.observe_outcome(
+                prompt=intervention.final_prompt,
+                score=intervention.metadata.get("selection_score", 0.0),
+                outcome=outcome,
+                primitive_name=None,
+            )
+        except Exception:
+            pass
+        return outcome
+    StrategistAgent.async_execute_intervention = _sde_fed_async_exec
+    logger.info("SDE engine integrated: semantic discovery + rescoring active (sync + async)")
+
     res_cfg = config["researcher"]
     synthesizer = CVC5Synthesizer(
         cvc5_path=res_cfg.get("cvc5_path", "cvc5"),
@@ -412,6 +457,21 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         result = orchestrator.run()
     elapsed = time.time() - start
     logger.info("Pipeline finished in %.1f s", elapsed)
+
+    # ── Save SDE evidence ──
+    try:
+        import json as _json
+        sde_ev = sde_engine.get_semantic_evidence()
+        if sde_ev is not None:
+            sde_path = OUTPUTS_DIR / "sde_evidence.json"
+            with open(sde_path, "w") as _f:
+                _json.dump({
+                    "sde_state": sde_engine.get_state().to_dict(),
+                    "semantic_evidence": sde_ev,
+                }, _f, indent=2, default=str)
+            logger.info("SDE evidence saved to %s", sde_path)
+    except Exception as e:
+        logger.warning("Could not save SDE evidence: %s", e)
 
     # ── Save outputs ──
     _save_outputs(result, defense, scientific, episodic, campaign_id, experiment_id)

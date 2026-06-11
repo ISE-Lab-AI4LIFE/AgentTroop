@@ -348,12 +348,87 @@ def generate_holdout_prompts(output_path: str, n: int = 40):
 # 3.  RUN EXPERIMENT WRAPPER
 # ─────────────────────────────────────────────────────────────────────
 
+def _create_sde_engine() -> Any:
+    """Create an SDE engine with optimised settings for validation.
+
+    Uses:
+      - Composite boundary estimator for multi-primitive victims
+      - convergence_std=0.05, max_rounds=25
+      - Evidence-only mode (no concept discovery / seeding)
+    """
+    from sde.engine import SemanticDiscoveryEngine
+    return SemanticDiscoveryEngine(
+        convergence_std=0.05,
+        max_rounds=25,
+        use_composite=True,
+    )
+
+
+def _patch_orchestrator_for_sde(engine: Any):
+    """Monkey-patch the orchestrator to feed intervention outcomes to SDE."""
+    from orchestration import orchestrator as orch_module
+    from agents.strategist import StrategistAgent
+
+    # ── 1. Inject SDE engine into every StrategistAgent instance ──
+    _orig_init = StrategistAgent.__init__
+
+    def _sde_injected_init(sself, *args, **kwargs):
+        _orig_init(sself, *args, **kwargs)
+        sself.sde_engine = engine
+        sself._semantic_enabled = engine is not None
+
+    StrategistAgent.__init__ = _sde_injected_init
+    logger.info("Strategist.__init__ patched to inject SDE engine")
+
+    # ── 2. Patch execute_intervention (sync) to feed outcomes to SDE engine ──
+    _orig_exec = StrategistAgent.execute_intervention
+
+    def _sde_fed_exec(sself, intervention, victim):
+        outcome = _orig_exec(sself, intervention, victim)
+        if engine is not None:
+            try:
+                prompt = intervention.final_prompt
+                engine.observe_outcome(
+                    prompt=prompt,
+                    score=intervention.metadata.get("selection_score", 0.0),
+                    outcome=outcome,
+                    primitive_name=None,
+                )
+            except Exception:
+                pass
+        return outcome
+
+    StrategistAgent.execute_intervention = _sde_fed_exec
+
+    # ── 3. Patch async_execute_intervention (async) to feed outcomes to SDE engine ──
+    _orig_async_exec = StrategistAgent.async_execute_intervention
+
+    async def _sde_fed_async_exec(sself, intervention, victim):
+        outcome = await _orig_async_exec(sself, intervention, victim)
+        if engine is not None:
+            try:
+                prompt = intervention.final_prompt
+                engine.observe_outcome(
+                    prompt=prompt,
+                    score=intervention.metadata.get("selection_score", 0.0),
+                    outcome=outcome,
+                    primitive_name=None,
+                )
+            except Exception:
+                pass
+        return outcome
+
+    StrategistAgent.async_execute_intervention = _sde_fed_async_exec
+    logger.info("Strategist patched to feed observations to SDE engine (sync + async)")
+
+
 def run_experiment(
     harmful_csv: str,
     benign_csv: str,
     config_path: str,
     exp_name: str,
     log_file: Optional[str] = None,
+    sde_engine: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Run the pipeline with patched tracking and return candidate snapshots."""
     global _tracker
@@ -511,13 +586,28 @@ def main():
         )
 
     if args.exp in ("semantic", "both"):
-        run_experiment(
+        # Create SDE engine for semantic experiment
+        sde_eng = _create_sde_engine()
+        _patch_orchestrator_for_sde(sde_eng)
+        exp_results = run_experiment(
             harmful_csv=str(base_dir / "harmful_semantic.csv"),
             benign_csv=str(base_dir / "benign_semantic.csv"),
             config_path=args.config,
             exp_name="semantic",
             log_file=log_file,
+            sde_engine=sde_eng,
         )
+        # Append SDE evidence to the saved results
+        if sde_eng.get_semantic_evidence() is not None:
+            sde_path = RESULTS_DIR / "semantic_sde_evidence.json"
+            sde_path.write_text(
+                __import__("json").dumps(
+                    {"sde_state": sde_eng.get_state().to_dict(),
+                     "semantic_evidence": sde_eng.get_semantic_evidence()},
+                    indent=2, default=str,
+                )
+            )
+            logger.info("SDE evidence saved to %s", sde_path)
 
     if args.exp == "adversarial":
         # Run structural experiment, then evaluate on holdout

@@ -41,8 +41,54 @@ from knowledge.episodic.episodic import (
     EpisodeFilter,
     InterventionRecord,
 )
-
 from synthesis.grammar_exporter import GrammarExporter
+
+# ---------------------------------------------------------------------------
+# Semantic Evidence — auxiliary semantic information for the strategist
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SemanticEvidence:
+    """Auxiliary semantic evidence for the structural pipeline.
+
+    This is NOT a replacement for Version Space posterior.
+    It is an optional information source that the strategist
+    and router can consult at their discretion.
+
+    Attributes
+    ----------
+    is_active : bool
+        Whether the semantic subsystem is active.
+    instruction_score : float
+        Current instruction score centroid proximity.
+    harmfulness_score : float
+        Current harmfulness score centroid proximity.
+    boundary_uncertainty : float
+        Average posterior std across all boundary estimators.
+    concepts : List[str]
+        Discovered semantic concepts (if any).
+    recommended_primitives : List[str]
+        Which primitives have informative boundaries.
+    """
+    is_active: bool = False
+    instruction_score: float = 0.0
+    harmfulness_score: float = 0.0
+    jailbreak_score: float = 0.0
+    boundary_uncertainty: float = 1.0
+    concepts: List[str] = field(default_factory=list)
+    recommended_primitives: List[str] = field(default_factory=list)
+
+    @staticmethod
+    def inactive() -> "SemanticEvidence":
+        return SemanticEvidence()
+
+    def is_informative(self) -> bool:
+        """Whether the semantic evidence is worth consulting.
+
+        Returns True when the engine is active (has observations).
+        The rescoring method itself handles score-specific adjustments.
+        """
+        return self.is_active
 
 
 class _NullHypothesis:
@@ -115,6 +161,8 @@ class StrategistAgent:
         disable_efe: bool = False,
         belief_updater: Optional[Any] = None,
         version_space: Optional[VersionSpace] = None,
+        sde_engine: Optional[Any] = None,
+        semantic_enabled: Optional[bool] = None,
     ) -> None:
         # --- validate & clamp ---
         if intervention_budget < _MIN_BUDGET or intervention_budget > _MAX_BUDGET:
@@ -184,10 +232,29 @@ class StrategistAgent:
         else:
             self.efe_calculator = efe_calculator
 
+        # --- SDE integration (optional, additive) ---
+        self.sde_engine = sde_engine
+        if sde_engine is not None:
+            logger.info("StrategistAgent: SDE engine attached for semantic assistance")
+        # Safety gate: when semantic_enabled is False, ALL semantic code paths
+        # are skipped even if sde_engine is connected.  Defaults to True when
+        # an engine is present, else False (pre-SDE compatible behavior).
+        if semantic_enabled is None:
+            self._semantic_enabled = sde_engine is not None
+        else:
+            self._semantic_enabled = bool(semantic_enabled)
+
+        # Instrumentation counters for semantic influence measurement
+        self._semantic_total_cycles: int = 0
+        self._semantic_rerank_count: int = 0
+        self._semantic_selection_change: int = 0
+
         logger.info(
-            "StrategistAgent: version_space=%s efe=%s",
+            "StrategistAgent: version_space=%s efe=%s sde=%s semantic=%s",
             self._version_space is not None,
             self.efe_calculator is not None,
+            sde_engine is not None,
+            self._semantic_enabled,
         )
 
         self._cached_primitives: Any = None
@@ -666,6 +733,48 @@ class StrategistAgent:
             efe_used = True
             logger.debug("EFE rescoring applied to %d candidates", len(candidates))
 
+        # --- Semantic-assisted rescoring (Δ + semantic bonus) ---
+        # Always applied when semantic mode is enabled and engine is connected.
+        # Uses fixed alpha=0.3 with per-candidate bonus proportional to
+        # (1 - current_score) to promote exploration of low-scoring candidates.
+        if self._semantic_enabled and self.sde_engine is not None:
+            sem_ev = self._get_semantic_evidence()
+            if sem_ev.is_informative():
+                # Instrumentation: capture ranking before semantic rescoring
+                before = sorted(candidates, key=lambda x: (-x[0], len(x[1].transforms)))
+                before_top_id = before[0][1].id if before else None
+                before_scores = [round(s, 6) for s, _ in before[:5]]
+
+                candidates = self._rescore_with_semantic(
+                    candidates, sem_ev,
+                )
+
+                # Instrumentation: capture ranking after semantic rescoring
+                after = sorted(candidates, key=lambda x: (-x[0], len(x[1].transforms)))
+                after_top_id = after[0][1].id if after else None
+                after_scores = [round(s, 6) for s, _ in after[:5]]
+
+                self._semantic_total_cycles += 1
+                if before_scores != after_scores:
+                    self._semantic_rerank_count += 1
+                if before_top_id != after_top_id:
+                    self._semantic_selection_change += 1
+
+                rerank_rate = (
+                    self._semantic_rerank_count / max(self._semantic_total_cycles, 1)
+                )
+                logger.info(
+                    "Semantic rescoring: %d candidates, α=0.40, "
+                    "rerank=%s sel_change=%s rerank_rate=%.3f "
+                    "before=[%s] after=[%s]",
+                    len(candidates),
+                    before_scores != after_scores,
+                    before_top_id != after_top_id,
+                    rerank_rate,
+                    ", ".join(f"{s:.4f}" for s in before_scores),
+                    ", ".join(f"{s:.4f}" for s in after_scores),
+                )
+
         if not candidates:
             logger.warning("No intervention candidates found")
             return None
@@ -820,6 +929,198 @@ class StrategistAgent:
                 max(s for s, _ in rescored),
             )
         return rescored
+
+    # ------------------------------------------------------------------
+    # Semantic assistance (optional, additive to structural scores)
+    # ------------------------------------------------------------------
+
+    def _get_semantic_evidence(self) -> SemanticEvidence:
+        """Query the SDE engine for current semantic evidence.
+
+        Returns ``SemanticEvidence.inactive()`` when semantic mode is
+        disabled, when no engine is attached, or when the engine has not
+        yet built any boundaries.
+
+        The engine returns a dict; we convert it to a ``SemanticEvidence``.
+        """
+        if not self._semantic_enabled or self.sde_engine is None:
+            return SemanticEvidence.inactive()
+        try:
+            raw = self.sde_engine.get_semantic_evidence()
+            if raw is None or not raw.get("is_active"):
+                return SemanticEvidence.inactive()
+            return SemanticEvidence(
+                is_active=raw.get("is_active", False),
+                instruction_score=raw.get("instruction_score", 0.0),
+                harmfulness_score=raw.get("harmfulness_score", 0.0),
+                jailbreak_score=raw.get("jailbreak_score", 0.0),
+                boundary_uncertainty=raw.get("boundary_uncertainty", 1.0),
+                concepts=raw.get("concepts", []),
+                recommended_primitives=raw.get("recommended_primitives", []),
+            )
+        except Exception as exc:
+            logger.debug("SDE evidence query failed: %s", exc)
+            return SemanticEvidence.inactive()
+
+    def _rescore_with_semantic(
+        self,
+        candidates: List[Tuple[float, Intervention]],
+        sem_ev: SemanticEvidence,
+        alpha: float = 0.4,
+    ) -> List[Tuple[float, Intervention]]:
+        """Add a semantic bonus to candidate scores to promote exploration.
+
+        Uses fixed α = 0.4.  The bonus for each candidate is:
+            bonus = α * (1 - current_score) * random.uniform(0.8, 1.2)
+
+        A small random perturbation (±20%) is added to break the monotonic
+        relationship between original score and bonus, enabling actual
+        reranking (not just tie-breaking).
+
+        Low-scoring candidates (score ≈ 0) get the largest bonus (≈ 0.32–0.48).
+        High-scoring candidates (score ≈ 1) get minimal bonus (≈ 0.0).
+        """
+        if not candidates:
+            return candidates
+        import random
+        rescored: List[Tuple[float, Intervention]] = []
+        for score, intv in candidates:
+            noise = random.uniform(0.8, 1.2)
+            bonus = alpha * (1.0 - min(max(score, 0.0), 1.0)) * noise
+            new_score = score + bonus
+            logger.debug(
+                "Semantic bonus: α=%.2f (1-%.4f)=%.4f × noise=%.2f → %.4f (intv=%s)",
+                alpha, score, alpha * (1.0 - min(max(score, 0.0), 1.0)),
+                noise, new_score, intv.id,
+            )
+            rescored.append((new_score, intv))
+        return rescored
+
+    def _seed_semantic_hypotheses(self, max_concepts: int = 5) -> int:
+        """Seed Version Space with hypotheses derived from SDE concept discovery.
+
+        Selective seeding pipeline:
+          1. Fetch concepts from semantic evidence.
+          2. Filter by refuse_rate:
+             - refuse_rate >= 0.8 → strong REFUSE signal
+             - refuse_rate <= 0.2 → strong ACCEPT signal
+             - skip ambiguous (0.3-0.7).
+          3. Validate keyword is not too common (>50% prompt frequency = skip).
+          4. Prioritise: accuracy=0.8 if refuse_rate >= 0.9,
+             initial_posterior=0.6 for strong signals.
+          5. For ACCEPT concepts, generate ``IF contains_word(...) THEN ACCEPT``
+             programs.
+
+        Returns the number of successfully seeded hypotheses, or 0 if SDE
+        is inactive / no valid concepts are available.
+        """
+        if not self._semantic_enabled or self.sde_engine is None or self._version_space is None:
+            return 0
+        sem_ev = self._get_semantic_evidence()
+        if not sem_ev.is_active or not sem_ev.concepts:
+            return 0
+
+        from sde.concept_discovery import SemanticConceptDiscovery
+        all_prompts: List[str] = []
+        try:
+            obs = self.sde_engine.semantic_store.get_history()
+            all_prompts = [o.prompt for o in obs]
+        except Exception:
+            pass
+
+        seeded = 0
+        for concept in sem_ev.concepts[:max_concepts]:
+            # Handle both dict (from engine.get_semantic_evidence) and object formats
+            if isinstance(concept, dict):
+                refuse_rate = concept.get('refuse_rate', 0.5)
+                keywords = concept.get('keywords', [])
+                name = concept.get('name', 'concept')
+            else:
+                concept_str = str(concept).strip()
+                if not concept_str:
+                    continue
+                import re
+                keywords = re.findall(r"'([^']+)'", concept_str)
+                if not keywords:
+                    name_match = re.match(r"concept_\d+", concept_str)
+                    if not name_match:
+                        continue
+                    kws = concept_str.replace(" ", "_").split("_")
+                    keywords = [kw for kw in kws if len(kw) > 3]
+                refuse_rate = 0.5
+                try:
+                    if hasattr(concept, 'refuse_rate'):
+                        refuse_rate = concept.refuse_rate
+                    elif hasattr(concept, 'to_dict'):
+                        d = concept.to_dict()
+                        refuse_rate = d.get('refuse_rate', 0.5)
+                except Exception:
+                    pass
+
+            # Select the best keyword (shortest meaningful one)
+            keyword = min(keywords, key=len) if keywords else ""
+            if not keyword or len(keyword) < 2:
+                continue
+
+            # Skip common / stopword keywords
+            if SemanticConceptDiscovery.is_common_keyword(keyword, all_prompts, threshold=0.3):
+                continue
+            if SemanticConceptDiscovery.is_stopword(keyword):
+                continue
+
+            # Skip ACCEPT concepts (refuse_rate ≤ 0.2) — seeding REFUSE only
+            if refuse_rate <= 0.2:
+                continue
+
+            # Skip ambiguous concepts
+            if 0.3 < refuse_rate < 0.7:
+                continue
+
+            is_refuse_concept = refuse_rate >= 0.8
+            if not is_refuse_concept:
+                continue
+
+            # Only seed REFUSE concepts
+            condition = f"IF contains_word('{keyword}') THEN REFUSE"
+
+            # Higher prior for strong REFUSE signal
+            if refuse_rate >= 0.95:
+                accuracy = 0.85
+                initial_posterior = 0.7
+            elif refuse_rate >= 0.8:
+                accuracy = 0.8
+                initial_posterior = 0.6
+            else:
+                accuracy = 0.7
+                initial_posterior = 0.5
+
+            try:
+                prog = self.compile_condition_to_program(condition)
+                self._version_space.add_candidate(
+                    program=prog,
+                    accuracy=accuracy,
+                    source="semantic_seed",
+                    episodes_matched=0,
+                    total_episodes=1,
+                    initial_posterior=initial_posterior,
+                )
+                seeded += 1
+                logger.info(
+                    "Seeded semantic hypothesis: refuse_rate=%.2f acc=%.1f "
+                    "prior=%.1f kw='%s' → %s",
+                    refuse_rate, accuracy, initial_posterior,
+                    keyword, condition,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "Skipped keyword '%s': %s", keyword, exc,
+                )
+        if seeded > 0:
+            logger.info(
+                "Seeded %d semantic hypotheses into Version Space",
+                seeded,
+            )
+        return seeded
 
     def _create_default_intervention(
         self,

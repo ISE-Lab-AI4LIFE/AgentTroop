@@ -25,7 +25,7 @@ def neo4j_params() -> Generator[Dict[str, Any], None, None]:
         yield {
             "uri": container.get_connection_url(),
             "user": "neo4j",
-            "password": container.get_password(),
+            "password": container.password,
         }
     finally:
         container.stop()
