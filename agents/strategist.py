@@ -621,6 +621,34 @@ class StrategistAgent:
         # --- heuristic local search (including transform chains) ---
         candidates = self._generate_candidates(prompts, transforms, h1, h2)
 
+        # Semantic fix 3: Prioritize identity interventions to preserve
+        # semantic signal (transform chains obfuscate instruction requests).
+        # If any identity (0 transforms) candidate has Δ > 0, pick the best
+        # one immediately and skip LLM/EFE — identity preserves the original
+        # prompt wording so semantic primitives can score it correctly.
+        identity_candidates = [
+            (d, iv) for d, iv in candidates if len(iv.transforms) == 0
+        ]
+        if identity_candidates:
+            identity_candidates.sort(key=lambda x: (-x[0], len(x[1].transforms)))
+            best_score_id, best_intv_id = identity_candidates[0]
+            if best_score_id > 0.0:
+                logger.info(
+                    "Identity intervention chosen (score=%.3f, %d identity candidates) — "
+                    "preserving semantic signal",
+                    best_score_id, len(identity_candidates),
+                )
+                best_intv_id.metadata["selection_score"] = best_score_id
+                best_intv_id.metadata["selection_mode"] = "IDENTITY_FIRST"
+                best_intv_id.metadata["num_candidates"] = len(identity_candidates)
+                return best_intv_id
+            else:
+                logger.info(
+                    "No identity candidate has Δ>0 (best=%.3f); "
+                    "falling back to transform chains",
+                    best_score_id,
+                )
+
         # --- LLM-guided transforms ---
         if self.use_llm and self.llm_client is not None and self.max_candidates_llm > 0:
             llm_candidates = self._llm_suggested_interventions(
@@ -984,8 +1012,23 @@ class StrategistAgent:
             created_at=time.time(),
         )
 
+        # Log semantic features if the instruction_score primitive is available
+        try:
+            from core.primitive import default_registry as _reg
+            _scorer = _reg.get("instruction_score")
+            _prompt = intervention_record.final_prompt or intervention_record.prompt
+            _score = float(_scorer.evaluate(_prompt))
+            episode.annotations["instruction_score"] = round(_score, 4)
+            episode.annotations["semantic_prediction"] = int(_score > 0.5)
+            episode.annotations["ground_truth"] = int(outcome)
+        except Exception:
+            pass
+
         ep_id = self.episodic_memory.save_episode(episode)
-        logger.info("Stored episode %s for campaign %s", ep_id, campaign_id)
+        logger.info(
+            "Stored episode %s for campaign %s | instruction_score=%.4f",
+            ep_id, campaign_id, episode.annotations.get("instruction_score", -1),
+        )
         return ep_id
 
     def run_intervention_round(
@@ -1342,6 +1385,28 @@ class StrategistAgent:
         if isinstance(cond, str) and self._extract_keywords(cond):
             compiled = self.compile_condition_to_program(cond)
             if compiled is not None:
+                # Fix 5: validate compilation fidelity once per hypothesis
+                if not getattr(hypothesis, "_compilation_validated", False):
+                    try:
+                        hyp_id = getattr(hypothesis, "id", "?")
+                        val = self.condition_registry.validate_condition_str(
+                            cond,
+                            test_prompts=[prompt],
+                        )
+                        if not val.get("valid"):
+                            logger.warning(
+                                "Hypothesis %s condition=%r failed compilation validation: %s",
+                                hyp_id, cond, val.get("issues", []),
+                            )
+                        elif val.get("issues"):
+                            for issue in val["issues"]:
+                                logger.warning(
+                                    "Hypothesis %s condition=%r has issues: %s",
+                                    hyp_id, cond, issue,
+                                )
+                    except Exception as ve:
+                        logger.debug("Compilation validation failed: %s", ve)
+                    hypothesis._compilation_validated = True
                 try:
                     return int(self.executor.execute(compiled, prompt))
                 except Exception as exc:
@@ -1495,6 +1560,101 @@ class StrategistAgent:
         """
         from core.condition import registry as _cond_registry
         return _cond_registry.compile_condition_str(cond_lower, then_out, else_out)
+
+    # ------------------------------------------------------------------
+    # Fix 7: Hypothesis structure introspection — prepares groundwork for
+    # future counterfactual intervention synthesis.
+    # ------------------------------------------------------------------
+
+    def expose_hypothesis_structure(self, hypothesis: Any) -> Dict[str, Any]:
+        """Return a structured description of the hypothesis's internals.
+
+        Extracts predicates, keywords, AST nodes, and condition parameters
+        so that future counterfactual intervention synthesis can reason
+        about hypothesis structure without requiring a full AST traversal.
+
+        Returns
+        -------
+        dict with keys:
+          - hypothesis_id: str
+          - description: str
+          - condition: str
+          - condition_name: str or None
+          - condition_params: dict
+          - program_str: str or None
+          - predicates: list of {name, params}
+          - keywords: list of str
+          - predicate_type: str
+          - complexity: int
+        """
+        result: Dict[str, Any] = {
+            "hypothesis_id": getattr(hypothesis, "id", "?"),
+            "description": getattr(hypothesis, "description", ""),
+            "condition": getattr(hypothesis, "condition", ""),
+            "condition_name": getattr(hypothesis, "condition_name", None),
+            "condition_params": getattr(hypothesis, "condition_params", {}),
+            "program_str": None,
+            "predicates": [],
+            "keywords": [],
+            "predicate_type": "unknown",
+            "complexity": 0,
+        }
+
+        # Extract predicates from program
+        program = getattr(hypothesis, "program", None)
+        if program is not None:
+            result["program_str"] = str(program)
+            try:
+                result["complexity"] = program.complexity()
+            except Exception:
+                pass
+
+        # Extract predicates from condition string via registry
+        cond = result["condition"]
+        if isinstance(cond, str) and cond.strip():
+            from core.condition import registry as _cond_registry
+            import re
+            cond_lower = cond.lower()
+            # Try registered keywords
+            for cd in _cond_registry:
+                if "predicate" not in cd.tags:
+                    continue
+                kw = cd.dsl_keyword
+                if kw in cond_lower:
+                    params = cd.extract_params(cond_lower) or {}
+                    result["predicates"].append({
+                        "name": cd.name,
+                        "params": params,
+                    })
+                    if "word" in params:
+                        result["keywords"].append(params["word"])
+                    elif "words" in params:
+                        result["keywords"].extend(params["words"])
+            # Extract bare single-quoted keywords
+            bare_keywords = re.findall(r"'([^']+)'", cond)
+            for bk in bare_keywords:
+                if bk not in result["keywords"]:
+                    result["keywords"].append(bk)
+
+        # Determine predicate type
+        cn = result["condition_name"]
+        if cn:
+            from core.condition import registry as _cond_registry
+            try:
+                cd = _cond_registry.get(cn)
+                if cd is not None:
+                    from inference.version_space import _classify_program
+                    from core.program import Program, IfThenElseNode, PredicateNode
+                    try:
+                        node = cd.compile_to_node(**result["condition_params"])
+                        prog = Program(root=IfThenElseNode(condition=node, then_outcome=1, else_outcome=0))
+                        result["predicate_type"] = _classify_program(prog)
+                    except Exception:
+                        result["predicate_type"] = "unknown"
+            except KeyError:
+                pass
+
+        return result
 
     def _keyword_fallback(self, prompt: str, hypothesis: Any) -> int:
         """Fallback evaluator when no program executor is available.

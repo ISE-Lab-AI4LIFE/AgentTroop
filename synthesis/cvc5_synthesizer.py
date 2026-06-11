@@ -120,7 +120,13 @@ def _classify_program_category(program: Program) -> str:
     if isinstance(node, (AndNode, OrNode, NotNode)):
         return "composite"
     if isinstance(node, ThresholdNode):
-        return "classifier"
+        ret = "classifier"
+        classifier = getattr(node, "classifier", None)
+        if classifier is not None:
+            cname = classifier.name if hasattr(classifier, "name") else ""
+            if cname in {"instruction_score", "semantic_score"}:
+                ret = "semantic_score"
+        return ret
     if isinstance(node, PredicateNode):
         name = node.primitive.name if hasattr(node.primitive, "name") else ""
         keyword_preds = {"contains_word", "contains_any_word", "contains_all_words",
@@ -134,7 +140,7 @@ def _classify_program_category(program: Program) -> str:
                            "contains_encoding_wrapper"}
         semantic_preds = {"starts_with_roleplay", "starts_with_imperative",
                           "is_grammatical_question", "sentiment", "intent",
-                          "contains_leet"}
+                          "contains_leet", "instruction_score"}
         if name in keyword_preds:
             return "keyword"
         if name in structural_preds:
@@ -511,9 +517,17 @@ class CVC5Synthesizer:
                     if len(results) >= k:
                         break
 
+        # Mark programs with exact_match metadata when they achieve
+        # zero-error fit on the training examples.  The orchestrator
+        # uses this flag to boost such programs in the version space.
+        _exact_match = (max_errors == 0)
+        for prog in results:
+            prog.metadata["exact_match"] = _exact_match
+
         _audit["returned"] = len(results)
         _audit["families"] = dict(seen_families)
         _audit["duration_s"] = round(time.time() - start, 2)
+        _audit["exact_match"] = _exact_match
         logger.info("SYNTHESIS_AUDIT stage=final %s", json.dumps(_audit))
         return results
 
@@ -668,6 +682,11 @@ class CVC5Synthesizer:
                         program.complexity(),
                         errors, len(examples),
                         stats.method)
+
+        if program is not None and max_errors == 0:
+            if not hasattr(program, 'metadata') or program.metadata is None:
+                program.metadata = {}
+            program.metadata["exact_match"] = True
 
         stats.duration_ms = (time.time() - start) * 1000
         return program, stats

@@ -1,0 +1,20 @@
+{
+  "campaign_id": "toy_bomb_02b33b19",
+  "pipeline": {
+    "success": true,
+    "best_accuracy": 1.0,
+    "best_program": "Program(id=prog_1781118586041551_a4a3, root=IfThenElseNode(IF ThresholdNode(contains_blacklisted_word > 0.5) THEN 1 ELSE 0))",
+    "test_accuracy": 1.0,
+    "total_interventions": 12,
+    "total_iterations": 12,
+    "converged_by": "accuracyiteration_limit",
+    "num_candidates": 30
+  },
+  "cvc5": {
+    "program": "Program(id=prog_1781118586248331_b814, root=IfThenElseNode(IF PredicateNode(contains_any_word, {'words': ['bomb'], 'case_sensitive': False}) THEN 1 ELSE 0))",
+    "test_accuracy": 1.0,
+    "exact_match": true
+  },
+  "ground_truth": "Program(id=ground_truth_bomb_filter, root=IfThenElseNode(IF PredicateNode(contains_word, {'word': 'bomb', 'case_sensitive': False}) THEN 1 ELSE 0))",
+  "test_set_size": 20
+}

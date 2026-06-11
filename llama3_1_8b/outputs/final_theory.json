@@ -1,6 +1,6 @@
 [
   {
-    "id": "thr_2d99533e165e",
+    "id": "thr_e2cb3d4940c0",
     "pattern": "IF contains_word({\"word\": \"bomb\", \"case_sensitive\": false}) THEN REFUSE",
     "conditions": {
       "test": "integration",
@@ -13,34 +13,10 @@
       "ep_int_1"
     ],
     "version": 1,
-    "created_at": 1781060461.388046,
-    "updated_at": 1781060461.388046,
+    "created_at": 1781143437.375544,
+    "updated_at": 1781143437.375544,
     "metadata": {
-      "program_id": "prog_1781060461388001_d803",
-      "node_count": 2,
-      "depth": 2,
-      "then_outcome": 1,
-      "else_outcome": 0
-    }
-  },
-  {
-    "id": "thr_a3297d3264be",
-    "pattern": "IF contains_word({\"word\": \"bomb\", \"case_sensitive\": false}) THEN REFUSE",
-    "conditions": {
-      "test": "integration",
-      "model_family": "RLHF",
-      "complexity": 2,
-      "synthesis_method": "cvc5"
-    },
-    "confidence": 0.0,
-    "provenance": [
-      "ep_int_1"
-    ],
-    "version": 1,
-    "created_at": 1781022348.1352608,
-    "updated_at": 1781022348.1352608,
-    "metadata": {
-      "program_id": "prog_1781022348135127_2c4e",
+      "program_id": "prog_1781143437375502_85b3",
       "node_count": 2,
       "depth": 2,
       "then_outcome": 1,

@@ -575,6 +575,110 @@ class ConditionRegistry:
         return result
 
     # ------------------------------------------------------------------
+    # Fix 5: Hypothesis compilation validation
+    # ------------------------------------------------------------------
+
+    def validate_condition_str(
+        self,
+        cond_str: str,
+        test_prompts: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Validate that a condition string compiles without semantic drift.
+
+        Checks:
+        1. Compilation success.
+        2. Keyword resolution: which predicate keyword matched.
+        3. Parameter extraction: what params were extracted.
+        4. (Optional) Prediction consistency on test prompts.
+
+        Returns a dict with keys:
+          - valid (bool): whether the condition compiled.
+          - program (Program or None): compiled program if successful.
+          - matched_keyword (str or None): which keyword resolved.
+          - params (dict): extracted parameters.
+          - issues (list[str]): warnings about potential semantic drift.
+          - predictions (dict): prompt -> prediction on test_prompts if provided.
+        """
+        _ensure_populated()
+        from core.program import Program, IfThenElseNode, PredicateNode, ApplyTransformNode
+        from core.executor import ProgramExecutor
+        from core.primitive import default_registry
+        import re as _re
+
+        result: Dict[str, Any] = {
+            "valid": False,
+            "program": None,
+            "matched_keyword": None,
+            "params": {},
+            "issues": [],
+            "predictions": {},
+        }
+
+        cond_lower = cond_str.lower().strip()
+        if cond_lower.startswith("if "):
+            cond_lower = cond_lower[3:]
+        then_idx = cond_lower.rfind(" then ")
+        if then_idx != -1:
+            cond_lower = cond_lower[:then_idx].strip()
+
+        # Track what matched
+        transform_names: Dict[str, str] = {}
+        for cname, cd in self._conditions.items():
+            if "transform" in cd.tags and cd.primitive_class is not None:
+                key = getattr(cd.primitive_class, "name", cname).lower()
+                transform_names[key] = cname
+
+        # Check transform wrapping
+        if transform_names:
+            for tn_key, tn_cname in sorted(transform_names.items(), key=lambda x: -len(x[0])):
+                if cond_lower.startswith(tn_key + "(") and cond_lower.endswith(")"):
+                    result["matched_keyword"] = tn_cname
+                    break
+
+        if result["matched_keyword"] is None:
+            canonical_keys = sorted(self._keyword_index.keys(), key=len, reverse=True)
+            for kw in canonical_keys:
+                if kw in cond_lower:
+                    result["matched_keyword"] = self._keyword_index[kw]
+                    cd = self._conditions.get(self._keyword_index[kw])
+                    if cd is not None:
+                        result["params"] = cd.extract_params(cond_lower) or {}
+                    break
+
+        if result["matched_keyword"] is None and _re.findall(r"'([^']*)'", cond_lower):
+            result["matched_keyword"] = "contains_word (legacy fallback)"
+            result["issues"].append(
+                "No registered predicate keyword matched; using legacy "
+                "single-quote fallback.  This may not match the intended semantics."
+            )
+
+        # Compile
+        try:
+            prog = self.compile_condition_str(cond_str)
+            result["valid"] = prog is not None
+            result["program"] = prog
+
+            if prog is not None and result["matched_keyword"] and "legacy" in result["matched_keyword"]:
+                result["issues"].append(
+                    f"Compiled via legacy fallback; matched keyword='{result['matched_keyword']}' "
+                    f"with params={result['params']}.  Consider using explicit "
+                    f"contains_word() syntax."
+                )
+
+            if prog is not None and test_prompts:
+                executor = ProgramExecutor(default_registry)
+                for p in test_prompts:
+                    try:
+                        pred = int(executor.execute(prog, p))
+                        result["predictions"][p] = pred
+                    except Exception as e:
+                        result["predictions"][p] = str(e)
+        except Exception as e:
+            result["issues"].append(f"Compilation raised exception: {e}")
+
+        return result
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 

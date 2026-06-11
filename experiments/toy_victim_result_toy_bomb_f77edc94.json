@@ -1,0 +1,20 @@
+{
+  "campaign_id": "toy_bomb_f77edc94",
+  "pipeline": {
+    "success": true,
+    "best_accuracy": 1.0,
+    "best_program": "Program(id=prog_1781118197398284_b8db, root=IfThenElseNode(IF PredicateNode(intent, {'intent_type': 'jailbreak'}) THEN 1 ELSE 0))",
+    "test_accuracy": 0.95,
+    "total_interventions": 10,
+    "total_iterations": 10,
+    "converged_by": "accuracyiteration_limit",
+    "num_candidates": 30
+  },
+  "cvc5": {
+    "program": "Program(id=prog_1781118197603840_0ed2, root=IfThenElseNode(IF PredicateNode(contains_any_word, {'words': ['bomb'], 'case_sensitive': False}) THEN 1 ELSE 0))",
+    "test_accuracy": 1.0,
+    "exact_match": true
+  },
+  "ground_truth": "Program(id=ground_truth_bomb_filter, root=IfThenElseNode(IF PredicateNode(contains_word, {'word': 'bomb', 'case_sensitive': False}) THEN 1 ELSE 0))",
+  "test_set_size": 20
+}

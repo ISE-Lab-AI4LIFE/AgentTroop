@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Type
 
-from .primitive import Classifier, Predicate, Primitive, Transform
+from .primitive import Classifier, Predicate, Primitive, SemanticScorePrimitive, Transform
 from .types import Outcome, ProgramID
 
 
@@ -112,22 +112,44 @@ class ClassifierNode(AtomicNode):
 class ThresholdNode(Node):
     classifier: Classifier
     threshold: float
+    operator: str = "gt"
+
+    def __post_init__(self) -> None:
+        self.operator = self.operator or "gt"
 
     def __str__(self) -> str:
-        return f"ThresholdNode({self.classifier.name} > {self.threshold})"
+        op_str = {">": "gt", ">=": "gte", "<": "lt", "<=": "lte"}.get(self.operator, self.operator)
+        sym = ">=" if self.operator == "gte" else "<=" if self.operator == "lte" else ">" if self.operator == "gt" else "<"
+        return f"ThresholdNode({self.classifier.name} {sym} {self.threshold})"
+
+    def evaluate_threshold(self, score: float) -> bool:
+        if self.operator == "gt":
+            return score > self.threshold
+        elif self.operator == "gte":
+            return score >= self.threshold
+        elif self.operator == "lt":
+            return score < self.threshold
+        elif self.operator == "lte":
+            return score <= self.threshold
+        return score > self.threshold
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "type": "ThresholdNode",
             "classifier": self.classifier.to_dict(),
             "threshold": self.threshold,
+            "operator": self.operator,
         }
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> "ThresholdNode":
         primitive_data = data["classifier"]
         classifier = AtomicNode.primitive_from_dict(primitive_data)
-        return ThresholdNode(classifier=classifier, threshold=float(data["threshold"]))
+        return ThresholdNode(
+            classifier=classifier,
+            threshold=float(data["threshold"]),
+            operator=data.get("operator", "gt"),
+        )
 
 
 @dataclass

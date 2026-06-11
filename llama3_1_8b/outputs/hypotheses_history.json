@@ -1,8 +1,8 @@
 {
-  "total_iterations": 50,
-  "total_interventions": 50,
-  "best_accuracy": 0.5733333333333334,
-  "best_program_id": "prog_1781095265302702_b8e8",
+  "total_iterations": 25,
+  "total_interventions": 25,
+  "best_accuracy": 0.8673835125448028,
+  "best_program_id": "prog_1781149631157920_f92a",
   "success": true,
   "error": null
 }

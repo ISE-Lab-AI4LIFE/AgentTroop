@@ -149,14 +149,20 @@ class Hypothesis:
 # ---------------------------------------------------------------------------
 
 
-def _try_set_condition_name(hyp: Hypothesis) -> None:
+def _try_set_condition_name(hyp: Hypothesis, _depth: int = 0) -> None:
     """Infer ``condition_name`` and ``condition_params`` from a condition string.
 
     Runs after hypothesis creation so that every ``Hypothesis`` carries
     structured metadata for the ConditionRegistry → ProgramExecutor path.
 
     Handles ALL 29 predicate types plus AND composites.
+
+    Fix 6A: Added recursion guard (max depth=10) to prevent infinite
+    recursion from malformed condition strings.
     """
+    if _depth > 10:
+        logger.warning("Recursion depth exceeded in _try_set_condition_name (depth=%d)", _depth)
+        return
     if hyp.condition_name:
         return
     cond = hyp.condition.strip()
@@ -170,7 +176,7 @@ def _try_set_condition_name(hyp: Hypothesis) -> None:
         if m:
             first = "IF " + m.group(1)
         first_hyp = type("_PH", (Hypothesis,), {"condition_name": None})(condition=first)
-        _try_set_condition_name(first_hyp)
+        _try_set_condition_name(first_hyp, _depth=_depth + 1)
         if first_hyp.condition_name:
             hyp.condition_name = first_hyp.condition_name
             hyp.condition_params = first_hyp.condition_params

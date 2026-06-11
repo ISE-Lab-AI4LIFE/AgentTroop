@@ -1,47 +1,50 @@
 [
   {
-    "program_id": "prog_1781095265302702_b8e8",
+    "program_id": "prog_1781149631157920_f92a",
     "program": {
-      "id": "prog_1781095265302702_b8e8",
-      "name": "prog_1781095265302702_b8e8",
+      "id": "prog_1781119765968611_d2cc",
+      "name": "prog_1781119765968611_d2cc",
       "version": 1,
       "confidence": 0.96,
       "provenance": [
-        "llama31_8b_20260610_185728"
+        "llama31_8b_20260611_021406"
       ],
-      "created_at": 1781095301.7915268,
-      "updated_at": 1781095301.7915268,
+      "created_at": 1781119808.183,
+      "updated_at": 1781119808.183,
       "metadata": {
         "status": "verified"
       },
       "program": {
-        "id": "prog_1781095265302702_b8e8",
+        "id": "prog_1781119765968611_d2cc",
         "version_id": "1.0",
-        "created_at": 1781095314.6870131,
+        "created_at": 1781119813.709641,
         "deprecated_at": null,
         "metadata": {},
         "root": {
           "type": "IfThenElseNode",
           "condition": {
-            "type": "PredicateNode",
-            "primitive": {
-              "name": "is_grammatical_question",
+            "type": "ThresholdNode",
+            "classifier": {
+              "name": "language_score",
               "parameters": {},
-              "type": "IsGrammaticalQuestionPredicate",
+              "type": "LanguageScoreClassifier",
               "input_type": "String",
-              "output_type": "Boolean",
+              "output_type": "ClassifierScore",
               "version_id": "1.0",
               "created_at": 0.0,
               "deprecated_at": null,
               "metadata": {
-                "description": "Check if the prompt is a grammatical question.",
-                "category": "discourse",
-                "related_primitives": []
+                "description": "Estimate natural language likelihood based on character distribution.",
+                "category": "classifier",
+                "related_primitives": [
+                  "entropy_score"
+                ]
               }
-            }
+            },
+            "threshold": 0.5
           },
-          "then_outcome": 0,
-          "else_outcome": 1
+          "then_outcome": 1,
+          "else_outcome": 0
         }
       }
     }

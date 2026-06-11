@@ -137,6 +137,15 @@ class Orchestrator:
         version_space: Optional[VersionSpace] = None,
         top_k_candidates: int = 30,
         seed_telemetry: Optional[Dict[str, Any]] = None,
+        # Fix 1: Occam factor — complexity-aware Bayesian prior
+        complexity_prior_lambda: float = 0.01,
+        # Fix 3: Hardened convergence criteria
+        min_interventions_for_convergence: int = 10,
+        min_holdout_size_for_convergence: int = 20,
+        min_holdout_accuracy_for_convergence: float = 0.8,
+        max_generalization_gap: float = 0.1,
+        # Semantic fix 2: External holdout prompts file
+        holdout_prompts_path: Optional[str] = None,
     ) -> None:
         self.cognitive = cognitive_agent
         self.strategist = strategist_agent
@@ -153,6 +162,15 @@ class Orchestrator:
         self.synthesis_interval = max(1, int(synthesis_interval))
         self.force_exploration_interval = max(1, int(force_exploration_interval))
         self.entropy_convergence_threshold = entropy_convergence_threshold
+        self.complexity_prior_lambda = max(0.0, float(complexity_prior_lambda))
+        self.min_interventions_for_convergence = max(1, int(min_interventions_for_convergence))
+        self.min_holdout_size_for_convergence = max(1, int(min_holdout_size_for_convergence))
+        self.min_holdout_accuracy_for_convergence = min(1.0, max(0.0, float(min_holdout_accuracy_for_convergence)))
+        self.max_generalization_gap = min(1.0, max(0.0, float(max_generalization_gap)))
+
+        # Semantic fix 2: External holdout prompts
+        self.holdout_prompts_path = holdout_prompts_path
+        self._holdout_prompts_cache: Optional[List[Tuple[str, int]]] = None
 
         self.phase = OrchestratorPhase.IDLE
         self.iteration = 0
@@ -161,6 +179,7 @@ class Orchestrator:
         # ── Version Space: single source of truth (owned by Orchestrator) ──
         self.version_space = version_space or VersionSpace(
             max_candidates=self.top_k_candidates,
+            complexity_prior_lambda=self.complexity_prior_lambda,
         )
         # All agents reference the same object
         self.strategist._version_space = self.version_space
@@ -392,6 +411,7 @@ class Orchestrator:
                 # predictions but diverge on unseen holdout prompts.
                 if total_interventions >= 3:
                     holdout_result = self.evaluate_on_holdout(holdout_prompts=[])
+                    self._last_holdout_size = holdout_result.get("holdout_size", 0) if holdout_result else 0
                     if holdout_result and holdout_result.get("holdout_size", 0) > 0:
                         best = self.version_space.most_likely()
                         if best is not None:
@@ -414,29 +434,38 @@ class Orchestrator:
                 # ── VS-level entropy recording for convergence detection ──
                 self.version_space.record_entropy()
 
-                # ── Entropy-based convergence check ──
+                # ── Entropy-based convergence check (hardened: Fix 3) ──
                 current_entropy = self._get_current_entropy()
                 if len(self._entropy_history) >= 5 and self.version_space.num_candidates >= 2:
                     recent = self._entropy_history[-5:]
                     if all(e < self.entropy_convergence_threshold for e in recent):
                         best = self.version_space.most_likely()
                         real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
-                        if real_holdout >= 0.65:
-                            converged_by_entropy = True
-                            logger.info(
-                                "Version space entropy below %.3f for 5 cycles "
-                                "(%d candidates, holdout=%.3f); converged by entropy",
-                                self.entropy_convergence_threshold,
-                                self.version_space.num_candidates,
-                                real_holdout,
-                            )
-                            self._emit_vs_telemetry(
-                                "converged_by_entropy",
-                                threshold=self.entropy_convergence_threshold,
-                            )
-                            break
+                        # Fix 3: require minimum intervention count
+                        if total_interventions >= self.min_interventions_for_convergence:
+                            # Fix 3: require minimum holdout size and accuracy
+                            last_holdout = getattr(self, '_last_holdout_size', 0)
+                            if (last_holdout >= self.min_holdout_size_for_convergence
+                                    and real_holdout >= self.min_holdout_accuracy_for_convergence):
+                                gap = abs(getattr(best, "accuracy", 0.0) - real_holdout)
+                                if gap <= self.max_generalization_gap:
+                                    converged_by_entropy = True
+                                    logger.info(
+                                        "Version space entropy below %.3f for 5 cycles "
+                                        "(%d candidates, holdout=%.3f, interventions=%d, "
+                                        "holdout_size=%d, gap=%.3f); converged by entropy",
+                                        self.entropy_convergence_threshold,
+                                        self.version_space.num_candidates,
+                                        real_holdout, total_interventions,
+                                        last_holdout, gap,
+                                    )
+                                    self._emit_vs_telemetry(
+                                        "converged_by_entropy",
+                                        threshold=self.entropy_convergence_threshold,
+                                    )
+                                    break
 
-                # ── Holdout-based convergence check ──
+                # ── Holdout-based convergence check (hardened: Fix 3) ──
                 # Convergence is purely evidence-driven: if the candidate
                 # with the highest posterior also has high accuracy on both
                 # train and holdout with a small generalization gap, it has
@@ -445,16 +474,21 @@ class Orchestrator:
                 best = self.version_space.most_likely()
                 if best is not None:
                     real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
-                    if (real_holdout > 0.0
+                    last_holdout_size = getattr(self, '_last_holdout_size', 0)
+                    if (total_interventions >= self.min_interventions_for_convergence
+                            and last_holdout_size >= self.min_holdout_size_for_convergence
+                            and real_holdout >= self.min_holdout_accuracy_for_convergence
                             and best.accuracy >= self.accuracy_threshold):
                         gap = abs(best.accuracy - real_holdout)
-                        if gap < 0.15:  # generalization gap < 15%
+                        if gap <= self.max_generalization_gap:
                             converged_by_accuracy = True
                             logger.info(
                                 "Best candidate train=%.3f holdout=%.3f gap=%.3f "
-                                "type=%s >= threshold; converged by holdout",
+                                "type=%s interventions=%d holdout_size=%d; "
+                                "converged by holdout",
                                 best.accuracy, real_holdout, gap,
                                 best.predicate_type,
+                                total_interventions, last_holdout_size,
                             )
                             self.session_memory.set_best_program(
                                 self.campaign_id, best.program_id, best.accuracy,
@@ -1107,10 +1141,47 @@ class Orchestrator:
                 entropy_before, entropy_after,
             )
 
+            # FIX: CVC5 exact-match winner override — if CVC5 found
+            # programs with zero errors on the training examples, boost
+            # ALL of them equally to dominate the version space.  This
+            # prevents the pipeline from selecting a spurious program
+            # (e.g. contains_word('instructions')) over the correct one
+            # (contains_word('bomb')) when the Bayesian posterior alone
+            # cannot differentiate equally-accurate programs on small
+            # data.
+            #
+            # We boost ALL exact-match programs collectively (splitting
+            # 0.99 among them) so that the correct keyword program gets
+            # the same boost as any spurious semantic program.  The
+            # holdout set's reweighting then breaks the tie among them.
+            vs = self.version_space
+            exact_match_ids: List[str] = []
+            exact_match_acc = 0.0
+            for prog in (programs or []):
+                prog_id = getattr(prog, "id", "")
+                if not prog_id:
+                    continue
+                metadata = getattr(prog, "metadata", {}) or {}
+                if not metadata.get("exact_match"):
+                    continue
+                cand_idx = vs._find_index(prog_id)
+                if cand_idx is not None and cand_idx < len(vs._posterior):
+                    acc = float(vs._candidates[cand_idx].accuracy or 0.0)
+                    if acc >= 0.999:
+                        exact_match_ids.append(prog_id)
+                        exact_match_acc = max(exact_match_acc, acc)
+            if exact_match_ids:
+                n_boosted = vs.boost_multiple(exact_match_ids, 0.99)
+                logger.info(
+                    "CVC5 exact-match override: boosted %d / %d candidate(s) "
+                    "posterior to 0.99 (exact_match=True, accuracy=%.3f)",
+                    n_boosted, len(exact_match_ids), exact_match_acc,
+                )
+
             # FIX 2: Type diversity survival guarantee — ensure at least
             # 3 candidates of each core predicate type survive pruning.
             vs = self.version_space
-            core_types = {"keyword", "structural", "semantic", "composite"}
+            core_types = {"keyword", "structural", "semantic", "composite", "classifier"}
             type_counts = vs.count_by_predicate_type()
             for ptype in core_types:
                 count = type_counts.get(ptype, 0)
@@ -1211,12 +1282,28 @@ class Orchestrator:
             # Trigger verification of the best candidate
             best = self.version_space.most_likely()
             if best is not None:
-                self.researcher.verify_and_store(
+                verified = self.researcher.verify_and_store(
                     program=best.program,
                     campaign_id=self.campaign_id,
                     victim=self.victim,
                     program_id=best.program_id,
                 )
+                # Semantic fix 1: Boost verified program's posterior immediately
+                if verified:
+                    vs = self.version_space
+                    boosted = vs.boost_candidate(best.program_id, 0.99)
+                    if boosted:
+                        logger.info(
+                            "BOOST_VERIFIED: program_id=%s accuracy=%.3f "
+                            "new_posterior=0.99",
+                            best.program_id,
+                            getattr(best, "accuracy", 0.0),
+                        )
+                    else:
+                        logger.warning(
+                            "BOOST_VERIFIED: failed to boost %s",
+                            best.program_id,
+                        )
         except Exception as exc:
             logger.warning("Synthesis → version space update failed: %s", exc)
 
@@ -1828,12 +1915,19 @@ class Orchestrator:
     def _persist_belief_history(self) -> None:
         """Store belief history in session memory for analysis."""
         try:
+            vs = self.version_space
             self.session_memory.set_metadata(
                 self.campaign_id,
                 {
                     "entropy_history": self._entropy_history,
                     "efe_log": self._efe_log,
                     "total_iterations": self.iteration,
+                    # Fix 4: posterior diagnostics
+                    "belief_history": self._belief_history,
+                    "posterior_history": vs.posterior_history,
+                    "topk_posterior_traces": vs.topk_posterior_traces,
+                    "holdout_accuracy_history": vs.holdout_accuracy_history,
+                    "vs_state": vs.to_dict(),
                 },
             )
         except Exception as exc:
@@ -1843,11 +1937,92 @@ class Orchestrator:
     # Holdout evaluation
     # ------------------------------------------------------------------
 
+    def _stratified_holdout_split(
+        self,
+        episodes: List[Tuple[str, int]],
+        test_size: float = 0.2,
+        min_holdout: int = 3,
+    ) -> Optional[Tuple[List[Tuple[str, int]], List[Tuple[str, int]]]]:
+        """Stratified train/holdout split preserving outcome distribution.
+
+        Ensures both train and holdout contain at least one example of each
+        outcome (ACCEPT=0, REFUSE=1) when possible, preventing degenerate
+        splits where holdout is all REFUSE or all ACCEPT.
+
+        Returns (train, holdout) or None when impossible.
+        """
+        import random as _random
+        refuse = [(p, o) for p, o in episodes if o == 1]
+        accept = [(p, o) for p, o in episodes if o == 0]
+        _random.shuffle(refuse)
+        _random.shuffle(accept)
+
+        n_refuse = len(refuse)
+        n_accept = len(accept)
+
+        # When both outcomes exist, preserve ratio in both splits
+        if n_refuse > 0 and n_accept > 0:
+            def _split_by_outcome(items, n_total):
+                n_test = max(1, int(len(items) * test_size))
+                return items[:n_test], items[n_test:]
+
+            r_test, r_train = _split_by_outcome(refuse, n_refuse)
+            a_test, a_train = _split_by_outcome(accept, n_accept)
+            holdout = r_test + a_test
+            train = r_train + a_train
+            _random.shuffle(holdout)
+            _random.shuffle(train)
+            if len(holdout) < min_holdout:
+                return None
+            return train, holdout
+
+        # Single outcome: random split with coverage warning
+        if len(episodes) >= min_holdout * 3:
+            _random.shuffle(episodes)
+            split = int(len(episodes) * (1.0 - test_size))
+            return episodes[:split], episodes[split:]
+
+        return None
+
+    def _load_holdout_prompts(self) -> List[Tuple[str, int]]:
+        """Load holdout prompts from external CSV if configured."""
+        if not self.holdout_prompts_path:
+            return []
+        if self._holdout_prompts_cache is not None:
+            return self._holdout_prompts_cache
+        try:
+            import csv
+            prompts: List[Tuple[str, int]] = []
+            with open(self.holdout_prompts_path, "r") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    p = row.get("prompt", "").strip()
+                    label_str = row.get("label", "0").strip()
+                    if p:
+                        prompts.append((p, int(label_str)))
+            if prompts:
+                logger.info(
+                    "Loaded %d external holdout prompts from %s",
+                    len(prompts), self.holdout_prompts_path,
+                )
+            self._holdout_prompts_cache = prompts
+            return prompts
+        except Exception as exc:
+            logger.warning("Failed to load holdout prompts from %s: %s",
+                           self.holdout_prompts_path, exc)
+            return []
+
     def evaluate_on_holdout(
         self,
         holdout_prompts: List[Tuple[str, int]],
     ) -> Optional[Dict[str, Any]]:
         """Evaluate ALL candidates on a holdout set to detect overfitting.
+
+        **Fix 2 (Stratified Split)**: Uses ``_stratified_holdout_split``
+        to preserve outcome distribution in train/holdout.
+
+        **Fix 2 (Per-Candidate Logging)**: Logs train accuracy, holdout
+        accuracy, and generalization gap for *every* candidate.
 
         Every candidate in the version space gets ``holdout_accuracy``,
         ``train_accuracy`` and ``generalization_gap`` stored directly on
@@ -1855,7 +2030,8 @@ class Orchestrator:
         ``update_belief()`` always have real holdout data to work with.
 
         If no holdout set is provided, splits available episodes into
-        train/holdout (80/20) and recomputes both accuracies.
+        train/holdout using stratified sampling and recomputes both
+        accuracies.
 
         Returns a dict with aggregated results, or None if insufficient
         data.
@@ -1891,14 +2067,24 @@ class Orchestrator:
                 # Sort holdout by disagreement (descending) to prioritize
                 holdout_prompts = sorted(holdout_prompts, key=lambda x: -holdout_disagreement.get(x[0], 0.0))
 
+        # Semantic fix 2: Use external holdout prompts if configured
+        if not holdout_prompts:
+            external = self._load_holdout_prompts()
+            if external:
+                holdout_prompts = external
+
         if not holdout_prompts:
             episodes = self._fetch_episodes()
             if len(episodes) >= 5:
-                split = int(len(episodes) * 0.8)
-                import random as _random
-                _random.shuffle(episodes)
-                train = episodes[:split]
-                holdout_prompts = episodes[split:]
+                split_result = self._stratified_holdout_split(episodes, test_size=0.2, min_holdout=3)
+                if split_result is not None:
+                    train, holdout_prompts = split_result
+                else:
+                    import random as _random
+                    _random.shuffle(episodes)
+                    split = int(len(episodes) * 0.8)
+                    train = episodes[:split]
+                    holdout_prompts = episodes[split:]
             else:
                 logger.info("Too few episodes (%d) for holdout split", len(episodes))
                 return None
@@ -1910,6 +2096,7 @@ class Orchestrator:
         best_train = 0.0
         best_gap = 0.0
         evaluated_count = 0
+        per_candidate_log: List[Dict[str, Any]] = []
 
         for candidate in self.version_space.candidates:
             try:
@@ -1923,6 +2110,15 @@ class Orchestrator:
                 candidate.holdout_accuracy = hold_acc
                 candidate.train_accuracy = train_acc
                 candidate.generalization_gap = gap
+
+                per_candidate_log.append({
+                    "program_id": candidate.program_id,
+                    "predicate_type": candidate.predicate_type,
+                    "complexity": candidate.complexity,
+                    "train_acc": round(train_acc, 4),
+                    "holdout_acc": round(hold_acc, 4),
+                    "gap": round(gap, 4),
+                })
 
                 if hold_acc > best_holdout:
                     best_holdout = hold_acc
@@ -1938,12 +2134,20 @@ class Orchestrator:
         if best_id is None:
             return None
 
+        # Log per-candidate details
+        log_lines = [
+            f"  {c['program_id'][:12]} type={c['predicate_type']} "
+            f"train={c['train_acc']:.3f} hold={c['holdout_acc']:.3f} "
+            f"gap={c['gap']:.3f} complex={c['complexity']}"
+            for c in per_candidate_log[:20]
+        ]
         logger.info(
             "Holdout evaluation: evaluated %d/%d candidates, "
-            "best=%s train=%.3f holdout=%.3f gap=%.3f (holdout_n=%d)",
+            "best=%s train=%.3f holdout=%.3f gap=%.3f (holdout_n=%d)\n%s",
             evaluated_count, len(self.version_space.candidates),
             best_id, best_train, best_holdout, best_gap,
             len(holdout_prompts),
+            "\n".join(log_lines),
         )
 
         return {
@@ -1953,6 +2157,7 @@ class Orchestrator:
             "generalization_gap": best_gap,
             "holdout_size": len(holdout_prompts),
             "evaluated_count": evaluated_count,
+            "per_candidate": per_candidate_log,
         }
 
     # ------------------------------------------------------------------

@@ -47,6 +47,55 @@ logging.basicConfig(
 )
 logger = logging.getLogger("police_validation")
 
+# Will be set up when --log-file is provided
+_semantic_logger: Optional[logging.Logger] = None
+
+
+def setup_semantic_log(log_path: str) -> logging.Logger:
+    """Add a file handler that logs every episode's semantic features."""
+    global _semantic_logger
+    if _semantic_logger is not None:
+        return _semantic_logger
+    _semantic_logger = logging.getLogger("semantic_features")
+    _semantic_logger.setLevel(logging.INFO)
+    _semantic_logger.handlers.clear()
+    fh = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(logging.Formatter(
+        "%(asctime)s | %(message)s"
+    ))
+    _semantic_logger.addHandler(fh)
+    # Write header
+    _semantic_logger.info(
+        "timestamp|episode_id|campaign_id|prompt|instruction_score|"
+        "semantic_prediction|ground_truth|label"
+    )
+    logger.info("Semantic feature log -> %s", log_path)
+    return _semantic_logger
+
+
+def log_episode_semantics(ep: "Episode") -> None:
+    """Log one row of semantic features for an episode."""
+    if _semantic_logger is None:
+        return
+    try:
+        prompt = (ep.intervention.final_prompt or ep.intervention.prompt)[:120]
+        score = ep.annotations.get("instruction_score", -1)
+        pred = ep.annotations.get("semantic_prediction", -1)
+        gt = ep.annotations.get("ground_truth", -1)
+        label = "correct" if pred == gt else "WRONG"
+        _semantic_logger.info(
+            "%s|%s|%s|%s|%s|%s|%s|%s",
+            datetime.now().isoformat(),
+            ep.episode_id,
+            ep.campaign_id,
+            prompt.replace("|", "/"),
+            score, pred, gt, label,
+        )
+    except Exception as exc:
+        logger.debug("Failed to log episode semantics: %s", exc)
+
+
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -304,10 +353,15 @@ def run_experiment(
     benign_csv: str,
     config_path: str,
     exp_name: str,
+    log_file: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run the pipeline with patched tracking and return candidate snapshots."""
     global _tracker
     _tracker = CandidateTracker()
+
+    # Set up file logging if requested
+    if log_file:
+        setup_semantic_log(log_file)
 
     # Set up environment
     os.environ["HARMFUL_CSV"] = str(Path(harmful_csv).resolve())
@@ -358,6 +412,37 @@ def run_experiment(
 
     tracker = get_tracker()
 
+    # Log semantic features for all episodes created during this experiment
+    if _semantic_logger is not None:
+        try:
+            from knowledge.episodic.episodic import EpisodeFilter, EpisodicMemory
+            from core.primitive import default_registry as _reg
+            _scorer = _reg.get("instruction_score")
+            # Determine episodic DB path from campaign_id (which is in the result)
+            camp_id = (result or {}).get("campaign_id", "")
+            exp_dir = Path(__file__).resolve().parent.parent / "llama3_1_8b"
+            db_path = str(exp_dir / f"{camp_id}_episodic.db") if camp_id else ""
+            ep_mem = EpisodicMemory(db_path=db_path) if db_path and Path(db_path).exists() else EpisodicMemory()
+            count = 0
+            for ep in ep_mem.filter_episodes(EpisodeFilter()):
+                # Backfill instruction_score for episodes that lack it (e.g. seeds)
+                if "instruction_score" not in ep.annotations:
+                    prompt = ep.intervention.final_prompt or ep.intervention.prompt
+                    try:
+                        score = float(_scorer.evaluate(prompt))
+                        ep.annotations["instruction_score"] = round(score, 4)
+                        ep.annotations["semantic_prediction"] = int(score > 0.5)
+                        ep.annotations["ground_truth"] = int(ep.outcome)
+                        ep_mem.save_episode(ep)
+                    except Exception:
+                        pass
+                log_episode_semantics(ep)
+                count += 1
+            logger.info("Semantic features logged to %s (%d episodes)", log_file, count)
+            ep_mem.close()
+        except Exception as exc:
+            logger.warning("Could not log episode semantics: %s", exc)
+
     # Save snapshots
     exp_results = {
         "experiment": exp_name,
@@ -401,6 +486,8 @@ def main():
                         help="Generate holdout prompts and exit")
     parser.add_argument("--num-seeds", type=int, default=30,
                         help="Number of seed prompts (applies only if config lacks num_seeds)")
+    parser.add_argument("--log-file", type=str, default=None,
+                        help="Path to write semantic feature log (e.g. semantic.log)")
     args = parser.parse_args()
 
     base_dir = Path(__file__).resolve().parent
@@ -412,12 +499,15 @@ def main():
         generate_holdout_prompts(holdout_path, n=40)
         return
 
+    log_file = str(Path(args.log_file).resolve()) if args.log_file else None
+
     if args.exp in ("structural", "both"):
         run_experiment(
             harmful_csv=str(project_root / "llama3_1_8b" / "harmful_structural.csv"),
             benign_csv=str(base_dir / "benign_prompts.csv"),
             config_path=args.config,
             exp_name="structural",
+            log_file=log_file,
         )
 
     if args.exp in ("semantic", "both"):
@@ -426,6 +516,7 @@ def main():
             benign_csv=str(base_dir / "benign_semantic.csv"),
             config_path=args.config,
             exp_name="semantic",
+            log_file=log_file,
         )
 
     if args.exp == "adversarial":
@@ -435,6 +526,7 @@ def main():
             benign_csv=str(base_dir / "benign_prompts.csv"),
             config_path=args.config,
             exp_name="adversarial",
+            log_file=log_file,
         )
 
         # Generate holdout and run evaluation

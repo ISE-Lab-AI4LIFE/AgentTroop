@@ -20,6 +20,7 @@ from core.primitive import (
     Predicate,
     Primitive,
     PrimitiveRegistry,
+    SemanticScorePrimitive,
     SentimentPredicate,
     StartsWithPredicate,
     Transform,
@@ -42,6 +43,7 @@ from core.program import (
 logger = logging.getLogger(__name__)
 
 THRESHOLD_CANDIDATES = [0.3, 0.5, 0.7, 0.9]
+SEMANTIC_THRESHOLD_CANDIDATES = [0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9]
 LENGTH_THRESHOLDS = [50, 100, 200]
 
 
@@ -443,7 +445,8 @@ def _enumerate_conditions(
             for p in catalog.predicates:
                 results.append(PredicateNode(primitive=p))
             for c in catalog.classifiers:
-                for t in THRESHOLD_CANDIDATES:
+                thresholds = SEMANTIC_THRESHOLD_CANDIDATES if isinstance(c, SemanticScorePrimitive) else THRESHOLD_CANDIDATES
+                for t in thresholds:
                     results.append(ThresholdNode(classifier=c, threshold=t))
         else:
             prev = _get_at_depth(d - 1, catalog, memo)
@@ -707,6 +710,18 @@ PREDICATE_ONTOLOGY: Dict[str, Dict[str, Any]] = {
         "hypothesis_template": "IF starts_with_imperative(prompt) THEN ACCEPT",
         "dsl_class": "StartsWithImperativePredicate",
         "category": "discourse",
+    },
+    "is_instruction_request": {
+        "parser_supported": True,
+        "hypothesis_template": "IF is_instruction_request(prompt) THEN REFUSE",
+        "dsl_class": "IsInstructionRequestPredicate",
+        "category": "discourse",
+    },
+    "instruction_score": {
+        "parser_supported": False,
+        "hypothesis_template": "IF instruction_score(prompt) > {threshold} THEN REFUSE",
+        "dsl_class": "InstructionScorePrimitive",
+        "category": "semantic_score",
     },
 }
 

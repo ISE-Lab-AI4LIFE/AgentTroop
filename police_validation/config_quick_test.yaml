@@ -8,6 +8,7 @@ orchestrator:
   synthesis_interval: 3
   force_exploration_interval: 2
   entropy_convergence_threshold: 0.1
+  holdout_prompts_path: "police_validation/holdout_prompts.csv"
 cognitive:
   anomaly_threshold: 0.1
   llm_model: "gemma"

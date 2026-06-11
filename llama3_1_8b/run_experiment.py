@@ -395,6 +395,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         force_exploration_interval=cfg.get("force_exploration_interval", 3),
         top_k_candidates=res_cfg.get("top_k_candidates", 30),
         seed_telemetry=seed_telemetry,
+        holdout_prompts_path=cfg.get("holdout_prompts_path", None),
     )
 
     # ── Run ──

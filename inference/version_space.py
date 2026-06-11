@@ -53,7 +53,13 @@ def _classify_program(program: Program) -> str:
     if isinstance(node, (AndNode, OrNode, NotNode)):
         return "composite"
     if isinstance(node, ThresholdNode):
-        return "classifier"
+        ret = "classifier"
+        classifier = getattr(node, "classifier", None)
+        if classifier is not None:
+            cname = classifier.name if hasattr(classifier, "name") else ""
+            if cname in {"instruction_score", "semantic_score"}:
+                ret = "semantic_score"
+        return ret
     if isinstance(node, PredicateNode):
         name = node.primitive.name if hasattr(node.primitive, "name") else ""
         keyword_preds = {"contains_word", "contains_any_word", "contains_all_words",
@@ -67,7 +73,8 @@ def _classify_program(program: Program) -> str:
                            "contains_encoding_wrapper"}
         semantic_preds = {"starts_with_roleplay", "starts_with_imperative",
                           "is_grammatical_question", "sentiment", "intent",
-                          "contains_leet"}
+                          "contains_leet", "instruction_score"}
+        discourse_preds = {"is_instruction_request"}
         if name in keyword_preds:
             return "keyword"
         if name in structural_preds:
@@ -76,6 +83,8 @@ def _classify_program(program: Program) -> str:
             return "jailbreak"
         if name in semantic_preds:
             return "semantic"
+        if name in discourse_preds:
+            return "discourse"
         return "unknown"
     return "unknown"
 
@@ -159,6 +168,9 @@ class VersionSpace:
         Initialize belief uniformly (default True).
     noise_level : float
         Soft likelihood noise tolerance (default 0.1).
+    complexity_prior_lambda : float
+        Occam factor coefficient: posterior ∝ likelihood × exp(-λ · complexity).
+        Set to 0 to disable (preserves legacy behaviour).  Default 0.01.
     """
 
     def __init__(
@@ -166,11 +178,13 @@ class VersionSpace:
         max_candidates: int = 50,
         uniform_init: bool = True,
         noise_level: float = _DEFAULT_NOISE_LEVEL,
+        complexity_prior_lambda: float = 0.01,
     ) -> None:
         self._candidates: List[CandidateProgram] = []
         self._max_candidates = max(2, int(max_candidates))
         self._uniform_init = uniform_init
         self._noise_level = max(0.0, min(0.49, float(noise_level)))
+        self._complexity_prior_lambda = max(0.0, float(complexity_prior_lambda))
         self._belief_dirty = True
         self._posterior: np.ndarray = np.array([], dtype=np.float64)
         self._entropy_history: List[float] = []
@@ -179,6 +193,9 @@ class VersionSpace:
         self._prune_count: int = 0
         self._synthesis_count: int = 0
         self._holdout_accuracy_history: List[float] = []
+        # Fix 4: posterior history for diagnostics
+        self._posterior_history: List[np.ndarray] = []
+        self._topk_posterior_traces: Dict[str, List[float]] = {}
         self._survival_by_source: Dict[str, int] = {}
         self._survival_by_predicate_type: Dict[str, int] = {}
         self._total_by_source: Dict[str, int] = {}
@@ -476,6 +493,9 @@ class VersionSpace:
         **Fix P8**: Uses soft likelihood ``P(o | program, I)`` with
         configurable ``noise_level`` instead of deterministic 1.0/1e-12.
 
+        **Fix Occam**: Applies a complexity-aware prior so that among
+        programs with equal likelihood, the simpler one is preferred.
+
         Parameters
         ----------
         prompt : str
@@ -498,10 +518,14 @@ class VersionSpace:
         nl = self._noise_level if noise_level is None else max(0.0, min(0.49, float(noise_level)))
         log_posterior = np.log(np.clip(self._posterior, 1e-12, 1.0))
 
+        lm = self._complexity_prior_lambda
         for i, c in enumerate(self._candidates):
             pred = predict_fn(c.program, prompt)
             likelihood = (1.0 - nl) if pred == observed_outcome else nl
             log_posterior[i] += np.log(max(likelihood, 1e-12))
+            # Occam factor: penalise complexity each update so it never washes out
+            if lm > 0.0 and c.complexity > 0:
+                log_posterior[i] -= lm * c.complexity
 
         log_posterior -= np.max(log_posterior)
         self._posterior = np.exp(log_posterior)
@@ -516,6 +540,14 @@ class VersionSpace:
         self._info_gains.append(info_gain)
         self._update_count += 1
         self._belief_dirty = False
+        # Fix 4: record posterior snapshot for diagnostics
+        self._posterior_history.append(self._posterior.copy())
+        best = self.most_likely()
+        if best is not None:
+            pid = best.program_id
+            if pid not in self._topk_posterior_traces:
+                self._topk_posterior_traces[pid] = []
+            self._topk_posterior_traces[pid].append(float(self._posterior[self._find_index(pid)]))
         return self._posterior
 
     @property
@@ -557,6 +589,39 @@ class VersionSpace:
         if best is not None:
             best.holdout_accuracy = holdout_accuracy
             self._holdout_accuracy_history.append(holdout_accuracy)
+
+    def boost_candidate(self, program_id: str, posterior_value: float = 0.99) -> bool:
+        idx = self._find_index(program_id)
+        if idx is None or self.num_candidates == 0:
+            return False
+        n = len(self._posterior)
+        remainder = 1.0 - posterior_value
+        per_other = remainder / max(n - 1, 1)
+        for i in range(n):
+            self._posterior[i] = posterior_value if i == idx else per_other
+        self._normalise()
+        self._belief_dirty = False
+        return True
+
+    def boost_multiple(self, program_ids: List[str], total_mass: float = 0.99) -> int:
+        """Boost several candidates equally, distributing ``total_mass``
+        among them.  The remaining ``1 - total_mass`` is split among all
+        other candidates.  Returns the number of candidates boosted."""
+        idxs = [self._find_index(pid) for pid in program_ids]
+        idxs = [i for i in idxs if i is not None]
+        if not idxs or self.num_candidates == 0:
+            return 0
+        n = len(self._posterior)
+        n_boosted = len(idxs)
+        per_boosted = total_mass / n_boosted
+        other_mass = 1.0 - total_mass
+        n_other = max(n - n_boosted, 1)
+        per_other = other_mass / n_other
+        for i in range(n):
+            self._posterior[i] = per_boosted if i in idxs else per_other
+        self._normalise()
+        self._belief_dirty = False
+        return n_boosted
 
     # ------------------------------------------------------------------
     # Disagreement analysis
@@ -912,6 +977,11 @@ class VersionSpace:
             "posterior_by_predicate_type": self.posterior_by_predicate_type(),
             "survival_rate_by_predicate_type": self.survival_rate_by_predicate_type(),
             "predicate_type_lifetime_stats": self.predicate_type_lifetime_stats(),
+            # Fix 4: posterior diagnostics
+            "entropy_history": self.entropy_history,
+            "holdout_accuracy_history": self.holdout_accuracy_history,
+            "posterior_history": self.posterior_history,
+            "topk_posterior_traces": self.topk_posterior_traces,
             "candidates": [
                 {
                     "program_id": c.program_id,
@@ -937,3 +1007,16 @@ class VersionSpace:
     @property
     def entropy_history(self) -> List[float]:
         return list(self._entropy_history)
+
+    # Fix 4: posterior diagnostics
+    @property
+    def posterior_history(self) -> List[List[float]]:
+        return [p.tolist() for p in self._posterior_history]
+
+    @property
+    def topk_posterior_traces(self) -> Dict[str, List[float]]:
+        return dict(self._topk_posterior_traces)
+
+    @property
+    def holdout_accuracy_history(self) -> List[float]:
+        return list(self._holdout_accuracy_history)

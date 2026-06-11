@@ -395,8 +395,13 @@ class ScientificMemory:
         self,
         conditions: Optional[Dict[str, Any]] = None,
         min_confidence: float = 0.0,
+        target_model: Optional[str] = None,
     ) -> List[Theory]:
         """Find theories matching conditions and minimum confidence.
+
+        Fix 6B: Added optional ``target_model`` parameter for backward
+        compatibility with callers that pass ``target_model`` as a
+        keyword argument.
 
         Filtering is performed at the Cypher level using dynamic
         properties, so it is efficient even with thousands of theories.
@@ -411,6 +416,10 @@ class ScientificMemory:
                 param_key = f"cond_{safe_key}"
                 where_parts.append(f"t.`{safe_key}` = ${param_key}")
                 params[param_key] = value
+
+        if target_model is not None:
+            where_parts.append("t.target_model = $target_model")
+            params["target_model"] = target_model
 
         cond_clause = (
             f"AND {' AND '.join(where_parts)}" if where_parts else ""

@@ -21,7 +21,7 @@ from .types import Prompt
 logger = logging.getLogger(__name__)
 
 PrimitiveParameters = Dict[str, Any]
-PrimitiveType = Literal["Boolean", "Numeric", "String", "TransformResult", "ClassifierScore"]
+PrimitiveType = Literal["Boolean", "Numeric", "String", "TransformResult", "ClassifierScore", "SemanticScore"]
 
 
 class Primitive(abc.ABC):
@@ -93,6 +93,31 @@ class Transform(Primitive):
 class Classifier(Primitive):
     def evaluate(self, prompt: Prompt) -> float:
         return 0.0
+
+
+class SemanticScorePrimitive(Classifier):
+    """Base class for semantic score primitives.
+
+    Subclasses Classifier for backward compatibility (ThresholdNode,
+    GrammarExporter, and CVC5 enumeration all work with Classifier).
+    The semantic distinction is:
+      - Classifier → statistical / opaque score (e.g. toxicity, sentiment)
+      - SemanticScorePrimitive → deterministic, explainable, degrades
+        gracefully under obfuscation
+
+    Returns a score in [0, 1] representing confidence that a semantic
+    concept applies to the prompt.
+
+    The score is interpreted as:
+        1.0 — concept definitely applies
+        0.0 — concept definitely does not apply
+        0.5 — uncertain
+    """
+
+    def explain(self, prompt: Prompt) -> Dict[str, Any]:
+        """Return a dict explaining why this score was produced.
+        Subclasses should override to provide interpretable output."""
+        return {"score": self.evaluate(prompt), "reason": "default"}
 
 
 class PrimitiveRegistry:
@@ -1701,6 +1726,211 @@ class StartsWithImperativePredicate(Predicate):
         return words[0] in imperative_verbs
 
 
+@dataclass
+class IsInstructionRequestPredicate(Predicate):
+    """Check whether the prompt is requesting instructions or actions,
+    as opposed to requesting information or discussing abstract topics.
+
+    This bridges the semantic gap where harmful and benign prompts share
+    the same vocabulary but differ in intent (instruction vs. information).
+    Uses pattern matching against common instruction-request phrases.
+    """
+
+    def __post_init__(self) -> None:
+        self.name = "is_instruction_request"
+        self.parameters: Dict[str, Any] = {}
+        self.input_type = "String"
+        self.output_type = "Boolean"
+        self.metadata = {
+            "description": "Check if the prompt requests instructions or actions.",
+            "category": "discourse",
+            "related_primitives": ["starts_with_imperative", "is_grammatical_question"],
+        }
+
+    _INSTRUCTION_PATTERNS: ClassVar[List[str]] = [
+        "instructions for",
+        "instructions on",
+        "step-by-step guide",
+        "step by step",
+        "how to make",
+        "how to build",
+        "how to create",
+        "how to fabricate",
+        "how to synthesize",
+        "how to manufacture",
+        "a recipe for",
+        "a manual for",
+        "a guide for",
+        "a guide to",
+        "a protocol for",
+        "a plan for",
+        "walk me through",
+        "tell me how to",
+        "teach me how",
+        "provide steps",
+        "provide a step-by-step",
+        "methods for",
+        "ways to",
+        "techniques for",
+        "process for",
+        "instructions to",
+        "explain the process",
+    ]
+
+    def evaluate(self, prompt: Prompt) -> bool:
+        lower = prompt.lower()
+        return any(pat in lower for pat in self._INSTRUCTION_PATTERNS)
+
+
+# ------------------------------------------------------------------
+# Semantic Score Primitives
+# ------------------------------------------------------------------
+
+
+_INSTRUCTION_PATTERNS: ClassVar[List[str]] = [
+    "instructions for", "instructions on",
+    "step-by-step guide", "step by step",
+    "how to make", "how to build", "how to create",
+    "how to fabricate", "how to synthesize", "how to manufacture",
+    "a recipe for", "a manual for",
+    "a guide for", "a guide to",
+    "a protocol for", "a plan for",
+    "walk me through", "tell me how to",
+    "teach me how", "provide steps",
+    "provide a step-by-step", "methods for",
+    "ways to", "techniques for",
+    "process for", "instructions to",
+    "explain the process",
+    "how do i", "how can i",
+]
+
+
+def _de_rot13(text: str) -> str:
+    """Rot13 decode.  Returns decoded text without validation check."""
+    result = []
+    for ch in text:
+        if "a" <= ch <= "z":
+            result.append(chr((ord(ch) - ord("a") + 13) % 26 + ord("a")))
+        elif "A" <= ch <= "Z":
+            result.append(chr((ord(ch) - ord("A") + 13) % 26 + ord("A")))
+        else:
+            result.append(ch)
+    return "".join(result)
+
+
+def _looks_like_rot13(text: str) -> bool:
+    """Heuristic: if >50% of alphabetic chars decode to common English letters."""
+    decoded = _de_rot13(text.lower())
+    common = set("etaoinshrdlu")
+    letter_chars = [c for c in decoded if c.isalpha()]
+    if not letter_chars:
+        return False
+    common_ratio = sum(1 for c in letter_chars if c in common) / len(letter_chars)
+    return common_ratio > 0.4
+
+
+def _normalize_leet(text: str) -> str:
+    """Convert common leet substitutions back to letters."""
+    LEET_MAP = str.maketrans({
+        "0": "o", "1": "l", "2": "z", "3": "e", "4": "a",
+        "5": "s", "6": "g", "7": "t", "8": "b", "9": "g",
+    })
+    return text.translate(LEET_MAP)
+
+
+def _count_pattern_matches(text: str, patterns: List[str]) -> int:
+    """Count how many patterns match in text (case-insensitive)."""
+    lower = text.lower()
+    return sum(1 for pat in patterns if pat in lower)
+
+
+@dataclass
+class InstructionScorePrimitive(SemanticScorePrimitive):
+    """Score how likely a prompt is requesting instructions/actions.
+
+    Returns a float in [0, 1] with:
+        0.95+  — clear instruction request in plain text
+        0.7–0.9 — instruction request detected under mild obfuscation
+        0.4–0.6 — weak or partial signal
+        0.1–0.3 — possible but not likely
+        0.0     — clearly not an instruction request
+
+    Gracefully degrades under rot13, leet, unicode, markdown, roleplay.
+    """
+
+    def __post_init__(self) -> None:
+        self.name = "instruction_score"
+        self.parameters: Dict[str, Any] = {}
+        self.input_type = "String"
+        self.output_type = "SemanticScore"
+        self.metadata = {
+            "description": "Score [0,1] indicating confidence that prompt requests instructions.",
+            "category": "semantic_score",
+            "related_primitives": ["is_instruction_request"],
+        }
+
+    def evaluate(self, prompt: Prompt) -> float:
+        return self._compute_score(str(prompt))
+
+    def _compute_score(self, text: str) -> float:
+        """Compute instruction-request score with de-obfuscation recovery."""
+        patterns = _INSTRUCTION_PATTERNS
+
+        # 1. Plain text score
+        plain_matches = _count_pattern_matches(text, patterns)
+        plain_score = min(1.0, plain_matches / 2.0)
+
+        if plain_score >= 0.5:
+            # Clear match — early exit with high confidence
+            return 0.95 + 0.05 * min(1.0, (plain_matches - 1) / 3.0)
+
+        # 2. Try rot13 decoding
+        if _looks_like_rot13(text):
+            decoded = _de_rot13(text)
+            rot13_matches = _count_pattern_matches(decoded, patterns)
+            if rot13_matches > 0:
+                return min(0.85, 0.5 + rot13_matches * 0.15)
+
+        # 3. Try leet normalization
+        leet_normalized = _normalize_leet(text)
+        leet_matches = _count_pattern_matches(leet_normalized, patterns)
+        if leet_matches > 0:
+            return min(0.80, 0.4 + leet_matches * 0.15)
+
+        # 4. Try base64 decode (etect by looking for typical base64 patterns)
+        try:
+            stripped = text.strip()
+            # Detect base64: long alphanumeric with typical padding
+            if len(stripped) > 20 and stripped[-1] == "=" and all(c in string.ascii_letters + string.digits + "+/=" for c in stripped):
+                decoded_bytes = base64.b64decode(stripped)
+                decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
+                b64_matches = _count_pattern_matches(decoded_str, patterns)
+                if b64_matches > 0:
+                    return min(0.75, 0.3 + b64_matches * 0.15)
+        except Exception:
+            pass
+
+        # 5. Check for individual strong signal words even without full phrase
+        signal_words = {"instructions", "step-by-step", "guide", "manual", "recipe", "protocol"}
+        word_matches = sum(1 for w in signal_words if w in text.lower().split())
+        if word_matches > 0:
+            return 0.3 + word_matches * 0.15
+
+        # 6. No signal found
+        return 0.0
+
+    def explain(self, prompt: Prompt) -> Dict[str, Any]:
+        score = self.evaluate(prompt)
+        patterns = _INSTRUCTION_PATTERNS
+        matches = [pat for pat in patterns if pat in prompt.lower()]
+        return {
+            "score": score,
+            "matches": matches,
+            "is_obfuscated": _looks_like_rot13(prompt),
+            "reason": f"{len(matches)} pattern(s) matched" if matches else "no instruction patterns detected",
+        }
+
+
 # ------------------------------------------------------------------
 # Classifiers
 # ------------------------------------------------------------------
@@ -2589,6 +2819,8 @@ def _register_default_primitives() -> PrimitiveRegistry:
     # Discourse predicates (FLAW-6)
     registry.register(IsGrammaticalQuestionPredicate)
     registry.register(StartsWithImperativePredicate)
+    registry.register(IsInstructionRequestPredicate)
+    registry.register(InstructionScorePrimitive)
 
     # Transforms (38)
     registry.register(Rot13Transform)

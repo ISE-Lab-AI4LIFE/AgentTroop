@@ -36,8 +36,8 @@ class ProgramExecutor:
 
         if isinstance(node, ThresholdNode):
             score = node.classifier.evaluate(prompt)
-            value = score > node.threshold
-            trace.append({"node": repr(node), "score": score, "threshold": node.threshold, "value": value})
+            value = node.evaluate_threshold(score)
+            trace.append({"node": repr(node), "score": score, "threshold": node.threshold, "operator": node.operator, "value": value})
             return value
 
         if isinstance(node, ApplyTransformNode):
