@@ -1,8 +1,8 @@
 {
-  "total_iterations": 0,
-  "total_interventions": 0,
-  "best_accuracy": 0.0,
-  "best_program_id": null,
-  "success": false,
-  "error": "No hypotheses generated from anomalies"
+  "total_iterations": 8,
+  "total_interventions": 8,
+  "best_accuracy": 0.75,
+  "best_program_id": "prog_1781280271877627_33ec",
+  "success": true,
+  "error": null
 }

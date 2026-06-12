@@ -174,15 +174,25 @@ class SurrogatePolicyModel:
                     n_iter_no_change=10,
                 )
 
-            # Compute sample weights for balanced training (class_weight replacement)
-            unique, counts = np.unique(labels, return_counts=True)
-            if len(unique) == 2:
-                n_total = len(labels)
-                weights = np.where(labels == 1, n_total / (2 * counts[1]), n_total / (2 * counts[0]))
+            # Balance classes via resampling (compatible with sklearn 2.x)
+            refuse_idx = np.where(labels == 1)[0]
+            accept_idx = np.where(labels == 0)[0]
+            n_refuse = len(refuse_idx)
+            n_accept = len(accept_idx)
+            if n_refuse > 0 and n_accept > 0 and n_refuse != n_accept:
+                minority = refuse_idx if n_refuse < n_accept else accept_idx
+                majority = accept_idx if n_refuse < n_accept else refuse_idx
+                n_minority = len(minority)
+                n_majority = len(majority)
+                resampled_minority = np.random.choice(minority, size=n_majority, replace=True)
+                balanced_idx = np.concatenate([majority, resampled_minority])
+                np.random.shuffle(balanced_idx)
+                X_bal = X_scaled[balanced_idx]
+                y_bal = labels[balanced_idx]
             else:
-                weights = np.ones(len(labels))
+                X_bal, y_bal = X_scaled, labels
 
-            self._sklearn_model.fit(X_scaled, labels, sample_weight=weights)
+            self._sklearn_model.fit(X_bal, y_bal)
             self._is_trained = True
 
             train_preds = self._sklearn_model.predict(X_scaled)

@@ -119,7 +119,11 @@ class CausalGraph:
         self.password = password
         self.database = database
         self._driver: Optional[Any] = None
+        self._cumulative_outcomes: Dict[str, Dict[str, List[int]]] = {}
         self._ensure_constraints()
+
+    def _cum_key(self, source_name: str, target_name: str) -> str:
+        return f"{source_name}||{target_name}"
 
     def _get_driver(self) -> Any:
         if self._driver is None:
@@ -544,6 +548,11 @@ class CausalGraph:
         Simulates do(X=x) by recording outcomes under two conditions
         (X=x0 and X=x1), then computing the causal strength and p-value.
 
+        Accumulates all outcomes across repeated interventions for the same
+        (source, target) pair so that the Bayesian/Fisher test gains power
+        as more data arrives (fix: each individual intervention had too few
+        samples to ever reach p <= 0.05).
+
         Parameters
         ----------
         intervention_id : str
@@ -601,23 +610,35 @@ class CausalGraph:
         source_id = self.get_or_create_node(source_name, "primitive")
         target_id = self.get_or_create_node(target_name, "primitive")
 
-        if use_bayesian and _HAS_BAYES:
-            p_value = self._compute_bayesian_p_value(outcomes_do_x0, outcomes_do_x1)
+        # Accumulate outcomes across repeated interventions for the same edge.
+        # Each individual intervention has too few samples for statistical power;
+        # only by pooling all trials can we reliably detect causation.
+        ck = self._cum_key(source_name, target_name)
+        if ck in self._cumulative_outcomes:
+            prev = self._cumulative_outcomes[ck]
+            prev["x0"].extend(outcomes_do_x0)
+            prev["x1"].extend(outcomes_do_x1)
+            cum_x0 = prev["x0"]
+            cum_x1 = prev["x1"]
         else:
-            p_value = self._compute_fisher_p_value(outcomes_do_x0, outcomes_do_x1)
-        strength = self._compute_causal_strength(outcomes_do_x0, outcomes_do_x1)
+            cum_x0 = list(outcomes_do_x0)
+            cum_x1 = list(outcomes_do_x1)
+            self._cumulative_outcomes[ck] = {"x0": cum_x0, "x1": cum_x1}
 
-        total_trials = len(outcomes_do_x0) + len(outcomes_do_x1)
+        if use_bayesian and _HAS_BAYES:
+            p_value = self._compute_bayesian_p_value(cum_x0, cum_x1)
+        else:
+            p_value = self._compute_fisher_p_value(cum_x0, cum_x1)
+        strength = self._compute_causal_strength(cum_x0, cum_x1)
 
-        existing_edge = self.get_edge(source_id, target_id)
+        total_trials = len(cum_x0) + len(cum_x1)
+
         base_iids: List[str] = [intervention_id]
 
         if existing_edge is not None:
             base_iids = list(
                 set(existing_edge.intervention_ids + base_iids)
             )
-            strength = max(strength, existing_edge.strength)
-            p_value = min(p_value, existing_edge.p_value)
 
         edge_added = False
         try:
@@ -631,8 +652,10 @@ class CausalGraph:
             )
         except ValueError as exc:
             logger.warning(
-                "Edge not added for do(%s): %s",
-                intervention_id, exc,
+                "Edge not added for do(%s): p=%.4f > %.2f (%s). "
+                "Accumulated %d trials (cum_x0=%d cum_x1=%d) — need more data.",
+                intervention_id, p_value, _P_VALUE_THRESHOLD, exc,
+                total_trials, len(cum_x0), len(cum_x1),
             )
 
         return {
@@ -642,6 +665,7 @@ class CausalGraph:
             "ready": True,
             "source_id": source_id,
             "target_id": target_id,
+            "cumulative_trials": total_trials,
         }
 
     @staticmethod
@@ -694,9 +718,9 @@ class CausalGraph:
 
         # Monte Carlo: sample from Beta posteriors
         n_samples = 10000
-        np.random.seed(42)
-        samples_x0 = np.random.beta(a_x0, b_x0, n_samples)
-        samples_x1 = np.random.beta(a_x1, b_x1, n_samples)
+        rng = np.random.default_rng()
+        samples_x0 = rng.beta(a_x0, b_x0, n_samples)
+        samples_x1 = rng.beta(a_x1, b_x1, n_samples)
 
         # P(p_x0 > p_x1)
         prob_x0_gt_x1 = np.mean(samples_x0 > samples_x1)

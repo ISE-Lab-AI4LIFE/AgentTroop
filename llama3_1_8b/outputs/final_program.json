@@ -1,20 +1,20 @@
 {
-  "id": "prog_1781275872181016_4225",
-  "name": "prog_1781275872181016_4225",
-  "version": 4,
+  "id": "prog_1781280271877627_33ec",
+  "name": "prog_1781280271877627_33ec",
+  "version": 2,
   "confidence": 0.92,
   "provenance": [
-    "llama31_8b_20260612_213618"
+    "llama31_8b_20260612_224405"
   ],
-  "created_at": 1781276136.461248,
-  "updated_at": 1781276368.225877,
+  "created_at": 1781280426.524182,
+  "updated_at": 1781280495.605288,
   "metadata": {
     "status": "verified"
   },
   "program": {
-    "id": "prog_1781275872181016_4225",
+    "id": "prog_1781280271877627_33ec",
     "version_id": "1.0",
-    "created_at": 1781276375.019711,
+    "created_at": 1781280512.301582,
     "deprecated_at": null,
     "metadata": {},
     "root": {
@@ -22,27 +22,23 @@
       "condition": {
         "type": "PredicateNode",
         "primitive": {
-          "name": "contains_any_word",
+          "name": "contains_word",
           "parameters": {
-            "words": [
-              "you",
-              "they",
-              "generate"
-            ],
+            "word": "code",
             "case_sensitive": false
           },
-          "type": "ContainsAnyWordPredicate",
+          "type": "ContainsWordPredicate",
           "input_type": "String",
           "output_type": "Boolean",
           "version_id": "1.0",
           "created_at": 0.0,
           "deprecated_at": null,
           "metadata": {
-            "description": "Check whether a prompt contains at least one word from a list.",
+            "description": "Check whether a prompt includes a specific word.",
             "category": "predicate",
             "related_primitives": [
-              "contains_word",
-              "contains_all_words"
+              "contains_any_word",
+              "matches_regex"
             ]
           }
         }
