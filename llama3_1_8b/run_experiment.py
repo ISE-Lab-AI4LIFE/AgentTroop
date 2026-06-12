@@ -238,6 +238,7 @@ def seed_episodic_memory(
 # ── Main experiment ─────────────────────────────────────────────────────────
 
 def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dict[str, Any]:
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
     cfg = config["orchestrator"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     campaign_id = f"llama31_8b_{timestamp}"

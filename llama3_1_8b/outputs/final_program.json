@@ -1,20 +1,20 @@
 {
-  "id": "prog_1781280271877627_33ec",
-  "name": "prog_1781280271877627_33ec",
+  "id": "prog_1781286735601944_978a",
+  "name": "prog_1781286735601944_978a",
   "version": 2,
   "confidence": 0.92,
   "provenance": [
-    "llama31_8b_20260612_224405"
+    "llama31_8b_20260613_003200"
   ],
-  "created_at": 1781280426.524182,
-  "updated_at": 1781280495.605288,
+  "created_at": 1781287020.607929,
+  "updated_at": 1781287094.007,
   "metadata": {
     "status": "verified"
   },
   "program": {
-    "id": "prog_1781280271877627_33ec",
+    "id": "prog_1781286735601944_978a",
     "version_id": "1.0",
-    "created_at": 1781280512.301582,
+    "created_at": 1781287095.8041658,
     "deprecated_at": null,
     "metadata": {},
     "root": {
@@ -24,7 +24,7 @@
         "primitive": {
           "name": "contains_word",
           "parameters": {
-            "word": "code",
+            "word": "generate",
             "case_sensitive": false
           },
           "type": "ContainsWordPredicate",

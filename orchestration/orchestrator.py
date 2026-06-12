@@ -1395,7 +1395,7 @@ class Orchestrator:
             # Trigger verification of the best candidate
             best = self.version_space.most_likely()
             if best is not None:
-                verified = self.researcher.verify_and_store(
+                verified, ver_acc = self.researcher.verify_and_store(
                     program=best.program,
                     campaign_id=self.campaign_id,
                     victim=self.victim,
@@ -1405,12 +1405,13 @@ class Orchestrator:
                 if verified:
                     vs = self.version_space
                     boosted = vs.boost_candidate(best.program_id, 0.99)
+                    best.accuracy = ver_acc
                     if boosted:
                         logger.info(
                             "BOOST_VERIFIED: program_id=%s accuracy=%.3f "
                             "new_posterior=0.99",
                             best.program_id,
-                            getattr(best, "accuracy", 0.0),
+                            ver_acc,
                         )
                     else:
                         logger.warning(

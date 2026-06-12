@@ -401,10 +401,11 @@ class ResearcherAgent:
         campaign_id: str,
         victim: Any,
         program_id: Optional[str] = None,
-    ) -> bool:
+    ) -> Tuple[bool, float]:
         """Verify a candidate program against victim and store if verified.
 
-        Returns True if program was verified and stored successfully.
+        Returns (True, accuracy) if program was verified and stored successfully,
+        or (False, 0.0) otherwise.
         """
         try:
             report = self.verify_program(
@@ -425,11 +426,11 @@ class ResearcherAgent:
                     "Verified and stored program %s (accuracy=%.2f)",
                     stored_id, report.accuracy,
                 )
-                return True
-            return False
+                return True, report.accuracy
+            return False, 0.0
         except Exception as exc:
             logger.debug("verify_and_store failed: %s", exc)
-            return False
+            return False, 0.0
 
     def run_reverse_engineering_pipeline(
         self,
