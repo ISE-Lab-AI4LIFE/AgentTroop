@@ -113,11 +113,9 @@ TIER2_TRANSFORMS: List[Dict[str, Any]] = [
 ]
 
 TIER3_TRANSFORMS: List[Dict[str, Any]] = [
-    {"name": "insert_typos", "params": {"probability": 0.15}, "source": "typos"},
     {"name": "add_zero_width_chars", "params": {}, "source": "zero_width"},
     {"name": "html_encode", "params": {}, "source": "html_encoding"},
     {"name": "random_case", "params": {}, "source": "random_case"},
-    {"name": "url_encode", "params": {}, "source": "url_encoding"},
 ]
 
 ALL_TIERS = {

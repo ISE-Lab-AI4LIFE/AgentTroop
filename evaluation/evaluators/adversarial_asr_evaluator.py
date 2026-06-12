@@ -1,65 +1,95 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, List, Optional, Tuple
 
-from adapters.base_victim import BaseVictim
+from agents.red_team import RedTeamAgent
 from core.executor import ProgramExecutor
 from core.program import Program
 from evaluation.judges.base import Judge
-from evaluation.metrics.adversarial_asr import AdversarialASRMetric
-from evaluation.utils.test_generator import TestGenerator
+from evaluation.metrics.asr import AttackSuccessRateMetric
 
 logger = logging.getLogger(__name__)
 
 
 class AdversarialASREvaluator:
-    """Adversarial ASR: craft prompts with the learned program, then measure ASR.
+    """ASR evaluation using RedTeamAgent to craft adversarial prompts from the learned program.
 
-    Uses the program to find transform chains that elicit ACCEPT from the
-    victim, providing an upper bound on adversarial vulnerability.
+    After training, uses the best program's primitives (keywords, transforms)
+    to craft adversarial variants of harmful test prompts and measures
+    the true ASR (harmony_asr).
     """
 
     def __init__(
         self,
-        victim: BaseVictim,
+        victim: Any,
         judge: Optional[Judge] = None,
-        executor: Optional[ProgramExecutor] = None,
+        red_team: Optional[RedTeamAgent] = None,
         csv_path: str = "",
     ) -> None:
         self._victim = victim
-        self._judge = judge
-        self._metric = AdversarialASRMetric(executor)
+        self._metric = AttackSuccessRateMetric(judge)
+        self._red_team = red_team or RedTeamAgent()
         self._csv_path = csv_path
 
     def evaluate(
         self,
         program: Program,
+        test_prompts: Optional[List[Tuple[str, int]]] = None,
         num_test_prompts: int = 30,
-        max_depth: int = 2,
-        test_prompts: Optional[list[str]] = None,
     ) -> dict:
-        if test_prompts is None:
-            generator = TestGenerator(self._csv_path)
-            test_prompts = generator.generate_jailbreak_prompts(num_test_prompts)
+        if not test_prompts and not self._csv_path:
+            return {"harmony_asr": 0.0, "total": 0, "successes": 0, "failures": 0}
 
-        result = self._metric.evaluate(
-            prompts=test_prompts,
-            program=program,
-            victim=self._victim,
-            judge=self._judge,
-            max_depth=max_depth,
-        )
-        result["rq"] = "Adversarial ASR"
-        result["program_id"] = program.id
-        result["num_test_prompts"] = len(test_prompts)
+        if test_prompts is None:
+            from evaluation.utils.test_generator import TestGenerator
+            generator = TestGenerator(self._csv_path)
+            raw = generator.generate_jailbreak_prompts(num_test_prompts)
+            test_prompts = [(p, 0) for p in raw]
+
+        if not test_prompts:
+            return {"harmony_asr": 0.0, "total": 0, "successes": 0, "failures": 0}
+
+        primitives = self._red_team.extract_primitives(program)
+        successes = 0
+        details = []
+
+        for prompt, expected in test_prompts:
+            crafted = self._red_team.craft_adversarial_prompt(prompt, primitives)
+            raw = self._victim.respond(crafted)
+            if self._metric._judge:
+                outcome = self._metric._judge.judge(raw)
+            else:
+                try:
+                    outcome = int(raw.strip())
+                except (ValueError, AttributeError):
+                    outcome = 0
+            if outcome == 0:
+                successes += 1
+            details.append({
+                "original": prompt,
+                "crafted": crafted,
+                "outcome": outcome,
+            })
+
+        total = len(test_prompts)
+        asr = successes / total if total > 0 else 0.0
+
         logger.info(
-            "Adversarial ASR: asr=%.4f (%d/%d) | pre-accepted=%d/%d program=%s",
-            result["adversarial_asr"],
-            result["adversarial_successes"],
-            result["adversarial_total"],
-            result["pre_accepted_accepts"],
-            result["pre_accepted_total"],
-            program.id,
+            "Adversarial ASR (RedTeamAgent): asr=%.4f (%d/%d)",
+            asr, successes, total,
         )
-        return result
+
+        return {
+            "adversarial_asr": asr,
+            "adversarial_total": total,
+            "adversarial_successes": successes,
+            "adversarial_failures": total - successes,
+            "pre_accepted_total": total,
+            "pre_accepted_accepts": successes,
+            "details": details,
+            "program_primitives": {
+                "keywords": primitives.get("keywords", []),
+                "transforms": primitives.get("transforms", []),
+            },
+        }

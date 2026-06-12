@@ -16,13 +16,17 @@ try:
 except ImportError:
     fisher_exact = None
 
+try:
+    from scipy.stats import bayes_mvs
+    _HAS_BAYES = True
+except ImportError:
+    _HAS_BAYES = False
+
 logger = logging.getLogger(__name__)
 
-_MIN_INTERVENTIONS_FOR_EDGE = 3  # minimum trials per do-condition (report: "ít nhất 3 lần")
+_MIN_INTERVENTIONS_FOR_EDGE = 10  # minimum trials per do-condition
 # Minimum total observations across both conditions for statistical significance.
-# With Fisher's exact test, 5 per condition (10 total) is typically needed for p<0.05
-# with a perfect effect.  The report's "≥3" is a soft lower bound.
-_MIN_TOTAL_OBSERVATIONS = 6
+_MIN_TOTAL_OBSERVATIONS = 20
 _P_VALUE_THRESHOLD = 0.05
 
 _CYPHER_PROP_RE = re.compile(r"[^a-zA-Z0-9_]")
@@ -533,6 +537,7 @@ class CausalGraph:
         target_name: str,
         outcomes_do_x0: List[int],
         outcomes_do_x1: List[int],
+        use_bayesian: bool = True,
     ) -> Dict[str, Any]:
         """Record a do-operator intervention and update the causal edge.
 
@@ -551,32 +556,55 @@ class CausalGraph:
             Outcomes (0/1) observed when X is set to x0.
         outcomes_do_x1 : list of int
             Outcomes (0/1) observed when X is set to x1.
+        use_bayesian : bool
+            If True and bayes_mvs is available, use Bayesian test instead of
+            Fisher's exact test. Bayesian works with smaller sample sizes.
 
         Returns
         -------
-        dict with keys: strength, p_value, edge_added
+        dict with keys: strength, p_value, edge_added, ready
 
         Raises
         ------
         ValueError
-            If either outcome list has fewer than 3 observations.
+            If either outcome list has fewer than the minimum observations.
         """
-        if len(outcomes_do_x0) < _MIN_INTERVENTIONS_FOR_EDGE or len(outcomes_do_x1) < _MIN_INTERVENTIONS_FOR_EDGE:
+        if use_bayesian and _HAS_BAYES:
+            min_per_group = 3
+        else:
+            min_per_group = _MIN_INTERVENTIONS_FOR_EDGE
+
+        if len(outcomes_do_x0) < min_per_group or len(outcomes_do_x1) < min_per_group:
             raise ValueError(
-                f"Each do-condition needs at least {_MIN_INTERVENTIONS_FOR_EDGE} observations, "
+                f"Each do-condition needs at least {min_per_group} observations, "
                 f"got {len(outcomes_do_x0)} and {len(outcomes_do_x1)}"
             )
-        if len(outcomes_do_x0) + len(outcomes_do_x1) < _MIN_TOTAL_OBSERVATIONS:
-            raise ValueError(
-                f"Need at least {_MIN_TOTAL_OBSERVATIONS} total observations "
-                f"across both do-conditions to achieve p < {_P_VALUE_THRESHOLD}, "
-                f"got {len(outcomes_do_x0) + len(outcomes_do_x1)}"
-            )
+
+        total_obs = len(outcomes_do_x0) + len(outcomes_do_x1)
+
+        if not (use_bayesian and _HAS_BAYES):
+            if total_obs < _MIN_TOTAL_OBSERVATIONS:
+                logger.debug(
+                    "Insufficient total observations for do(%s): "
+                    "got %d, need at least %d",
+                    intervention_id, total_obs, _MIN_TOTAL_OBSERVATIONS,
+                )
+                return {
+                    "strength": 0.0,
+                    "p_value": 1.0,
+                    "edge_added": False,
+                    "ready": False,
+                    "source_id": "",
+                    "target_id": "",
+                }
 
         source_id = self.get_or_create_node(source_name, "primitive")
         target_id = self.get_or_create_node(target_name, "primitive")
 
-        p_value = self._compute_fisher_p_value(outcomes_do_x0, outcomes_do_x1)
+        if use_bayesian and _HAS_BAYES:
+            p_value = self._compute_bayesian_p_value(outcomes_do_x0, outcomes_do_x1)
+        else:
+            p_value = self._compute_fisher_p_value(outcomes_do_x0, outcomes_do_x1)
         strength = self._compute_causal_strength(outcomes_do_x0, outcomes_do_x1)
 
         total_trials = len(outcomes_do_x0) + len(outcomes_do_x1)
@@ -611,6 +639,7 @@ class CausalGraph:
             "strength": strength,
             "p_value": p_value,
             "edge_added": edge_added,
+            "ready": True,
             "source_id": source_id,
             "target_id": target_id,
         }
@@ -642,6 +671,38 @@ class CausalGraph:
             "falling back to heuristic p-value"
         )
         return _heuristic_p_value(a, b, c, d)
+
+    @staticmethod
+    def _compute_bayesian_p_value(outcomes_x0: List[int], outcomes_x1: List[int]) -> float:
+        """Bayesian test for difference between two groups.
+
+        Uses a Beta-Bernoulli model: P(p_x0 > p_x1 | data).
+        Returns 1 - P(p_x0 > p_x1) as a pseudo p-value.
+        """
+        import numpy as np
+
+        n_x0 = len(outcomes_x0)
+        n_x1 = len(outcomes_x1)
+
+        if n_x0 == 0 or n_x1 == 0:
+            return 1.0
+
+        a_x0 = sum(outcomes_x0) + 1  # Beta prior alpha=1
+        b_x0 = n_x0 - sum(outcomes_x0) + 1  # Beta prior beta=1
+        a_x1 = sum(outcomes_x1) + 1
+        b_x1 = n_x1 - sum(outcomes_x1) + 1
+
+        # Monte Carlo: sample from Beta posteriors
+        n_samples = 10000
+        np.random.seed(42)
+        samples_x0 = np.random.beta(a_x0, b_x0, n_samples)
+        samples_x1 = np.random.beta(a_x1, b_x1, n_samples)
+
+        # P(p_x0 > p_x1)
+        prob_x0_gt_x1 = np.mean(samples_x0 > samples_x1)
+
+        # Return two-tailed pseudo p-value
+        return 2 * min(prob_x0_gt_x1, 1 - prob_x0_gt_x1)
 
     @staticmethod
     def _compute_causal_strength(

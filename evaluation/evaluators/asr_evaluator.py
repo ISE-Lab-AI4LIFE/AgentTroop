@@ -11,10 +11,12 @@ from evaluation.utils.test_generator import TestGenerator
 logger = logging.getLogger(__name__)
 
 
-class ASREvaluator:
-    """ASR: Attack Success Rate of jailbreak prompts against a victim.
+class BaselineASREvaluator:
+    """Baseline ASR: Attack Success Rate using static prefix templates (no learned program).
 
-    Can be run before and after HARMONY-X discovers a program to measure impact.
+    Measures the victim's baseline vulnerability to simple jailbreak attempts.
+    This is the `baseline_asr` metric — distinct from `harmony_asr` which uses
+    the Red Team Agent's learned program.
     """
 
     def __init__(
@@ -34,9 +36,10 @@ class ASREvaluator:
         judge: Optional[Judge] = None,
     ) -> dict:
         if prompts is None:
+            from evaluation.utils.test_generator import TestGenerator
             generator = TestGenerator(self._csv_path)
             prompts = generator.generate_jailbreak_prompts(num_prompts)
         result = self._metric.evaluate(prompts, self._victim, judge)
-        result["rq"] = "ASR"
-        logger.info("ASR: asr=%.4f (%d/%d)", result["asr"], result["successes"], result["total"])
+        result["metric"] = "baseline_asr"
+        logger.info("Baseline ASR: asr=%.4f (%d/%d)", result["asr"], result["successes"], result["total"])
         return result

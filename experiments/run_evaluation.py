@@ -41,7 +41,7 @@ from evaluation.evaluators import (
     RQ1Evaluator,
     RQ2Evaluator,
     RQ3Evaluator,
-    ASREvaluator,
+    BaselineASREvaluator,
 )
 from evaluation.utils import VictimWrapper, TestGenerator
 
@@ -197,7 +197,7 @@ def main() -> None:
         logger.info("=" * 60)
         logger.info("ASR: Attack Success Rate")
         logger.info("=" * 60)
-        asr_eval = ASREvaluator(victim=victim, judge=judge, csv_path=args.prompt_csv)
+        asr_eval = BaselineASREvaluator(victim=victim, judge=judge, csv_path=args.prompt_csv)
         result = asr_eval.evaluate(num_prompts=args.num_test_prompts)
         report["results"]["ASR"] = result
         logger.info("ASR result: %s", json.dumps(result, indent=2))

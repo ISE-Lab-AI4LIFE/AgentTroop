@@ -331,7 +331,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
     from agents.strategist import StrategistAgent
     from agents.red_team import RedTeamAgent
     from llm.llm_client import get_default_client
-    from synthesis.cvc5_synthesizer import CVC5Synthesizer
+    from harmony.synthesis import get_synthesizer
 
     llm = get_default_client()
 
@@ -410,17 +410,10 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
     logger.info("SDE engine integrated: semantic discovery + rescoring active (sync + async)")
 
     res_cfg = config["researcher"]
-    synthesizer = CVC5Synthesizer(
-        cvc5_path=res_cfg.get("cvc5_path", "cvc5"),
-        max_depth=res_cfg["max_depth"],
-        beam_width=res_cfg["beam_width"],
-        allow_error_rate=res_cfg.get("allow_error_rate", 0.05),
-        timeout=15,
-        use_cache=True,
-        cache_path=str(EXP_DIR / f"{campaign_id}_cache.pkl"),
-        enforce_cvc5_first=res_cfg.get("use_cvc5", True),
-        hybrid=True,
-    )
+    synthesizer = get_synthesizer("fitness_guided", config={
+        "max_depth": res_cfg["max_depth"],
+        "beam_width": res_cfg["beam_width"],
+    })
     researcher = ResearcherAgent(
         episodic_memory=episodic,
         defense_store=defense,
@@ -445,7 +438,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         max_iterations=cfg["max_iterations"],
         max_interventions=cfg["max_interventions"],
         accuracy_threshold=cfg["accuracy_threshold"],
-        allow_error_rate=cfg.get("allow_error_rate", 0.0),
+        error_tolerance=cfg.get("error_tolerance", 0.15),
         synthesis_interval=cfg["synthesis_interval"],
         force_exploration_interval=cfg.get("force_exploration_interval", 3),
         top_k_candidates=res_cfg.get("top_k_candidates", 30),
@@ -592,7 +585,7 @@ def _run_evaluation(
     from evaluation.judges import LLMJudge, RuleBasedJudge
     from evaluation.evaluators import (
         AdversarialASREvaluator,
-        ASREvaluator,
+        BaselineASREvaluator,
         HarmonyASREvaluator,
         RQ0Evaluator,
         RQ1Evaluator,
@@ -654,7 +647,7 @@ def _run_evaluation(
 
     # ASR: Attack Success Rate (baseline — raw prompts)
     try:
-        asr_eval = ASREvaluator(victim=victim, judge=judge, csv_path=csv_path)
+        asr_eval = BaselineASREvaluator(victim=victim, judge=judge, csv_path=csv_path)
         asr_result = asr_eval.evaluate(num_prompts=30)
         report["asr"] = asr_result
         logger.info("ASR (baseline): %.4f (%d/%d accepted)",

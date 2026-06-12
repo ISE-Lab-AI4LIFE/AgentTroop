@@ -1,13 +1,21 @@
-from .cvc5_synthesizer import CVC5Synthesizer, SynthesisStats, build_simple_program
+from harmony.synthesis import (
+    EvolutionarySynthesizer,
+    NeuralGuidedSynthesizer,
+    FitnessGuidedSynthesizer,
+    SynthesisStats,
+    get_synthesizer,
+)
 from .grammar_exporter import GrammarExporter, PrimitiveCatalog
 from .verifier import ProgramVerifier, VerificationReport
 
 __all__ = [
-    "CVC5Synthesizer",
+    "EvolutionarySynthesizer",
+    "NeuralGuidedSynthesizer",
+    "FitnessGuidedSynthesizer",
     "SynthesisStats",
     "GrammarExporter",
     "PrimitiveCatalog",
     "ProgramVerifier",
     "VerificationReport",
-    "build_simple_program",
+    "get_synthesizer",
 ]

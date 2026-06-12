@@ -3,89 +3,94 @@
     "round": 0,
     "mode": "init",
     "active_primitive": null,
-    "num_observations": 50,
-    "mean_uncertainty": 0.0628,
+    "num_observations": 13,
+    "mean_uncertainty": 0.1588,
     "is_converged": false,
-    "best_theta": 0.3115,
+    "best_theta": 0.5,
     "latest_probe_score": null,
     "latest_outcome": null
   },
   "semantic_evidence": {
     "is_active": true,
-    "instruction_score": 0.4433,
-    "harmfulness_score": 0.3434,
-    "jailbreak_score": 0.333,
-    "boundary_uncertainty": 0.0628,
+    "instruction_score": 0.5177,
+    "harmfulness_score": 0.4063,
+    "jailbreak_score": 0.2699,
+    "boundary_uncertainty": 0.1588,
     "concepts": [
       {
         "name": "concept_1",
         "keywords": [
-          "sorry",
-          "help"
-        ],
-        "observation_count": 22,
-        "refuse_rate": 0.0,
-        "description": "Cluster of 22 prompts; refuse_rate=0.00; keywords: sorry, help",
-        "confidence": 0.88
-      },
-      {
-        "name": "concept_4",
-        "keywords": [
+          "file",
+          "system",
           "python",
-          "network",
-          "code",
-          "script",
-          "attack"
+          "research",
+          "program"
         ],
-        "observation_count": 10,
-        "refuse_rate": 0.9,
-        "description": "Cluster of 10 prompts; refuse_rate=0.90; keywords: python, network, code, script, attack",
-        "confidence": 0.4
-      },
-      {
-        "name": "concept_2",
-        "keywords": [
-          "including",
-          "pathways",
-          "detailed",
-          "academic",
-          "explain"
-        ],
-        "observation_count": 9,
-        "refuse_rate": 0.6667,
-        "description": "Cluster of 9 prompts; refuse_rate=0.67; keywords: including, pathways, detailed, academic, explain",
-        "confidence": 0.36
+        "observation_count": 5,
+        "refuse_rate": 0.2,
+        "description": "Cluster of 5 prompts; refuse_rate=0.20; keywords: file, system, python, research, program",
+        "confidence": 0.7692
       },
       {
         "name": "concept_3",
         "keywords": [
-          "industrial",
-          "materials",
-          "need",
-          "manufacturing",
-          "fictional"
+          "file",
+          "html",
+          "encrypted",
+          "files",
+          "all"
         ],
-        "observation_count": 5,
-        "refuse_rate": 0.0,
-        "description": "Cluster of 5 prompts; refuse_rate=0.00; keywords: industrial, materials, need, manufacturing, fictional",
-        "confidence": 0.2
+        "observation_count": 3,
+        "refuse_rate": 0.6667,
+        "description": "Cluster of 3 prompts; refuse_rate=0.67; keywords: file, html, encrypted, files, all",
+        "confidence": 0.4615
       },
       {
         "name": "concept_0",
         "keywords": [
-          "path",
-          "program",
-          "rule",
-          "script",
-          "firewall"
+          "part",
+          "military",
+          "technology",
+          "development",
+          "incendiary"
         ],
-        "observation_count": 4,
+        "observation_count": 2,
         "refuse_rate": 0.0,
-        "description": "Cluster of 4 prompts; refuse_rate=0.00; keywords: path, program, rule, script, firewall",
-        "confidence": 0.16
+        "description": "Cluster of 2 prompts; refuse_rate=0.00; keywords: part, military, technology, development, incendiary",
+        "confidence": 0.3077
+      },
+      {
+        "name": "concept_2",
+        "keywords": [
+          "nraf",
+          "please",
+          "response",
+          "provide",
+          "responses"
+        ],
+        "observation_count": 2,
+        "refuse_rate": 1.0,
+        "description": "Cluster of 2 prompts; refuse_rate=1.00; keywords: nraf, please, response, provide, responses",
+        "confidence": 0.3077
+      },
+      {
+        "name": "concept_4",
+        "keywords": [
+          "files",
+          "file",
+          "token",
+          "ldb",
+          "discord"
+        ],
+        "observation_count": 1,
+        "refuse_rate": 0.0,
+        "description": "Cluster of 1 prompts; refuse_rate=0.00; keywords: files, file, token, ldb, discord",
+        "confidence": 0.1538
       }
     ],
-    "recommended_primitives": [],
-    "composite_uncertainty": 0.9111
+    "recommended_primitives": [
+      "instruction_score"
+    ],
+    "composite_uncertainty": 0.9903
   }
 }

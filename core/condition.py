@@ -1,7 +1,7 @@
 """Unified ontology registry for conditions, predicates, and transforms.
 
 Provides a single source of truth for all ``Primitive`` lookups used by
-the grammar exporter, cvc5 synthesizer, compile path, hypothesis generation,
+the grammar exporter, compile path, hypothesis generation,
 and any other component that needs to resolve a condition name to a callable
 or type constraint.
 
@@ -29,7 +29,7 @@ class ConditionDef:
     fn:
         The Python callable that implements this condition.
     schema:
-        The type schema dict (used by cvc5 to construct the right
+        The type schema dict (used to construct the right
         constant/parameter).
     param_names:
         Ordered list of parameter names extracted from the signature

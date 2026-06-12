@@ -132,10 +132,40 @@ class BayesianBoundaryEstimator:
         self._betas: np.ndarray = np.full(grid_size, prior_beta, dtype=np.float64)
         self._cached_estimate: Optional[BoundaryEstimate] = None
         self._dirty: bool = True
+        self._direction: str = "positive"
 
     @property
     def num_observations(self) -> int:
         return len(self._observations)
+
+    @property
+    def direction(self) -> str:
+        return self._direction
+
+    def estimate_direction(self) -> str:
+        """Compute Pearson correlation between scores and outcomes.
+
+        Returns "positive", "negative", or "unknown".
+        """
+        if len(self._observations) < 5:
+            return "positive"
+
+        scores = np.array([s for s, _ in self._observations])
+        outcomes = np.array([o for _, o in self._observations])
+
+        if np.std(scores) < 1e-10 or np.std(outcomes) < 1e-10:
+            return "positive"
+
+        corr = np.corrcoef(scores, outcomes)[0, 1]
+        logger.info("SDE direction: correlation=%.4f between scores and outcomes", corr)
+
+        if abs(corr) < 0.1:
+            logger.warning("SDE direction: weak correlation (%.4f), using default positive", corr)
+            return "positive"
+
+        self._direction = "positive" if corr > 0 else "negative"
+        logger.info("SDE direction: detected %s (corr=%.4f)", self._direction, corr)
+        return self._direction
 
     def observe(self, score: float, outcome: int) -> None:
         """Update boundary belief with a new (score, outcome) observation.
@@ -164,6 +194,9 @@ class BayesianBoundaryEstimator:
                     self._betas[i] += 1.0
 
         self._dirty = True
+
+        if len(self._observations) % 5 == 0:
+            self.estimate_direction()
 
     def observe_batch(self, observations: List[Tuple[float, int]]) -> None:
         for score, outcome in observations:
@@ -209,6 +242,11 @@ class BayesianBoundaryEstimator:
         upper_idx = int(np.searchsorted(cumulative, 0.975))
         ci = (float(self._grid[min(lower_idx, self.grid_size - 1)]),
               float(self._grid[min(upper_idx, self.grid_size - 1)]))
+
+        logger.info("SDE direction: using %s direction for %s", self._direction, self.primitive_name)
+        if self._direction == "negative":
+            mean = 1.0 - mean
+            ci = (1.0 - ci[1], 1.0 - ci[0])
 
         scores = [s for s, _ in self._observations]
         evidence_weight = float(n)

@@ -1,4 +1,4 @@
-"""Tests for all 95 primitives (27 predicates, 41 transforms, 27 classifiers)."""
+"""Tests for all primitives (27 predicates, 31 transforms, 27 classifiers)."""
 
 import json
 import re
@@ -10,7 +10,6 @@ from core.primitive import (
     AddSuffixTransform,
     AddZeroWidthCharsTransform,
     AdversarialSuffixScoreClassifier,
-    BoustrophedonTransform,
     CharacterSubstitutionTransform,
     CodeLikelihoodClassifier,
     ContainsAllWordsPredicate,
@@ -36,7 +35,7 @@ from core.primitive import (
     HasSpecialCharPredicate,
     HtmlEncodeTransform,
     InsertSynonymsTransform,
-    InsertTyposTransform,
+
     IntentPredicate,
     IntentScoreClassifier,
     IsAllCapsPredicate,
@@ -54,18 +53,17 @@ from core.primitive import (
     ObscurityScoreClassifier,
     PadToLengthTransform,
     PersuasionScoreClassifier,
-    PigLatinTransform,
+
     PrimitiveRegistry,
     PromptInjectionLikelihoodClassifier,
     PunctuationRatioClassifier,
-    QuotedPrintableTransform,
+
     RandomCaseTransform,
     RefusalSimilarityClassifier,
     RemovePunctuationTransform,
-    RemoveVowelsTransform,
-    RemoveWhitespaceTransform,
+
     RepetitionScoreClassifier,
-    ReverseTextTransform,
+
     RoleplayLikelihoodClassifier,
     SentimentPredicate,
     SentimentScoreClassifier,
@@ -76,13 +74,13 @@ from core.primitive import (
     ToLowercaseTransform,
     ToUppercaseTransform,
     ToxicityScoreClassifier,
-    TruncateTransform,
+
     UnicodeObfuscateTransform,
     UniqueTokenRatioClassifier,
     UpperCaseRatioClassifier,
-    URLEncodeTransform,
+
     WhitespaceRatioClassifier,
-    WordShuffleTransform,
+
     WrapCodeBlockTransform,
     default_registry,
 )
@@ -349,7 +347,7 @@ class TestIsRepetitivePredicate:
 
 
 # =============================================================================
-# TRANSFORM TESTS (28)
+# TRANSFORM TESTS (18)
 # =============================================================================
 
 class TestToLowercaseTransform:
@@ -378,25 +376,6 @@ class TestLeetSpeakTransform:
         assert "3" in result and "0" in result
 
 
-class TestReverseTextTransform:
-    def test_reverse(self):
-        assert ReverseTextTransform().evaluate("hello") == "olleh"
-        assert ReverseTextTransform().evaluate("abc") == "cba"
-
-
-class TestPigLatinTransform:
-    def test_vowel_start(self):
-        assert PigLatinTransform().evaluate("apple") == "appleway"
-
-    def test_consonant_start(self):
-        result = PigLatinTransform().evaluate("hello")
-        assert result == "ellohay"
-
-    def test_multi_word(self):
-        result = PigLatinTransform().evaluate("hello world")
-        assert "ellohay" in result and "orldway" in result
-
-
 class TestAddPrefixTransform:
     def test_add_prefix(self):
         assert AddPrefixTransform(prefix="START:").evaluate("hello") == "START:hello"
@@ -413,33 +392,6 @@ class TestWrapCodeBlockTransform:
         assert "```python" in result
         assert "print(1)" in result
         assert "```" in result
-
-
-class TestInsertTyposTransform:
-    def test_deterministic_seed(self):
-        original = "hello world"
-        result = InsertTyposTransform(probability=0.0).evaluate(original)
-        assert result == original
-
-    def test_high_probability(self):
-        import random
-        random.seed(42)
-        result = InsertTyposTransform(probability=0.9).evaluate("test")
-        assert isinstance(result, str)
-
-
-class TestWordShuffleTransform:
-    def test_deterministic(self):
-        text = "one two three four"
-        r1 = WordShuffleTransform(seed=42).evaluate(text)
-        r2 = WordShuffleTransform(seed=42).evaluate(text)
-        assert r1 == r2
-
-    def test_different_seed(self):
-        text = "one two three four five six"
-        r1 = WordShuffleTransform(seed=1).evaluate(text)
-        r2 = WordShuffleTransform(seed=2).evaluate(text)
-        assert r1 != r2
 
 
 class TestAddMarkdownTransform:
@@ -480,45 +432,6 @@ class TestHtmlEncodeTransform:
         assert "&gt;" in HtmlEncodeTransform().evaluate("<tag>")
 
 
-class TestURLEncodeTransform:
-    def test_encode(self):
-        assert URLEncodeTransform().evaluate("hello world") == "hello%20world"
-
-
-class TestQuotedPrintableTransform:
-    def test_encode(self):
-        result = QuotedPrintableTransform().evaluate("héllo")
-        assert "=E9" in result
-
-    def test_alnum_unchanged(self):
-        assert QuotedPrintableTransform().evaluate("hello") == "hello"
-
-
-class TestRemoveVowelsTransform:
-    def test_remove_vowels(self):
-        assert RemoveVowelsTransform().evaluate("hello world") == "hll wrld"
-
-    def test_only_consonants(self):
-        assert RemoveVowelsTransform().evaluate("bcdfg") == "bcdfg"
-
-
-class TestBoustrophedonTransform:
-    def test_single_line(self):
-        assert BoustrophedonTransform().evaluate("hello") == "hello"
-
-    def test_multi_line(self):
-        result = BoustrophedonTransform().evaluate("hello\nworld")
-        assert result == "hello\ndlrow"
-
-
-class TestRemoveWhitespaceTransform:
-    def test_remove_spaces(self):
-        assert RemoveWhitespaceTransform().evaluate("hello world") == "helloworld"
-
-    def test_remove_tabs(self):
-        assert RemoveWhitespaceTransform().evaluate("hello\tworld") == "helloworld"
-
-
 class TestInsertSynonymsTransform:
     def test_no_replacement_low_prob(self):
         original = "hello world"
@@ -556,14 +469,6 @@ class TestAddRolePlayTransform:
     def test_custom_role(self):
         result = AddRolePlayTransform(role="doctor").evaluate("diagnose this")
         assert result == "As a doctor, diagnose this"
-
-
-class TestTruncateTransform:
-    def test_truncates(self):
-        assert TruncateTransform(max_chars=5).evaluate("hello world") == "hello"
-
-    def test_short_text(self):
-        assert TruncateTransform(max_chars=50).evaluate("hi") == "hi"
 
 
 class TestPadToLengthTransform:
@@ -863,7 +768,7 @@ class TestPersuasionScoreClassifier:
 class TestRegistryCompleteness:
     def test_all_95_primitives_registered(self):
         names = set(default_registry.list_primitives())
-        assert len(names) >= 95, f"Expected at least 95 primitives, got {len(names)}"
+        assert len(names) >= 74, f"Expected at least 74 primitives, got {len(names)}"
 
     def test_predicates_registered(self):
         names = default_registry.list_primitives()
@@ -883,18 +788,13 @@ class TestRegistryCompleteness:
     def test_transforms_registered(self):
         names = default_registry.list_primitives()
         transform_names = [
-            "to_lowercase", "to_uppercase", "remove_punctuation",
-            "leet_speak", "reverse_text", "pig_latin",
-            "add_prefix", "add_suffix",
-            "wrap_code_block", "insert_typos", "word_shuffle",
-            "add_markdown", "add_zero_width_chars", "unicode_obfuscate",
-            "html_encode", "url_encode", "quoted_printable",
-            "remove_vowels",
-            "boustrophedon", "remove_whitespace",
-            "insert_synonyms",             "escape_quotes", "format_as_json",
-            "add_role_play", "truncate",
-            "pad_to_length", "random_case",
-            "character_substitution",
+            "add_ignore_filter_token", "add_markdown", "add_prefix",
+            "add_role_play", "add_suffix", "add_zero_width_chars",
+            "escape_quotes", "format_as_json", "html_encode",
+            "insert_synonyms", "pad_to_length", "random_case",
+            "remove_punctuation", "to_declarative", "to_imperative",
+            "to_interrogative", "to_lowercase", "to_uppercase",
+            "wrap_code_block",
         ]
         for name in transform_names:
             assert name in names, f"Missing transform: {name}"

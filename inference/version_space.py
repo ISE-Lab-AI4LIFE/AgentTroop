@@ -106,7 +106,7 @@ class CandidateProgram:
     posterior : float
         Current posterior belief P(program | data).
     source : str
-        Origin: "cvc5", "enumeration", "verification", "manual".
+        Origin: "evolutionary", "neural", "fitness_guided", "enumeration", "verification", "manual".
     episodes_matched : int
         Number of training episodes this program correctly predicts.
     total_episodes : int
@@ -201,6 +201,7 @@ class VersionSpace:
         self._total_by_source: Dict[str, int] = {}
         self._total_by_predicate_type: Dict[str, int] = {}
         self._posterior_floor: float = 1e-5
+        self._diversity_preservation = True
 
     # ------------------------------------------------------------------
     # Properties
@@ -236,6 +237,14 @@ class VersionSpace:
     @noise_level.setter
     def noise_level(self, value: float) -> None:
         self._noise_level = max(0.0, min(0.49, float(value)))
+
+    @property
+    def diversity_preservation(self) -> bool:
+        return self._diversity_preservation
+
+    @diversity_preservation.setter
+    def diversity_preservation(self, value: bool) -> None:
+        self._diversity_preservation = bool(value)
 
     # ------------------------------------------------------------------
     # Family diversity analysis
@@ -351,34 +360,113 @@ class VersionSpace:
         return None
 
     def _prune(self) -> None:
-        """Trim to max_candidates, keeping those with highest posterior."""
+        """Trim to max_candidates, keeping highest posterior candidates."""
         if len(self._candidates) <= self._max_candidates:
             return
         self._normalise()
         sorted_idx = np.argsort(self._posterior)[::-1]
-        keep = sorted_idx[:self._max_candidates]
-        removed = [self._candidates[i] for i in range(len(self._candidates)) if i not in keep]
+        keep = list(sorted_idx[:self._max_candidates])
+        keep_set = set(keep)
+        if self._diversity_preservation:
+            families_represented = set()
+            for i in keep:
+                c = self._candidates[i]
+                families_represented.add(c.family or _classify_program(c.program))
+            all_families = set()
+            for c in self._candidates:
+                all_families.add(c.family or _classify_program(c.program))
+            for fam in all_families:
+                if fam not in families_represented:
+                    best_idx = None
+                    best_p = -1.0
+                    for i, c in enumerate(self._candidates):
+                        cfam = c.family or _classify_program(c.program)
+                        if cfam == fam and float(self._posterior[i]) > best_p:
+                            best_p = float(self._posterior[i])
+                            best_idx = i
+                    if best_idx is not None and best_idx not in keep_set:
+                        lowest_idx = min(keep, key=lambda i: float(self._posterior[i]))
+                        keep.remove(lowest_idx)
+                        keep_set.remove(lowest_idx)
+                        keep.append(best_idx)
+                        keep_set.add(best_idx)
+        removed = [self._candidates[i] for i in range(len(self._candidates)) if i not in keep_set]
+        keep = sorted(keep)
         self._candidates = [self._candidates[i] for i in keep]
         self._posterior = self._posterior[keep]
         self._prune_count += 1
         self._belief_dirty = True
-        # Track survival: each kept candidate counts as survived
         for c in self._candidates:
             src = c.source or "unknown"
             self._survival_by_source[src] = self._survival_by_source.get(src, 0) + 1
             ptype = c.predicate_type or c.family or "unknown"
             self._survival_by_predicate_type[ptype] = self._survival_by_predicate_type.get(ptype, 0) + 1
 
+    def keep_top_k(self, k: int) -> int:
+        """Keep exactly k candidates with highest posterior.
+
+        Ensures at least 1 candidate per family is retained if available.
+        Returns the number of removed candidates.
+        """
+        if len(self._candidates) <= k:
+            return 0
+        self._normalise()
+        n_before = len(self._candidates)
+        sorted_idx = np.argsort(self._posterior)[::-1]
+        keep = list(sorted_idx[:k])
+        keep_set = set(keep)
+        if self._diversity_preservation:
+            families_represented = set()
+            for i in keep:
+                c = self._candidates[i]
+                families_represented.add(c.family or _classify_program(c.program))
+            all_families = set()
+            for c in self._candidates:
+                all_families.add(c.family or _classify_program(c.program))
+            for fam in all_families:
+                if fam not in families_represented:
+                    best_idx = None
+                    best_p = -1.0
+                    for i, c in enumerate(self._candidates):
+                        cfam = c.family or _classify_program(c.program)
+                        if cfam == fam and float(self._posterior[i]) > best_p:
+                            best_p = float(self._posterior[i])
+                            best_idx = i
+                    if best_idx is not None and best_idx not in keep_set:
+                        lowest_idx = min(keep, key=lambda i: float(self._posterior[i]))
+                        keep.remove(lowest_idx)
+                        keep_set.remove(lowest_idx)
+                        keep.append(best_idx)
+                        keep_set.add(best_idx)
+        keep = sorted(keep)
+        n_removed = n_before - len(keep)
+        self._candidates = [self._candidates[i] for i in keep]
+        self._posterior = self._posterior[keep]
+        self._prune_count += 1
+        self._belief_dirty = True
+        for c in self._candidates:
+            src = c.source or "unknown"
+            self._survival_by_source[src] = self._survival_by_source.get(src, 0) + 1
+            ptype = c.predicate_type or c.family or "unknown"
+            self._survival_by_predicate_type[ptype] = self._survival_by_predicate_type.get(ptype, 0) + 1
+        return n_removed
+
     def absorb_candidates(
         self,
         new_programs: List[Tuple[Program, float, str, int, int]],
         alpha: float = 0.85,
+        new_candidate_weight: float = 0.1,
         balance_types: bool = False,
     ) -> int:
-        """
-        Batch-add candidates preserving posterior mass of existing
-        programs.  Existing programs retain 'alpha' fraction of total
-        posterior mass, new programs share the remaining (1-alpha).
+        """Batch-add candidates preserving posterior mass of existing programs.
+
+        Existing candidates (top-K) retain ``alpha`` fraction of the total
+        posterior mass.  New candidates start with very low posterior
+        (``new_candidate_weight * initial_posterior``), preventing entropy
+        spikes when many candidates are added at once.
+
+        After adding, the version space is trimmed back to ``max_candidates``,
+        keeping only the highest-posterior candidates.
 
         When *balance_types* is True (typically only on first seed),
         reweights posterior so each predicate family has equal total
@@ -386,14 +474,53 @@ class VersionSpace:
         """
         existing_ids = set(self.program_ids)
         added = 0
+
+        if len(self._candidates) > 0:
+            self._normalise()
+            self._posterior *= alpha
+
         for prog, acc, source, matched, total in new_programs:
             pid = getattr(prog, "id", "") or ""
             if pid not in existing_ids:
-                self.add_candidate(
-                    program=prog, accuracy=acc, source=source,
-                    episodes_matched=matched, total_episodes=total,
+                candidate = CandidateProgram(
+                    program=prog,
+                    accuracy=acc,
+                    complexity=prog.complexity(),
+                    posterior=0.0,
+                    source=source,
+                    episodes_matched=matched,
+                    total_episodes=total,
                 )
+                self._candidates.append(candidate)
+
+                src = source or "unknown"
+                self._total_by_source[src] = self._total_by_source.get(src, 0) + 1
+                ptype = candidate.family or "unknown"
+                self._total_by_predicate_type[ptype] = self._total_by_predicate_type.get(ptype, 0) + 1
+
+                init_p = self._initial_posterior(acc, candidate.complexity)
+                weighted_init_p = new_candidate_weight * init_p
+
+                if len(self._posterior) == len(self._candidates) - 1:
+                    self._posterior = np.append(self._posterior, weighted_init_p)
+                else:
+                    self._posterior = np.full(len(self._candidates), weighted_init_p)
+                    for i, c in enumerate(self._candidates[:-1]):
+                        existing_idx = self._find_index(c.program_id)
+                        if existing_idx is not None and existing_idx < len(self._posterior) - 1:
+                            try:
+                                self._posterior[i] = max(weighted_init_p, self._posterior[existing_idx])
+                            except (IndexError, ValueError):
+                                pass
+
                 added += 1
+                existing_ids.add(pid)
+
+        if added > 0:
+            self._belief_dirty = True
+            self._normalise()
+            self._prune()
+
         if balance_types and added > 0 and len(self._candidates) > 0:
             self._normalise()
             type_masses: Dict[str, float] = {}

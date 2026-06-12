@@ -243,28 +243,23 @@ class GrammarExporter:
     ) -> List[Transform]:
         """Select a diverse subset of transforms, one per family.
 
-        Families: encoding (rot13/base64/hex), obfuscation (zero-width,
-        unicode), casing (upper/lower/random), structural (prefix/suffix/
-        truncate/pad), adversarial (typos/shuffle/synonyms), formatting
-        (json/markdown/html), cipher (caesar/atbash/vigenere).
+        Families: encoding (base64/hex), obfuscation (zero-width, unicode),
+        casing (upper/lower/random), structural (prefix/suffix/pad),
+        formatting (json/markdown/html).
         """
         families: Dict[str, List[Transform]] = {}
         for t in transforms:
             name_lower = t.name.lower()
-            if any(x in name_lower for x in ("rot13", "base64", "hex", "binary", "quoted")):
+            if any(x in name_lower for x in ("base64", "hex", "binary")):
                 fam = "encoding"
-            elif any(x in name_lower for x in ("zero_width", "unicode", "morse", "pig_latin")):
+            elif any(x in name_lower for x in ("zero_width", "unicode", "morse")):
                 fam = "obfuscation"
             elif any(x in name_lower for x in ("lower", "upper", "random_case")):
                 fam = "casing"
-            elif any(x in name_lower for x in ("prefix", "suffix", "truncate", "pad")):
+            elif any(x in name_lower for x in ("prefix", "suffix", "pad")):
                 fam = "structural"
-            elif any(x in name_lower for x in ("typo", "shuffle", "synonym", "substitution")):
-                fam = "adversarial"
             elif any(x in name_lower for x in ("json", "markdown", "html", "escape")):
                 fam = "formatting"
-            elif any(x in name_lower for x in ("caesar", "atbash", "vigenere", "rail", "boustrophedon")):
-                fam = "cipher"
             elif any(x in name_lower for x in ("roleplay", "interrogative", "imperative", "declarative")):
                 fam = "linguistic"
             elif any(x in name_lower for x in ("remove", "whitespace", "vowel")):
@@ -369,7 +364,7 @@ class GrammarExporter:
             max_depth=depth,
             use_complexity_constraint=True,
             max_complexity=min(10, 2**depth),
-            allow_error_rate=0.0,
+            # error_tolerance handled by synthesizer
         )
         result = builder.build_smtlib(
             examples,

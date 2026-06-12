@@ -115,7 +115,7 @@ class HarmonyASREvaluator:
         Returns (crafted_prompt, technique_name).
         """
         try:
-            intervention = Intervention(base_prompt=prompt)
+            intervention = Intervention(base_prompt=prompt, transforms=[])
             intervention.final_prompt = prompt
 
             technique = select_technique(

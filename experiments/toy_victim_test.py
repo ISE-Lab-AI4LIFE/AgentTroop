@@ -446,7 +446,7 @@ def main() -> None:
         max_iterations=20,
         max_interventions=50,
         accuracy_threshold=0.9,
-        allow_error_rate=0.0,
+        error_tolerance=0.15,
         # Toy experiment: relaxed convergence guards (small dataset)
         min_holdout_size_for_convergence=2,
         min_holdout_accuracy_for_convergence=0.65,
@@ -526,16 +526,16 @@ def main() -> None:
         test_acc = 0.0
         logger.info("  No program to evaluate.")
 
-    # ── Direct CVC5 synthesis from collected episodes ────────────────
+    # ── Direct synthesis from collected episodes ───────────────────
     syn_program: Any = None
     syn_acc: float = 0.0
     logger.info("")
-    logger.info("Direct CVC5 synthesis from campaign episodes:")
+    logger.info("Direct synthesis from campaign episodes:")
     try:
         from core.executor import ProgramExecutor
         from core.primitive import default_registry
         from knowledge.episodic import EpisodeFilter
-        from synthesis.cvc5_synthesizer import CVC5Synthesizer
+        from harmony.synthesis import get_synthesizer
 
         episodes = episodic_memory.filter_episodes(EpisodeFilter(campaign_id=campaign_id))
 
@@ -548,27 +548,23 @@ def main() -> None:
         logger.info("  Episodes: %d, Examples: %d", len(episodes), len(examples))
 
         if examples:
-            synthesizer = CVC5Synthesizer(
-                max_depth=3, beam_width=200, timeout=30,
-                use_cache=True, allow_error_rate=0.0,
-            )
-            syn_program, syn_stats = synthesizer.synthesize_with_stats(
-                examples, primitive_registry=default_registry,
-            )
-            if syn_program is not None:
+            synthesizer = get_synthesizer("fitness_guided", config={
+                "max_depth": 3, "beam_width": 200,
+            })
+            programs = synthesizer.synthesize(examples, k=1)
+            if programs:
+                syn_program = programs[0]
                 syn_acc = evaluate_program(syn_program, TEST_SET, ProgramExecutor(default_registry))
-                logger.info("  CVC5 program: %s", format_ast(syn_program))
-                logger.info("  CVC5 test accuracy: %.3f", syn_acc)
-                logger.info("  CVC5 depth=%d tried=%d cvc5=%s",
-                            syn_stats.depth_used, syn_stats.programs_tried, syn_stats.cvc5_used)
+                logger.info("  Synthesized program: %s", format_ast(syn_program))
+                logger.info("  Test accuracy: %.3f", syn_acc)
                 if syn_acc == 1.0:
-                    logger.info("  *** CVC5 EXACT MATCH ***")
+                    logger.info("  *** EXACT MATCH ***")
             else:
-                logger.info("  CVC5 synthesis returned None")
+                logger.info("  Synthesis returned no candidates")
         else:
-            logger.info("  No examples for CVC5")
+            logger.info("  No examples for synthesis")
     except Exception as e:
-        logger.warning("  CVC5 synthesis error: %s", e)
+        logger.warning("  Synthesis error: %s", e)
 
     # ── Summary ──────────────────────────────────────────────────────
     logger.info("")
@@ -581,15 +577,15 @@ def main() -> None:
     logger.info("Pipeline success:       %s", result.get("success"))
     logger.info("Pipeline interventions: %d", result.get("total_interventions", 0))
     if syn_program is not None:
-        logger.info("CVC5 program:           %s", format_ast(syn_program))
-        logger.info("CVC5 test accuracy:     %.3f", syn_acc)
-        logger.info("CVC5 exact match:       %s", "YES" if syn_acc >= 1.0 else "NO")
+        logger.info("Synth program:          %s", format_ast(syn_program))
+        logger.info("Synth test accuracy:    %.3f", syn_acc)
+        logger.info("Synth exact match:      %s", "YES" if syn_acc >= 1.0 else "NO")
     else:
-        logger.info("CVC5 synthesis:         FAILED")
+        logger.info("Synthesis:              FAILED")
     pipeline_discriminative = test_acc >= 0.6 if best_program_obj is not None else False
-    cvc5_discriminative = syn_acc >= 0.6 if syn_program is not None else False
+    synth_discriminative = syn_acc >= 0.6 if syn_program is not None else False
     logger.info("Pipeline discriminative power: %s", "YES" if pipeline_discriminative else "NO")
-    logger.info("CVC5 discriminative power:     %s", "YES" if cvc5_discriminative else "NO")
+    logger.info("Synth discriminative power:    %s", "YES" if synth_discriminative else "NO")
 
     # ── SDE results ──────────────────────────────────────────────────
     sde_result = None
@@ -619,7 +615,7 @@ def main() -> None:
             "converged_by": result.get("converged_by"),
             "num_candidates": result.get("num_candidates", 0),
         },
-        "cvc5": {
+        "synthesis": {
             "program": format_ast(syn_program) if syn_program else None,
             "test_accuracy": syn_acc if syn_program else None,
             "exact_match": bool(syn_program and syn_acc >= 1.0),

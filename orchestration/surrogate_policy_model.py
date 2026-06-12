@@ -19,6 +19,26 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+try:
+    from sentence_transformers import SentenceTransformer
+    _HAS_SENTENCE_TRANSFORMERS = True
+except ImportError:
+    _HAS_SENTENCE_TRANSFORMERS = False
+    SentenceTransformer = None
+
+try:
+    from sklearn.neural_network import MLPClassifier
+    from sklearn.preprocessing import StandardScaler
+    _HAS_SKLEARN = True
+except ImportError:
+    _HAS_SKLEARN = False
+
+try:
+    from xgboost import XGBClassifier
+    _HAS_XGB = True
+except ImportError:
+    _HAS_XGB = False
+
 _STOPWORDS: Set[str] = {
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "can", "could",
@@ -74,16 +94,37 @@ class SurrogatePolicyModel:
         alpha: float = 0.1,
         max_features: int = 100,
         min_episodes_for_training: int = 3,
+        model_type: str = "mlp",
+        feature_type: str = "embedding",
+        min_accuracy: float = 0.65,
     ):
-        self.alpha = alpha  # Dirichlet prior concentration
+        self.alpha = alpha
         self.max_features = max_features
         self.min_episodes_for_training = min_episodes_for_training
+        self.model_type = model_type
+        self.feature_type = feature_type
+        self.min_accuracy = min_accuracy
         self._vocab: List[str] = []
-        self._word_counts: np.ndarray = np.zeros((2, 0))  # [outcome, word]
-        self._prior_counts = np.array([1.0, 1.0])  # Laplace smoothing
+        self._word_counts: np.ndarray = np.zeros((2, 0))
+        self._prior_counts = np.array([1.0, 1.0])
         self._n_episodes = 0
         self._is_trained = False
         self._feature_importance: Dict[str, float] = {}
+        self._embedding_model = None
+        self._sklearn_model = None
+        self._scaler = None
+        self._is_active = True
+
+    @property
+    def is_active(self) -> bool:
+        return self._is_active
+
+    def _build_embeddings(self, prompts: List[str]) -> np.ndarray:
+        if not _HAS_SENTENCE_TRANSFORMERS:
+            raise RuntimeError("sentence-transformers is not installed")
+        if self._embedding_model is None:
+            self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+        return self._embedding_model.encode(prompts, show_progress_bar=False)
 
     def train(self, episodes: List[Tuple[str, int]]) -> SurrogateTrainingStats:
         """Train surrogate on (prompt, outcome) episodes."""
@@ -98,7 +139,81 @@ class SurrogatePolicyModel:
                 feature_importance={}, duration_ms=0.0,
             )
 
-        # Build vocabulary from episodes
+        use_embedding = (
+            _HAS_SENTENCE_TRANSFORMERS
+            and _HAS_SKLEARN
+            and self.feature_type == "embedding"
+        )
+
+        if use_embedding:
+            prompts = [p for p, _ in episodes]
+            labels = np.array([o for _, o in episodes])
+            embeddings = self._build_embeddings(prompts)
+
+            self._scaler = StandardScaler()
+            X_scaled = self._scaler.fit_transform(embeddings)
+
+            if self.model_type == "xgboost" and _HAS_XGB:
+                self._sklearn_model = XGBClassifier(
+                    n_estimators=100,
+                    max_depth=4,
+                    learning_rate=0.1,
+                    use_label_encoder=False,
+                    eval_metric="logloss",
+                    random_state=42,
+                )
+            else:
+                self._sklearn_model = MLPClassifier(
+                    hidden_layer_sizes=(64, 32),
+                    activation="relu",
+                    solver="adam",
+                    max_iter=500,
+                    random_state=42,
+                    early_stopping=True,
+                    validation_fraction=0.15,
+                    n_iter_no_change=10,
+                )
+
+            # Compute sample weights for balanced training (class_weight replacement)
+            unique, counts = np.unique(labels, return_counts=True)
+            if len(unique) == 2:
+                n_total = len(labels)
+                weights = np.where(labels == 1, n_total / (2 * counts[1]), n_total / (2 * counts[0]))
+            else:
+                weights = np.ones(len(labels))
+
+            self._sklearn_model.fit(X_scaled, labels, sample_weight=weights)
+            self._is_trained = True
+
+            train_preds = self._sklearn_model.predict(X_scaled)
+            train_acc = float(np.mean(train_preds == labels))
+            n_refuse = int(labels.sum())
+            n_accept = len(labels) - n_refuse
+
+            if train_acc < self.min_accuracy:
+                self._is_active = False
+                logger.warning(
+                    "=== SURROGATE DEACTIVATED: train_acc=%.3f < min_accuracy=%.3f, "
+                    "falling back to uniform prior for all predictions ===",
+                    train_acc, self.min_accuracy,
+                )
+
+            logger.info(
+                "Surrogate (embedding): trained on %d episodes, %d features, train_acc=%.3f "
+                "(refuse=%d, accept=%d, %.1fms)",
+                self._n_episodes, embeddings.shape[1], train_acc,
+                n_refuse, n_accept, (time.time() - start) * 1000,
+            )
+            return SurrogateTrainingStats(
+                n_episodes=self._n_episodes,
+                n_features=embeddings.shape[1],
+                train_accuracy=train_acc,
+                n_refuse=n_refuse,
+                n_accept=n_accept,
+                feature_importance={},
+                duration_ms=(time.time() - start) * 1000,
+            )
+
         word_freq: Counter = Counter()
         for prompt, _ in episodes:
             words = re.findall(r"[a-zA-Z]{3,}", prompt.lower())
@@ -109,7 +224,6 @@ class SurrogatePolicyModel:
         self._word_counts = np.zeros((2, n_features))
         word_to_idx = {w: i for i, w in enumerate(self._vocab)}
 
-        # Count word occurrences per outcome
         for prompt, outcome in episodes:
             words = set(re.findall(r"[a-zA-Z]{3,}", prompt.lower()))
             for w in words:
@@ -118,7 +232,6 @@ class SurrogatePolicyModel:
 
         self._is_trained = True
 
-        # Compute feature importance (information gain)
         total = len(episodes)
         n_refuse = self._word_counts[1].sum()
         n_accept = self._word_counts[0].sum()
@@ -127,20 +240,26 @@ class SurrogatePolicyModel:
             count_accept = self._word_counts[0, i]
             total_word = count_refuse + count_accept
             if total_word > 0:
-                # Simplified IG: how much does this word shift toward REFUSE?
                 p_refuse_given_word = count_refuse / max(total_word, 1)
                 p_refuse_prior = n_refuse / max(total, 1)
                 self._feature_importance[word] = abs(p_refuse_given_word - p_refuse_prior)
             else:
                 self._feature_importance[word] = 0.0
 
-        # Compute train accuracy
         train_correct = 0
         for prompt, expected in episodes:
             pred = self.predict(prompt)
             if pred.predicted_outcome == expected:
                 train_correct += 1
         train_acc = train_correct / max(total, 1)
+
+        if train_acc < self.min_accuracy:
+            self._is_active = False
+            logger.warning(
+                "=== SURROGATE DEACTIVATED: train_acc=%.3f < min_accuracy=%.3f, "
+                "falling back to uniform prior for all predictions ===",
+                train_acc, self.min_accuracy,
+            )
 
         logger.info(
             "Surrogate: trained on %d episodes, %d features, train_acc=%.3f "
@@ -167,18 +286,60 @@ class SurrogatePolicyModel:
                 n_episodes=self._n_episodes,
             )
 
+        if not self._is_active:
+            return SurrogatePrediction(
+                prompt=prompt, predicted_outcome=1,
+                confidence=0.5, uncertainty=1.0,
+                n_episodes=self._n_episodes,
+                prediction_id=f"pred_{uuid.uuid4().hex[:8]}",
+            )
+
+        if self._sklearn_model is not None and self._scaler is not None:
+            embedding = self._build_embeddings([prompt])
+            X_scaled = self._scaler.transform(embedding)
+
+            if hasattr(self._sklearn_model, "predict_proba"):
+                proba = self._sklearn_model.predict_proba(X_scaled)[0]
+                if len(proba) == 1:
+                    p_refuse = float(proba[0]) if self._sklearn_model.classes_[0] == 1 else 0.0
+                elif len(proba) >= 2:
+                    refuse_idx = (
+                        1 if self._sklearn_model.classes_[1] == 1 else 0
+                    )
+                    p_refuse = float(proba[refuse_idx])
+                else:
+                    p_refuse = 0.5
+            else:
+                pred_class = int(self._sklearn_model.predict(X_scaled)[0])
+                p_refuse = 1.0 if pred_class == 1 else 0.0
+
+            predicted = 1 if p_refuse >= 0.5 else 0
+            confidence = max(p_refuse, 1.0 - p_refuse)
+            p_accept = 1.0 - p_refuse
+            if p_refuse > 0 and p_accept > 0:
+                uncertainty = -p_refuse * math.log(p_refuse) - p_accept * math.log(p_accept)
+                uncertainty /= math.log(2)
+            else:
+                uncertainty = 0.0
+
+            return SurrogatePrediction(
+                prompt=prompt,
+                predicted_outcome=predicted,
+                confidence=confidence,
+                uncertainty=uncertainty,
+                n_episodes=self._n_episodes,
+                prediction_id=f"pred_{uuid.uuid4().hex[:8]}",
+            )
+
         words = set(re.findall(r"[a-zA-Z]{3,}", prompt.lower()))
         word_to_idx = {w: i for i, w in enumerate(self._vocab)}
 
-        # Dirichlet-multinomial posterior: P(outcome | data) = (alpha + count) / (2*alpha + total)
         n_refuse = self._word_counts[1].sum() + self.alpha
         n_accept = self._word_counts[0].sum() + self.alpha
         total = n_refuse + n_accept
 
-        # Prior: P(REFUSE) = n_refuse / total
         p_refuse_prior = n_refuse / max(total, 1)
 
-        # Likelihood ratio from word features
         log_ratio = 0.0
         n_features_found = 0
         for w in words:
@@ -192,7 +353,6 @@ class SurrogatePolicyModel:
                     log_ratio += math.log(p_given_refuse / p_given_accept)
                     n_features_found += 1
 
-        # Posterior odds: log(P(REFUSE|prompt) / P(ACCEPT|prompt))
         if n_features_found > 0:
             log_posterior_odds = log_ratio + math.log(p_refuse_prior / (1.0 - p_refuse_prior + 1e-10))
             p_refuse = 1.0 / (1.0 + math.exp(-log_posterior_odds))
@@ -202,11 +362,10 @@ class SurrogatePolicyModel:
         predicted = 1 if p_refuse >= 0.5 else 0
         confidence = max(p_refuse, 1.0 - p_refuse)
 
-        # Uncertainty = entropy of posterior
         p_accept = 1.0 - p_refuse
         if p_refuse > 0 and p_accept > 0:
             uncertainty = -p_refuse * math.log(p_refuse) - p_accept * math.log(p_accept)
-            uncertainty /= math.log(2)  # normalize to [0, 1]
+            uncertainty /= math.log(2)
         else:
             uncertainty = 0.0
 
@@ -243,7 +402,7 @@ class SurrogatePolicyModel:
         if p <= 0.0 or p >= 1.0:
             return 0.0
         entropy = -p * math.log(p) - (1.0 - p) * math.log(1.0 - p)
-        return entropy / math.log(2)  # normalize
+        return entropy / math.log(2)
 
     def expected_information_gain(
         self,
@@ -269,11 +428,9 @@ class SurrogatePolicyModel:
         if p_refuse <= 0.0 or p_refuse >= 1.0:
             return 0.0
 
-        # H[current] = entropy of posterior predictive
         h_current = -p_refuse * math.log(p_refuse) - (1.0 - p_refuse) * math.log(1.0 - p_refuse)
         h_current /= math.log(2)
 
-        # E[ H[posterior | outcome] ] = p_refuse * H[posterior | REFUSE] + (1-p_refuse) * H[posterior | ACCEPT]
         posterior_refuse = [
             p * (1.0 if pred != 1 else 0.0)
             for pred, p in candidates
@@ -303,6 +460,10 @@ class SurrogatePolicyModel:
             "n_episodes": self._n_episodes,
             "is_trained": self._is_trained,
             "alpha": self.alpha,
+            "model_type": self.model_type,
+            "feature_type": self.feature_type,
+            "min_accuracy": self.min_accuracy,
+            "is_active": self._is_active,
         }
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
@@ -312,3 +473,7 @@ class SurrogatePolicyModel:
         self._n_episodes = state.get("n_episodes", 0)
         self._is_trained = state.get("is_trained", False)
         self.alpha = state.get("alpha", 0.1)
+        self.model_type = state.get("model_type", "mlp")
+        self.feature_type = state.get("feature_type", "embedding")
+        self.min_accuracy = state.get("min_accuracy", 0.65)
+        self._is_active = state.get("is_active", True)

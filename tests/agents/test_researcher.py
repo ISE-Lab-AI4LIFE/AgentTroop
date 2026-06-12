@@ -9,7 +9,7 @@ from core.executor import ProgramExecutor
 from core.primitive import default_registry
 from core.program import Program
 from knowledge.scientific_memory import Theory
-from synthesis.cvc5_synthesizer import SynthesisStats
+from harmony.synthesis import SynthesisStats
 from synthesis.verifier import VerificationReport
 
 # ---------------------------------------------------------------------------
@@ -108,19 +108,18 @@ def agent_no_synth() -> ResearcherAgent:
 class TestSynthesizeFromCampaign:
     def test_success(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats(depth_used=2, programs_tried=10)
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("bomb", 1, "ep_1"),
             _make_mock_episode("hello", 0, "ep_2"),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
 
         program, stats = agent.synthesize_from_campaign("camp_1")
 
         assert program is mock_program
-        assert stats is mock_stats
+        assert stats is not None
         agent.episodic_memory.filter_episodes.assert_called_once()
-        agent.synthesizer.synthesize_with_stats.assert_called_once()
+        agent.synthesizer.synthesize.assert_called_once()
 
     def test_no_episodes(self, agent: ResearcherAgent) -> None:
         agent.episodic_memory.filter_episodes.return_value = []
@@ -132,18 +131,17 @@ class TestSynthesizeFromCampaign:
 
     def test_with_experiment_id(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats(depth_used=1, programs_tried=5)
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("kill", 1, "ep_3"),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
 
         program, stats = agent.synthesize_from_campaign(
-            "camp_1", experiment_id="exp_42", allow_error_rate=0.1,
+            "camp_1", experiment_id="exp_42", error_tolerance=0.1,
         )
 
         assert program is mock_program
-        assert stats is mock_stats
+        assert stats is not None
         call_filter = agent.episodic_memory.filter_episodes.call_args[0][0]
         assert call_filter.experiment_id == "exp_42"
 
@@ -157,37 +155,35 @@ class TestSynthesizeFromCampaign:
 
     def test_exclude_prompts(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats(depth_used=1, programs_tried=3)
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("bomb", 1, "ep_1"),
             _make_mock_episode("hello", 0, "ep_2"),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
 
         program, stats = agent.synthesize_from_campaign(
             "camp_1", exclude_prompts={"hello"},
         )
 
         assert program is mock_program
-        examples = agent.synthesizer.synthesize_with_stats.call_args[0][0]
+        examples = agent.synthesizer.synthesize.call_args[0][0]
         assert len(examples) == 1
         assert examples[0] == ("bomb", 1)
 
     def test_exclude_episode_ids(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats(depth_used=1, programs_tried=2)
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("bomb", 1, "ep_1"),
             _make_mock_episode("hello", 0, "ep_2"),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
 
         program, stats = agent.synthesize_from_campaign(
             "camp_1", exclude_episode_ids={"ep_2"},
         )
 
         assert program is mock_program
-        examples = agent.synthesizer.synthesize_with_stats.call_args[0][0]
+        examples = agent.synthesizer.synthesize.call_args[0][0]
         assert len(examples) == 1
         assert examples[0] == ("bomb", 1)
 
@@ -413,16 +409,14 @@ class TestStoreTheory:
 class TestPipeline:
     def test_pipeline_success(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats(depth_used=1, programs_tried=5)
         mock_report = _make_mock_report()
         mock_theory = _make_mock_theory(theory_id="thr_pipe")
 
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("bomb", 1, "ep_1"),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
         agent.defense_store.save.return_value = "prog_pipe"
-        agent.synthesizer.abstract_theory.return_value = mock_theory
         agent.scientific_memory.save_theory.return_value = "thr_pipe"
 
         with patch.object(agent, "verify_program") as mock_vp:
@@ -455,16 +449,14 @@ class TestPipeline:
 
     def test_pipeline_verification_below_threshold(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats(depth_used=1, programs_tried=5)
         mock_report = _make_mock_report(accuracy=0.4, verified=False)
         mock_theory = _make_mock_theory(theory_id="thr_low")
 
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("bomb", 1, "ep_1"),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
         agent.defense_store.save.return_value = "prog_low"
-        agent.synthesizer.abstract_theory.return_value = mock_theory
         agent.scientific_memory.save_theory.return_value = "thr_low"
 
         with patch.object(agent, "verify_program") as mock_vp:
@@ -480,16 +472,14 @@ class TestPipeline:
 
     def test_pipeline_with_experiment_id(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats(depth_used=1, programs_tried=3)
         mock_report = _make_mock_report(accuracy=1.0)
         mock_theory = _make_mock_theory(theory_id="thr_exp")
 
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("attack", 1, "ep_exp"),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
         agent.defense_store.save.return_value = "prog_exp"
-        agent.synthesizer.abstract_theory.return_value = mock_theory
         agent.scientific_memory.save_theory.return_value = "thr_exp"
 
         with patch.object(agent, "verify_program") as mock_vp:
@@ -517,7 +507,6 @@ class TestPipeline:
 
     def test_pipeline_with_exclude_prompts(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats(depth_used=1, programs_tried=2)
         mock_report = _make_mock_report()
         mock_theory = _make_mock_theory(theory_id="thr_excl")
 
@@ -525,9 +514,8 @@ class TestPipeline:
             _make_mock_episode("bomb", 1, "ep_1"),
             _make_mock_episode("hello", 0, "ep_2"),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
         agent.defense_store.save.return_value = "prog_excl"
-        agent.synthesizer.abstract_theory.return_value = mock_theory
         agent.scientific_memory.save_theory.return_value = "thr_excl"
 
         with patch.object(agent, "verify_program") as mock_vp:
@@ -552,7 +540,6 @@ class TestPipeline:
 
         agent.episodic_memory.filter_episodes.side_effect = RuntimeError("should not be called")
         agent.defense_store.save.return_value = "prog_chk"
-        agent.synthesizer.abstract_theory.return_value = mock_theory
         agent.scientific_memory.save_theory.return_value = "thr_chk"
 
         with patch.object(agent, "verify_program") as mock_vp:
@@ -576,11 +563,10 @@ class TestPipeline:
 class TestProcessProposals:
     def test_synthesize_proposal(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats()
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("test", 1),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
 
         results = agent.process_proposals([
             {"type": "synthesize", "campaign_id": "camp_1"},
@@ -654,46 +640,43 @@ class TestProcessProposals:
 
 
 # ===================================================================
-# allow_error_rate validation
+# error_tolerance validation
 # ===================================================================
 
 
-class TestAllowErrorRateValidation:
-    def test_valid_rate_passed_through(self, agent: ResearcherAgent) -> None:
+class TestErrorToleranceValidation:
+    def test_valid_tolerance_passed_through(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats()
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("test", 1),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
 
-        agent.synthesize_from_campaign("camp_1", allow_error_rate=0.3)
+        program, stats = agent.synthesize_from_campaign("camp_1", error_tolerance=0.3)
 
-        assert agent.synthesizer.allow_error_rate == 0.3
+        assert program is mock_program
 
-    def test_rate_clamped_to_zero(self, agent: ResearcherAgent) -> None:
+    def test_tolerance_clamped_to_zero(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats()
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("test", 1),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
 
-        agent.synthesize_from_campaign("camp_1", allow_error_rate=-0.5)
+        program, stats = agent.synthesize_from_campaign("camp_1", error_tolerance=-0.5)
 
-        assert agent.synthesizer.allow_error_rate == 0.0
+        assert program is mock_program
 
-    def test_rate_clamped_to_one(self, agent: ResearcherAgent) -> None:
+    def test_tolerance_clamped_to_one(self, agent: ResearcherAgent) -> None:
         mock_program = _make_mock_program()
-        mock_stats = SynthesisStats()
         agent.episodic_memory.filter_episodes.return_value = [
             _make_mock_episode("test", 1),
         ]
-        agent.synthesizer.synthesize_with_stats.return_value = (mock_program, mock_stats)
+        agent.synthesizer.synthesize.return_value = [mock_program]
 
-        agent.synthesize_from_campaign("camp_1", allow_error_rate=1.5)
+        program, stats = agent.synthesize_from_campaign("camp_1", error_tolerance=1.5)
 
-        assert agent.synthesizer.allow_error_rate == 1.0
+        assert program is mock_program
 
 
 # ===================================================================

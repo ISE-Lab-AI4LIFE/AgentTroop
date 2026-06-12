@@ -105,8 +105,8 @@ class Orchestrator:
         Hard cap on total intervention count (default 500).
     accuracy_threshold : float
         Program accuracy needed to consider the target reverse-engineered (default 0.9).
-    allow_error_rate : float
-        Noise tolerance for program synthesis (default 0.0).
+    error_tolerance : float
+        Noise tolerance for program synthesis (default 0.15).
     synthesis_interval : int
         Run Researcher synthesis every N interventions (default 5).
     force_exploration_interval : int
@@ -132,7 +132,7 @@ class Orchestrator:
         max_iterations: int = 50,
         max_interventions: int = 500,
         accuracy_threshold: float = 0.9,
-        allow_error_rate: float = 0.0,
+        error_tolerance: float = 0.15,
         synthesis_interval: int = _SYNTHESIS_INTERVAL,
         force_exploration_interval: int = 3,
         entropy_convergence_threshold: float = 0.1,
@@ -162,7 +162,7 @@ class Orchestrator:
         self.max_iterations = max(1, int(max_iterations))
         self.max_interventions = max(1, int(max_interventions))
         self.accuracy_threshold = accuracy_threshold
-        self.allow_error_rate = allow_error_rate
+        self.error_tolerance = error_tolerance
         self.synthesis_interval = max(1, int(synthesis_interval))
         self.force_exploration_interval = max(1, int(force_exploration_interval))
         self.entropy_convergence_threshold = entropy_convergence_threshold
@@ -188,6 +188,22 @@ class Orchestrator:
         # All agents reference the same object
         self.strategist._version_space = self.version_space
 
+        self._synthesizer_mode = "evolutionary"
+
+        from harmony.synthesis import get_synthesizer
+        synthesis_config = {
+            "population_size": 100,
+            "generations": 30,
+            "mutation_rate": 0.2,
+            "crossover_rate": 0.7,
+            "max_depth": 6,
+            "beam_width": 500,
+        }
+        self._synthesizer = get_synthesizer(
+            mode=self._synthesizer_mode,
+            config=synthesis_config,
+        )
+
         # Track belief history for convergence
         self._belief_history: List[float] = []
         self._entropy_history: List[float] = []
@@ -202,6 +218,8 @@ class Orchestrator:
         # when victim outcome is uniform (≈100% REFUSE or ≈100% ACCEPT)
         self.surrogate = SurrogatePolicyModel()
         self._surrogate_training_stats: List[Dict[str, Any]] = []
+        self._consecutive_synthesis_failures = 0
+        self._diversity_preservation = True
 
         # Counterfactual Learning Layer — generates counterfactual prompt pairs
         # to extract invariant features from uniform outcomes
@@ -238,7 +256,7 @@ class Orchestrator:
                 return self.session_memory.create_session(
                     self.campaign_id, target_model,
                     metadata={
-                        "allow_error_rate": self.allow_error_rate,
+                        "error_tolerance": self.error_tolerance,
                         "accuracy_threshold": self.accuracy_threshold,
                         "experiment_id": self.experiment_id or "",
                     },
@@ -559,6 +577,24 @@ class Orchestrator:
                             )
                             break
 
+            if converged_by_entropy or converged_by_accuracy:
+                self._diversity_preservation = False
+                self.version_space.diversity_preservation = False
+
+            # Red Team Agent evaluation
+            harmony_asr = 0.0
+            if self.red_team is not None:
+                try:
+                    best = self.version_space.most_likely()
+                    if best is not None and hasattr(self.red_team, 'evaluate_asr'):
+                        test_prompts = self._load_holdout_prompts()
+                        harmony_asr = self.red_team.evaluate_asr(
+                            best.program, test_prompts, self.victim,
+                        )
+                        logger.info("Red Team ASR: %.4f", harmony_asr)
+                except Exception as e:
+                    logger.warning("Red Team evaluation failed: %s", e)
+
             # ── Finalize ──
             self.session_memory.set_status(self.campaign_id, "completed")
             self._persist_belief_history()
@@ -577,6 +613,7 @@ class Orchestrator:
                 best_accuracy=best_acc,
                 total_interventions=total_interventions,
                 converged_by=f"{'accuracy' if converged_by_accuracy else ''}{' + ' if converged_by_accuracy and converged_by_entropy else ''}{'entropy' if converged_by_entropy else 'iteration_limit'}",
+                harmony_asr=harmony_asr,
             )
 
         except Exception as exc:
@@ -1191,9 +1228,8 @@ class Orchestrator:
         semantic, discourse) for balanced coverage.
         """
         try:
-            from synthesis.cvc5_synthesizer import CVC5Synthesizer
             from inference.version_space import _classify_program
-            synthesizer = getattr(self.researcher, "synthesizer", None)
+            synthesizer = getattr(self, '_synthesizer', None)
             if synthesizer is None:
                 logger.warning("No synthesizer available on researcher agent")
                 return
@@ -1207,22 +1243,19 @@ class Orchestrator:
                 getattr(self.strategist, "primitive_registry", None),
             )
 
-            # FIX P3: Adaptive error tolerance — auto-increase when
-            # consecutive synthesis rounds return 0 programs.
-            consecutive = getattr(self, '_consecutive_synthesis_failures', 0)
-            if consecutive >= 2:
-                new_rate = min(0.45, 0.15 + consecutive * 0.05)
-                old_rate = synthesizer.allow_error_rate
-                synthesizer.allow_error_rate = new_rate
+            # Early stopping: if best program fitness > 0.95 and iteration > 10, skip synthesis
+            best = self.version_space.most_likely()
+            if best is not None and best.accuracy >= 0.95 and self.iteration > 10:
                 logger.info(
-                    "Adaptive error tolerance: allow_error_rate=%.2f -> %.2f "
-                    "(%d consecutive failures)",
-                    old_rate, new_rate, consecutive,
+                    "Early stopping synthesis: best=%.4f > 0.95 at iteration=%d",
+                    best.accuracy, self.iteration,
                 )
+                return
 
             self._synthesis_attempts += 1
-            programs = synthesizer.synthesize_top_k(
-                episodes, k=self.top_k_candidates,
+            programs = synthesizer.synthesize(
+                episodes, base_programs=[c.program for c in self.version_space.candidates],
+                k=self.top_k_candidates,
             )
 
             # ── Track synthesis success/failure ──
@@ -1241,78 +1274,22 @@ class Orchestrator:
                 )
                 programs = self._generate_heuristic_candidates(episodes, executor)
 
-            # FIX P1: Incremental addition — preserve existing posterior
-            existing_ids = set(self.version_space.program_ids)
-            entropy_before = self.version_space.entropy()
-            added = 0
-            updated = 0
+            entries = []
             for prog in programs:
                 accuracy = self._compute_accuracy(prog, episodes, executor)
-                source = getattr(prog, "source", "enumeration")
-                prog_id = getattr(prog, "id", "") or ""
-                if prog_id in existing_ids:
-                    # Update accuracy only — posterior preserved
-                    self.version_space.add_candidate(
-                        program=prog, accuracy=accuracy, source=source,
-                        episodes_matched=int(accuracy * len(episodes)),
-                        total_episodes=len(episodes),
-                    )
-                    updated += 1
-                else:
-                    # New candidate — initial posterior scales with accuracy
-                    # so substantiated programs (>0.0) start higher than seeds
-                    self.version_space.add_candidate(
-                        program=prog, accuracy=accuracy, source=source,
-                        episodes_matched=int(accuracy * len(episodes)),
-                        total_episodes=len(episodes),
-                    )
-                    added += 1
+                source = getattr(prog, "source", "synthesis")
+                entries.append((prog, accuracy, source, int(accuracy * len(episodes)), len(episodes)))
 
-            # FIX P1: DO NOT reset_belief — posterior preserved
-            entropy_after = self.version_space.entropy()
-            logger.info(
-                "Version space: added=%d updated=%d (total=%d, "
-                "entropy_before=%.3f entropy_after=%.3f)",
-                added, updated, self.version_space.num_candidates,
-                entropy_before, entropy_after,
+            added = self.version_space.absorb_candidates(
+                entries, alpha=0.85, new_candidate_weight=0.1,
             )
 
-            # FIX: CVC5 exact-match winner override — if CVC5 found
-            # programs with zero errors on the training examples, boost
-            # ALL of them equally to dominate the version space.  This
-            # prevents the pipeline from selecting a spurious program
-            # (e.g. contains_word('instructions')) over the correct one
-            # (contains_word('bomb')) when the Bayesian posterior alone
-            # cannot differentiate equally-accurate programs on small
-            # data.
-            #
-            # We boost ALL exact-match programs collectively (splitting
-            # 0.99 among them) so that the correct keyword program gets
-            # the same boost as any spurious semantic program.  The
-            # holdout set's reweighting then breaks the tie among them.
-            vs = self.version_space
-            exact_match_ids: List[str] = []
-            exact_match_acc = 0.0
-            for prog in (programs or []):
-                prog_id = getattr(prog, "id", "")
-                if not prog_id:
-                    continue
-                metadata = getattr(prog, "metadata", {}) or {}
-                if not metadata.get("exact_match"):
-                    continue
-                cand_idx = vs._find_index(prog_id)
-                if cand_idx is not None and cand_idx < len(vs._posterior):
-                    acc = float(vs._candidates[cand_idx].accuracy or 0.0)
-                    if acc >= 0.999:
-                        exact_match_ids.append(prog_id)
-                        exact_match_acc = max(exact_match_acc, acc)
-            if exact_match_ids:
-                n_boosted = vs.boost_multiple(exact_match_ids, 0.99)
-                logger.info(
-                    "CVC5 exact-match override: boosted %d / %d candidate(s) "
-                    "posterior to 0.99 (exact_match=True, accuracy=%.3f)",
-                    n_boosted, len(exact_match_ids), exact_match_acc,
-                )
+            # FIX P1: DO NOT reset_belief — posterior preserved
+            logger.info(
+                "Version space: added=%d (total=%d)",
+                added, self.version_space.num_candidates,
+            )
+
 
             # FIX 2: Type diversity survival guarantee — ensure at least
             # 3 candidates of each core predicate type survive pruning.
@@ -2306,6 +2283,7 @@ class Orchestrator:
         total_interventions: int = 0,
         error: Optional[str] = None,
         converged_by: str = "unknown",
+        harmony_asr: float = 0.0,
     ) -> Dict[str, Any]:
         best = self.version_space.most_likely()
         return {
@@ -2322,6 +2300,7 @@ class Orchestrator:
             "num_candidates": self.version_space.num_candidates,
             "converged_by": converged_by,
             "error": error,
+            "harmony_asr": harmony_asr,
             "telemetry": {
                 "seed": self._seed_telemetry,
                 "anomaly": self._anomaly_telemetry,

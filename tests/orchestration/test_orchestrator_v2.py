@@ -155,7 +155,7 @@ def orchestrator(
         max_iterations=3,
         max_interventions=20,
         accuracy_threshold=0.95,
-        allow_error_rate=0.0,
+        error_tolerance=0.15,
         synthesis_interval=10,
     )
 

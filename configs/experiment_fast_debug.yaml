@@ -1,42 +1,48 @@
 use_async: true
-num_seeds: 5
+
 orchestrator:
-  max_iterations: 25
-  max_interventions: 100
-  accuracy_threshold: 0.70
-  error_tolerance: 0.15
-  synthesis_interval: 3
+  max_iterations: 10
+  max_interventions: 150
+  accuracy_threshold: 0.90
+  error_tolerance: 0.05
+  synthesis_interval: 8
   force_exploration_interval: 2
-  entropy_convergence_threshold: 0.1
+  entropy_convergence_threshold: 0.2
   keep_top_k: 10
   new_candidate_weight: 0.1
   early_stopping_fitness: 0.95
   early_stopping_iterations: 10
+
 cognitive:
   anomaly_threshold: 0.1
   llm_model: "gemma"
+
 strategist:
   use_llm: true
   max_chain_depth: 2
-  max_candidates_heuristic: 100
+  max_candidates_heuristic: 60
   max_candidates_llm: 10
-  num_trials: 3
+  num_trials: 2
+
 researcher:
   max_depth: 6
   beam_width: 500
-  error_tolerance: 0.15
-  top_k_candidates: 30
+  error_tolerance: 0.05
+  top_k_candidates: 20
   use_cvc5: false
   enforce_cvc5_first: false
+
 victim:
   ollama_url: "http://localhost:11434"
   model_name: "llama3.1:8b"
   temperature: 0.0
   max_tokens: 100
+
 red_team:
   enabled: true
   strategies: ["cipher", "roleplay", "crescendo", "skeleton_key"]
-  refinement_rounds: 3
+  refinement_rounds: 1
+
 synthesis:
   mode: "evolutionary"
   evolutionary:
@@ -50,14 +56,17 @@ synthesis:
   fitness_guided:
     max_depth: 6
     beam_width: 500
-  error_tolerance: 0.15
+  error_tolerance: 0.05
+
 surrogate:
   enabled: true
   model: "mlp"
   feature_type: "embedding"
   min_accuracy: 0.65
+
 causal_graph:
   min_samples_per_group: 10
   use_bayesian: true
+
 transforms:
   disabled: []

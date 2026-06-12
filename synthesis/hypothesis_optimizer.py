@@ -24,7 +24,7 @@ from core.executor import ProgramExecutor
 from core.primitive import default_registry
 from core.program import Program
 
-from .cvc5_synthesizer import CVC5Synthesizer, SynthesisStats
+from harmony.synthesis import get_synthesizer, SynthesisStats
 from .grammar_exporter import GrammarExporter
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ class HypothesisOptimizer:
     """Solves the formal hypothesis optimization problem.
 
     Uses a multi-objective approach:
-        1. Generate candidate programs via CVC5 + enumeration
+        1. Generate candidate programs via fitness-guided enumeration
         2. Score each by total_loss = L(Π) + λ₁·C(Π) + λ₂·MDL(Π)
         3. Select Π* with minimum total_loss
         4. Return OptimizedProgram with loss decomposition
@@ -66,17 +66,14 @@ class HypothesisOptimizer:
         self,
         lambda_complexity: float = 0.1,
         lambda_mdl: float = 0.05,
-        synthesizer: Optional[CVC5Synthesizer] = None,
+        synthesizer: Optional[Any] = None,
         executor: Optional[ProgramExecutor] = None,
     ) -> None:
         self.lambda_complexity = lambda_complexity
         self.lambda_mdl = lambda_mdl
-        self.synthesizer = synthesizer or CVC5Synthesizer(
-            max_depth=3,
-            beam_width=200,
-            timeout=30,
-            use_cache=True,
-            hybrid=True,
+        self.synthesizer = synthesizer or get_synthesizer(
+            mode="fitness_guided",
+            config={"max_depth": 4, "beam_width": 200},
         )
         self.executor = executor or ProgramExecutor(default_registry)
 
@@ -154,15 +151,14 @@ class HypothesisOptimizer:
         examples: List[Tuple[str, int]],
         max_candidates: int,
     ) -> List[Program]:
-        """Generate candidate programs from CVC5 + enumeration."""
+        """Generate candidate programs using fitness-guided enumeration."""
         candidates: List[Program] = []
 
-        # Try CVC5 (with hybrid mode)
-        prog, stats = self.synthesizer.synthesize_with_stats(examples)
-        if prog is not None:
-            candidates.append(prog)
+        results = self.synthesizer.synthesize(examples, k=max_candidates)
+        for p in results:
+            if p not in candidates:
+                candidates.append(p)
 
-        # Try enumeration for more candidates
         exporter = GrammarExporter(
             primitive_registry=default_registry,
             max_depth=3,

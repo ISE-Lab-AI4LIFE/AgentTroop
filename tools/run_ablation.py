@@ -281,7 +281,7 @@ def run_single_pipeline(
         max_iterations=20,
         max_interventions=50,
         accuracy_threshold=0.9,
-        allow_error_rate=0.0,
+        error_tolerance=0.15,
         min_holdout_size_for_convergence=2,
         min_holdout_accuracy_for_convergence=0.65,
         max_generalization_gap=0.15,

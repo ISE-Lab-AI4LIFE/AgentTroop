@@ -1,5 +1,5 @@
 from .adversarial_asr_evaluator import AdversarialASREvaluator
-from .asr_evaluator import ASREvaluator
+from .asr_evaluator import BaselineASREvaluator
 from .harmony_asr_evaluator import HarmonyASREvaluator
 from .rq0_evaluator import RQ0Evaluator
 from .rq1_evaluator import RQ1Evaluator
@@ -8,7 +8,7 @@ from .rq3_evaluator import RQ3Evaluator
 
 __all__ = [
     "AdversarialASREvaluator",
-    "ASREvaluator",
+    "BaselineASREvaluator",
     "HarmonyASREvaluator",
     "RQ0Evaluator",
     "RQ1Evaluator",

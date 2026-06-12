@@ -98,7 +98,7 @@ class SemanticScorePrimitive(Classifier):
     """Base class for semantic score primitives.
 
     Subclasses Classifier for backward compatibility (ThresholdNode,
-    GrammarExporter, and CVC5 enumeration all work with Classifier).
+    GrammarExporter, and enumeration all work with Classifier).
     The semantic distinction is:
       - Classifier → statistical / opaque score (e.g. toxicity, sentiment)
       - SemanticScorePrimitive → deterministic, explainable, degrades
@@ -744,7 +744,7 @@ class RemovePunctuationTransform(Transform):
         self.metadata = {
             "description": "Remove punctuation from the prompt.",
             "category": "transform",
-            "related_primitives": ["remove_whitespace"],
+            "related_primitives": [],
         }
 
     def evaluate(self, prompt: Prompt) -> Prompt:
@@ -780,49 +780,7 @@ class LeetSpeakTransform(Transform):
         return "".join(result)
 
 
-@dataclass
-class ReverseTextTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "reverse_text"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Reverse the entire string.",
-            "category": "transform",
-            "related_primitives": [],
-        }
 
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        return prompt[::-1]
-
-
-@dataclass
-class PigLatinTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "pig_latin"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Convert text to Pig Latin.",
-            "category": "transform",
-            "related_primitives": [],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        vowels = "aeiouAEIOU"
-        words = prompt.split()
-        result = []
-        for word in words:
-            if not word:
-                continue
-            if word[0] in vowels:
-                result.append(word + "way")
-            else:
-                first_vowel = next((i for i, c in enumerate(word) if c in vowels), len(word))
-                result.append(word[first_vowel:] + word[:first_vowel] + "ay")
-        return " ".join(result)
 
 
 @dataclass
@@ -882,49 +840,7 @@ class WrapCodeBlockTransform(Transform):
         return f"```{self.language}\n{prompt}\n```"
 
 
-@dataclass
-class InsertTyposTransform(Transform):
-    probability: float = 0.1
 
-    def __post_init__(self) -> None:
-        self.name = "insert_typos"
-        self.parameters = {"probability": self.probability}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Randomly insert typos (swap/delete adjacent chars) at given probability.",
-            "category": "transform",
-            "related_primitives": ["insert_synonyms"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        chars = list(prompt)
-        for i in range(len(chars) - 1):
-            if random.random() < self.probability:
-                chars[i], chars[i+1] = chars[i+1], chars[i]
-        return "".join(chars)
-
-
-@dataclass
-class WordShuffleTransform(Transform):
-    seed: int = 42
-
-    def __post_init__(self) -> None:
-        self.name = "word_shuffle"
-        self.parameters = {"seed": self.seed}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Shuffle word order deterministically by seed.",
-            "category": "transform",
-            "related_primitives": ["reverse_text"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        words = prompt.split()
-        rng = random.Random(self.seed)
-        rng.shuffle(words)
-        return " ".join(words)
 
 
 @dataclass
@@ -1011,108 +927,14 @@ class HtmlEncodeTransform(Transform):
         self.metadata = {
             "description": "Encode special characters as HTML entities (< → &lt;).",
             "category": "transform",
-            "related_primitives": ["url_encode", "quoted_printable"],
+            "related_primitives": [],
         }
 
     def evaluate(self, prompt: Prompt) -> Prompt:
         return html.escape(prompt)
 
 
-@dataclass
-class URLEncodeTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "url_encode"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "URL-encode the prompt (space → %20).",
-            "category": "transform",
-            "related_primitives": ["html_encode", "quoted_printable"],
-        }
 
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        return urllib.parse.quote(prompt)
-
-
-@dataclass
-class QuotedPrintableTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "quoted_printable"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Encode prompt as quoted-printable (=XX format).",
-            "category": "transform",
-            "related_primitives": ["html_encode", "url_encode"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        result = []
-        for c in prompt:
-            if c == " ":
-                result.append(" ")
-            elif c.isalnum() and ord(c) < 128 or c in "-_.!~*'()":
-                result.append(c)
-            else:
-                result.append(f"={ord(c):02X}")
-        return "".join(result)
-
-
-@dataclass
-class RemoveVowelsTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "remove_vowels"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Remove all vowels (a, e, i, o, u).",
-            "category": "transform",
-            "related_primitives": ["remove_punctuation", "remove_whitespace"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        return re.sub(r"[aeiouAEIOU]", "", prompt)
-
-
-@dataclass
-class BoustrophedonTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "boustrophedon"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Alternate text direction line-by-line (boustrophedon style).",
-            "category": "transform",
-            "related_primitives": ["reverse_text"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        lines = prompt.split("\n")
-        result = []
-        for i, line in enumerate(lines):
-            result.append(line if i % 2 == 0 else line[::-1])
-        return "\n".join(result)
-
-
-@dataclass
-class RemoveWhitespaceTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "remove_whitespace"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Remove all whitespace (spaces, tabs, newlines).",
-            "category": "transform",
-            "related_primitives": ["remove_punctuation", "remove_vowels"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        return "".join(prompt.split())
 
 
 @dataclass
@@ -1127,7 +949,7 @@ class InsertSynonymsTransform(Transform):
         self.metadata = {
             "description": "Replace words with synonyms (using simple built-in map).",
             "category": "transform",
-            "related_primitives": ["insert_typos"],
+            "related_primitives": [],
         }
 
     _SYNONYM_MAP: ClassVar[Dict[str, List[str]]] = {
@@ -1213,25 +1035,6 @@ class AddRolePlayTransform(Transform):
 
 
 @dataclass
-class TruncateTransform(Transform):
-    max_chars: int = 100
-
-    def __post_init__(self) -> None:
-        self.name = "truncate"
-        self.parameters = {"max_chars": self.max_chars}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Truncate prompt to max_chars characters.",
-            "category": "transform",
-            "related_primitives": [],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        return prompt[:self.max_chars]
-
-
-@dataclass
 class PadToLengthTransform(Transform):
     length: int = 100
     pad_char: str = " "
@@ -1244,7 +1047,7 @@ class PadToLengthTransform(Transform):
         self.metadata = {
             "description": "Pad or truncate prompt to exact length with pad_char.",
             "category": "transform",
-            "related_primitives": ["truncate"],
+            "related_primitives": [],
         }
 
     def evaluate(self, prompt: Prompt) -> Prompt:
@@ -2440,23 +2243,20 @@ def _register_default_primitives() -> PrimitiveRegistry:
     registry.register(IsInstructionRequestPredicate)
     registry.register(InstructionScorePrimitive)
 
-    # Transforms (22 — readable-preserving only)
+    # Transforms (19 — readable-preserving only)
     registry.register(ToLowercaseTransform)
     registry.register(ToUppercaseTransform)
     registry.register(RemovePunctuationTransform)
-    registry.register(InsertTyposTransform)
     registry.register(AddPrefixTransform)
     registry.register(AddSuffixTransform)
     registry.register(WrapCodeBlockTransform)
     registry.register(AddMarkdownTransform)
     registry.register(AddZeroWidthCharsTransform)
     registry.register(HtmlEncodeTransform)
-    registry.register(URLEncodeTransform)
     registry.register(InsertSynonymsTransform)
     registry.register(EscapeQuotesTransform)
     registry.register(FormatAsJsonTransform)
     registry.register(AddRolePlayTransform)
-    registry.register(TruncateTransform)
     registry.register(PadToLengthTransform)
     registry.register(RandomCaseTransform)
     registry.register(ToInterrogativeTransform)

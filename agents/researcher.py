@@ -1,10 +1,9 @@
 """Researcher Agent — reverse engineering safety programs through intervention-guided synthesis.
 
 The Researcher Agent is the core of HARMONY-X's reverse engineering pipeline.
-It reads intervention data from Episodic Memory, synthesizes programs using
-CVC5Synthesizer, verifies them against a victim, stores verified programs in
-the Defense Program Store, extracts abstract theories, and persists them in
-Scientific Memory.
+It reads intervention data from Episodic Memory, synthesizes programs, verifies
+them against a victim, stores verified programs in the Defense Program Store,
+extracts abstract theories, and persists them in Scientific Memory.
 
 This agent does NOT use LLMs — it relies entirely on the synthesis module
 and the hierarchical memory layers.
@@ -27,7 +26,7 @@ from graphrag.query_parser import QueryParser
 from graphrag.subgraph_retriever import SubgraphRetriever
 from knowledge.scientific_memory import ScientificMemory, Theory
 from knowledge.defense_store import DefenseProgramRecord, DefenseProgramStore
-from synthesis.cvc5_synthesizer import CVC5Synthesizer, SynthesisStats, build_simple_program
+from harmony.synthesis import get_synthesizer, SynthesisStats
 from synthesis.preprocessor import Preprocessor
 from synthesis.verifier import ProgramVerifier, VerificationReport
 
@@ -39,7 +38,7 @@ class ResearcherAgent:
 
     The Researcher Agent executes the core reverse engineering pipeline:
         1. Read intervention data from Episodic Memory
-        2. Synthesize a program from examples using CVC5Synthesizer
+        2. Synthesize a program from examples using the synthesizer
         3. Verify the program against a victim via ProgramVerifier
         4. Store the verified program in Defense Program Store
         5. Extract an abstract theory from the program and save to Scientific Memory
@@ -63,7 +62,7 @@ class ResearcherAgent:
         defense_store: DefenseProgramStore,
         scientific_memory: ScientificMemory,
         ontology_memory: Optional[OntologyMemory] = None,
-        synthesizer: Optional[CVC5Synthesizer] = None,
+        synthesizer: Optional[Any] = None,
         executor: Optional[ProgramExecutor] = None,
         verifier: Optional[ProgramVerifier] = None,
         default_model_family: str = "unknown",
@@ -76,7 +75,7 @@ class ResearcherAgent:
             defense_store: Defense Program Store for persisting programs.
             scientific_memory: Scientific Memory for persisting theories.
             ontology_memory: Optional Ontology Memory for primitive catalog.
-            synthesizer: Optional CVC5Synthesizer. Created with defaults if not provided.
+            synthesizer: Optional synthesizer instance. Created with defaults if not provided.
             executor: Optional ProgramExecutor. Created from default_registry if not provided.
             verifier: Optional ProgramVerifier. Created per verify_program() call if not set.
             default_model_family: Default model family label used when abstracting theories.
@@ -99,11 +98,9 @@ class ResearcherAgent:
 
 
 
-        self.synthesizer = synthesizer or CVC5Synthesizer(
-            max_depth=3,
-            beam_width=200,
-            timeout=30,
-            use_cache=True,
+        self.synthesizer = synthesizer or get_synthesizer(
+            mode="evolutionary",
+            config={"population_size": 100, "generations": 30, "mutation_rate": 0.2, "crossover_rate": 0.7},
         )
         self.executor = executor or ProgramExecutor(default_registry)
         self._shared_verifier = verifier
@@ -119,7 +116,7 @@ class ResearcherAgent:
         self,
         campaign_id: str,
         experiment_id: Optional[str] = None,
-        allow_error_rate: float = 0.0,
+        error_tolerance: float = 0.15,
         exclude_prompts: Optional[Set[str]] = None,
         exclude_episode_ids: Optional[Set[str]] = None,
     ) -> Tuple[Optional[Program], SynthesisStats]:
@@ -132,8 +129,7 @@ class ResearcherAgent:
         Args:
             campaign_id: Campaign ID to read episodes from.
             experiment_id: Optional experiment ID to narrow the scope.
-            allow_error_rate: Noise tolerance (0.0..1.0) passed to the synthesizer.
-                Clamped to [0.0, 1.0] if out of range.
+            error_tolerance: Noise tolerance (0.0..1.0). Clamped to [0.0, 1.0] if out of range.
             exclude_prompts: Optional set of prompt strings to exclude from training examples.
             exclude_episode_ids: Optional set of episode IDs to exclude from training examples.
 
@@ -141,9 +137,9 @@ class ResearcherAgent:
             Tuple of (program or None if synthesis failed, SynthesisStats).
 
         Raises:
-            ValueError: If allow_error_rate is outside [0.0, 1.0] (logged as warning, clamped).
+            ValueError: If error_tolerance is outside [0.0, 1.0] (logged as warning, clamped).
         """
-        allow_error_rate = self._validate_allow_error_rate(allow_error_rate)
+        error_tolerance = self._validate_error_tolerance(error_tolerance)
 
         filter_kwargs: Dict[str, Any] = {"campaign_id": campaign_id}
         if experiment_id is not None:
@@ -187,30 +183,30 @@ class ResearcherAgent:
             return None, SynthesisStats()
 
         logger.info(
-            "Synthesizing from %d examples (campaign=%s, experiment=%s, allow_error_rate=%.2f%s)",
-            len(examples), campaign_id, experiment_id, allow_error_rate, log_extra,
+            "Synthesizing from %d examples (campaign=%s, experiment=%s, error_tolerance=%.2f%s)",
+            len(examples), campaign_id, experiment_id, error_tolerance, log_extra,
         )
 
-        self.synthesizer.allow_error_rate = allow_error_rate
         start_ts = time.time()
-        program, stats = self.synthesizer.synthesize_with_stats(
-            examples,
-            primitive_registry=default_registry,
-            ontology_memory=self.ontology_memory,
-        )
+        candidates = self.synthesizer.synthesize(examples, k=1)
         elapsed = time.time() - start_ts
+
+        program = candidates[0] if candidates else None
+        stats = SynthesisStats()
+        stats.duration_ms = elapsed * 1000
+        stats.programs_tried = len(candidates)
+        stats.synthesized_candidates = len(candidates)
+        stats.candidates_considered = len(candidates) * self.synthesizer.generations if hasattr(self.synthesizer, 'generations') else len(candidates)
 
         if program is not None:
             logger.info(
-                "Synthesis succeeded in %.1fs (depth=%d, tried=%d, errors=%d/%d, cvc5=%s)",
-                elapsed, stats.depth_used, stats.programs_tried,
-                stats.errors_actual, len(examples),
-                stats.cvc5_used,
+                "Synthesis succeeded in %.1fs (candidates=%d)",
+                elapsed, stats.synthesized_candidates,
             )
         else:
             logger.warning(
-                "Synthesis failed for campaign=%s after %.1fs (tried=%d)",
-                campaign_id, elapsed, stats.programs_tried,
+                "Synthesis failed for campaign=%s after %.1fs",
+                campaign_id, elapsed,
             )
 
         return program, stats
@@ -236,11 +232,12 @@ class ResearcherAgent:
         if not examples:
             logger.warning("All examples removed by preprocessor")
             return None, SynthesisStats()
-        return self.synthesizer.synthesize_with_stats(
-            examples,
-            primitive_registry=default_registry,
-            ontology_memory=self.ontology_memory,
-        )
+        candidates = self.synthesizer.synthesize(examples, k=1)
+        program = candidates[0] if candidates else None
+        stats = SynthesisStats()
+        stats.synthesized_candidates = len(candidates)
+        stats.programs_tried = len(candidates)
+        return program, stats
 
     # ------------------------------------------------------------------
     # Step 2: Verification
@@ -439,7 +436,7 @@ class ResearcherAgent:
         campaign_id: str,
         victim: Any,
         program_name: Optional[str] = None,
-        allow_error_rate: float = 0.0,
+        error_tolerance: float = 0.15,
         num_test_interventions: int = 10,
         accuracy_threshold: float = 0.9,
         model_family: Optional[str] = None,
@@ -465,7 +462,7 @@ class ResearcherAgent:
             campaign_id: Campaign ID to process.
             victim: Victim instance for verification.
             program_name: Optional name for the stored program.
-            allow_error_rate: Noise tolerance for synthesis. Clamped to [0.0, 1.0].
+            error_tolerance: Noise tolerance for synthesis. Clamped to [0.0, 1.0].
             num_test_interventions: Number of test interventions for verification.
             accuracy_threshold: Accuracy threshold for verification.
             model_family: Model family for theory abstraction.
@@ -491,7 +488,7 @@ class ResearcherAgent:
         Raises:
             TypeError: If campaign_id or victim are None.
         """
-        allow_error_rate = self._validate_allow_error_rate(allow_error_rate)
+        error_tolerance = self._validate_error_tolerance(error_tolerance)
         start_time = time.time()
         result: Dict[str, Any] = self._init_pipeline_result()
 
@@ -502,7 +499,7 @@ class ResearcherAgent:
             # Step 1: Synthesis
             if step_start <= 1:
                 program, stats = self._pipeline_step1_synthesis(
-                    campaign_id, experiment_id, allow_error_rate,
+                    campaign_id, experiment_id, error_tolerance,
                     exclude_prompts, exclude_episode_ids,
                 )
                 result["stats"] = stats
@@ -612,7 +609,7 @@ class ResearcherAgent:
                     prog, stats = self.synthesize_from_campaign(
                         campaign_id=proposal["campaign_id"],
                         experiment_id=proposal.get("experiment_id"),
-                        allow_error_rate=proposal.get("allow_error_rate", 0.0),
+                        error_tolerance=proposal.get("error_tolerance", 0.15),
                     )
                     result_entry["result"] = (prog, stats)
                     result_entry["success"] = prog is not None
@@ -738,11 +735,11 @@ class ResearcherAgent:
         return self._verifier_cache[victim_id]
 
     @staticmethod
-    def _validate_allow_error_rate(rate: float) -> float:
-        """Validate and clamp allow_error_rate to [0.0, 1.0]."""
+    def _validate_error_tolerance(rate: float) -> float:
+        """Validate and clamp error_tolerance to [0.0, 1.0]."""
         if rate < 0.0 or rate > 1.0:
             logger.warning(
-                "allow_error_rate=%.2f outside [0, 1]; clamping to [0, 1]", rate,
+                "error_tolerance=%.2f outside [0, 1]; clamping to [0, 1]", rate,
             )
         return max(0.0, min(1.0, rate))
 
@@ -764,7 +761,7 @@ class ResearcherAgent:
         self,
         campaign_id: str,
         experiment_id: Optional[str],
-        allow_error_rate: float,
+        error_tolerance: float,
         exclude_prompts: Optional[Set[str]],
         exclude_episode_ids: Optional[Set[str]],
     ) -> Tuple[Optional[Program], SynthesisStats]:
@@ -772,7 +769,7 @@ class ResearcherAgent:
         return self.synthesize_from_campaign(
             campaign_id=campaign_id,
             experiment_id=experiment_id,
-            allow_error_rate=allow_error_rate,
+            error_tolerance=error_tolerance,
             exclude_prompts=exclude_prompts,
             exclude_episode_ids=exclude_episode_ids,
         )

@@ -4,10 +4,14 @@ orchestrator:
   max_iterations: 50
   max_interventions: 1000
   accuracy_threshold: 0.90
-  allow_error_rate: 0.05
+  error_tolerance: 0.05
   synthesis_interval: 3
   force_exploration_interval: 2
   entropy_convergence_threshold: 0.1
+  keep_top_k: 10
+  new_candidate_weight: 0.1
+  early_stopping_fitness: 0.95
+  early_stopping_iterations: 10
 
 cognitive:
   anomaly_threshold: 0.1
@@ -21,13 +25,12 @@ strategist:
   num_trials: 3
 
 researcher:
-  max_depth: 4
-  beam_width: 200
-  allow_error_rate: 0.05
+  max_depth: 6
+  beam_width: 500
+  error_tolerance: 0.05
   top_k_candidates: 30
-  use_cvc5: true
-  enforce_cvc5_first: true
-  cvc5_path: /opt/homebrew/bin/cvc5
+  use_cvc5: false
+  enforce_cvc5_first: false
 
 victim:
   ollama_url: "http://localhost:11434"
@@ -36,12 +39,34 @@ victim:
   max_tokens: 100
 
 red_team:
-  population_size: 10
+  enabled: true
+  strategies: ["cipher", "roleplay", "crescendo", "skeleton_key"]
   refinement_rounds: 3
-  mutation_rate: 0.3
-  crossover_rate: 0.5
-  max_chain_depth: 3
-  enable_self_eval: false
+
+synthesis:
+  mode: "evolutionary"
+  evolutionary:
+    population_size: 100
+    generations: 30
+    mutation_rate: 0.2
+    crossover_rate: 0.7
+  neural:
+    embedding_model: "all-MiniLM-L6-v2"
+    bandit_algorithm: "ucb"
+  fitness_guided:
+    max_depth: 6
+    beam_width: 500
+  error_tolerance: 0.05
+
+surrogate:
+  enabled: true
+  model: "mlp"
+  feature_type: "embedding"
+  min_accuracy: 0.65
+
+causal_graph:
+  min_samples_per_group: 10
+  use_bayesian: true
 
 transforms:
   disabled: []

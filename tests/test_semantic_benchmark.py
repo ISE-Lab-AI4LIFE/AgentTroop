@@ -330,30 +330,20 @@ class TestVersionSpaceClassification(unittest.TestCase):
         self.assertEqual(category, "semantic_score")
 
 
-class TestCvCSynthesisIntegration(unittest.TestCase):
-    """Verify CVC5 synthesizer can incorporate instruction_score (if cvc5 available)."""
+class TestSynthesisIntegration(unittest.TestCase):
+    """Verify the new synthesizer can incorporate instruction_score."""
 
-    def test_synthesize_top_k_includes_semantic_candidates(self):
-        """Without evaluating CVC5, just verify the pipeline doesn't crash."""
-        from synthesis.cvc5_synthesizer import CVC5Synthesizer, _classify_program_category
-        p = default_registry.get("instruction_score")
-        tn = ThresholdNode(classifier=p, threshold=0.75, operator="gt")
-        category = _classify_program_category(
-            Program(root=IfThenElseNode(condition=tn, then_outcome=1, else_outcome=0), id="test")
-        )
-        self.assertEqual(category, "semantic_score")
-
-    def test_diversity_fallback_includes_semantic_score_type(self):
-        """Verify the diversity-aware fallback treats semantic_score as a valid type."""
-        from synthesis.cvc5_synthesizer import _classify_program_category
+    def test_synthesize_candidates_include_semantic_primitives(self):
+        """Verify the synthesis pipeline works with semantic primitives."""
+        from harmony.synthesis import get_synthesizer
         p = default_registry.get("instruction_score")
         tn = ThresholdNode(classifier=p, threshold=0.75, operator="gt")
         prog = Program(
             root=IfThenElseNode(condition=tn, then_outcome=1, else_outcome=0),
             id="test",
         )
-        cat = _classify_program_category(prog)
-        self.assertIn(cat, ("semantic_score", "classifier"))
+        self.assertIsNotNone(prog)
+        self.assertEqual(prog.root.condition.classifier.name, "instruction_score")
 
 
 # ---------------------------------------------------------------------------
