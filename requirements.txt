@@ -30,3 +30,8 @@ pytest>=7.0              # Test runner
 testcontainers>=4.0      # Integration tests with real Neo4j/Redis containers
 google-genai>=0.1.0     # Google GenAI client for interacting with Gemma models
 python-dotenv>=1.0.0    # Load .env files into environment for local development
+
+# -- Runtime essentials ---------------------------------------------------------
+requests>=2.31           # Ollama victim — sync HTTP calls
+httpx>=0.25              # Ollama victim — async HTTP calls
+PyYAML>=6.0              # Config file parsing

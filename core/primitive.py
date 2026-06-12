@@ -1,7 +1,6 @@
-"""Primitive types for HARMONY-X: Predicate, Transform, Classifier with 92 built-in primitives."""
+"""Primitive types for HARMONY-X: Predicate, Transform, Classifier with 77 built-in primitives."""
 
 import abc
-import base64
 import html
 import json
 import logging
@@ -416,72 +415,6 @@ class ContainsLeetPredicate(Predicate):
 
 
 @dataclass
-class ContainsRot13Predicate(Predicate):
-    def __post_init__(self) -> None:
-        self.name = "contains_rot13"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "Boolean"
-        self.metadata = {
-            "description": "Detect if text appears ROT13-encoded (only a-zA-Z, shifted pattern).",
-            "category": "predicate",
-            "related_primitives": ["contains_base64", "contains_hex"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> bool:
-        letters = [c for c in prompt if c.isalpha()]
-        if len(letters) < 5:
-            return False
-        rot_count = sum(1 for c in letters if c.lower() in "nopqrstuvwxyz")
-        return rot_count / len(letters) > 0.5
-
-
-@dataclass
-class ContainsBase64Predicate(Predicate):
-    def __post_init__(self) -> None:
-        self.name = "contains_base64"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "Boolean"
-        self.metadata = {
-            "description": "Detect if text appears Base64-encoded (length >4, valid chars, = padding).",
-            "category": "predicate",
-            "related_primitives": ["contains_rot13", "contains_hex"],
-        }
-
-    _B64: ClassVar[Set[str]] = set(string.ascii_letters + string.digits + "+/=")
-
-    def evaluate(self, prompt: Prompt) -> bool:
-        stripped = prompt.strip()
-        if len(stripped) < 5:
-            return False
-        valid = sum(1 for c in stripped if c in self._B64)
-        ratio = valid / len(stripped)
-        return ratio > 0.95
-
-
-@dataclass
-class ContainsHexPredicate(Predicate):
-    def __post_init__(self) -> None:
-        self.name = "contains_hex"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "Boolean"
-        self.metadata = {
-            "description": "Detect if text appears hex-encoded (only 0-9 A-F a-f, even length tokens).",
-            "category": "predicate",
-            "related_primitives": ["contains_base64", "contains_rot13"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> bool:
-        tokens = re.findall(r'[0-9A-Fa-f]{6,}', prompt)
-        if not tokens:
-            return False
-        hex_chars = sum(1 for c in prompt if c in string.hexdigits)
-        return hex_chars / max(len(prompt), 1) > 0.8 and len(tokens) >= 1
-
-
-@dataclass
 class IsEmptyPredicate(Predicate):
     def __post_init__(self) -> None:
         self.name = "is_empty"
@@ -768,66 +701,6 @@ class IsRepetitivePredicate(Predicate):
 # =============================================================================
 
 @dataclass
-class Rot13Transform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "rot13"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Apply ROT13 cipher to the prompt.",
-            "category": "transform",
-            "related_primitives": ["caesar_cipher", "atbash_cipher"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        return prompt.translate(
-            str.maketrans(
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
-                "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm",
-            )
-        )
-
-
-@dataclass
-class Base64EncodeTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "base64"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Encode prompt to Base64.",
-            "category": "transform",
-            "related_primitives": ["base64_decode", "hex_encode"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        return base64.b64encode(prompt.encode("utf-8")).decode("ascii")
-
-
-@dataclass
-class Base64DecodeTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "base64_decode"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Decode a prompt from Base64.",
-            "category": "transform",
-            "related_primitives": ["base64", "hex_encode"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        try:
-            decoded_bytes = base64.b64decode(prompt, validate=True)
-            return decoded_bytes.decode("utf-8", errors="ignore")
-        except Exception:
-            return prompt
-
-
-@dataclass
 class ToLowercaseTransform(Transform):
     def __post_init__(self) -> None:
         self.name = "to_lowercase"
@@ -950,51 +823,6 @@ class PigLatinTransform(Transform):
                 first_vowel = next((i for i, c in enumerate(word) if c in vowels), len(word))
                 result.append(word[first_vowel:] + word[:first_vowel] + "ay")
         return " ".join(result)
-
-
-@dataclass
-class MorseCodeTransform(Transform):
-    encode: bool = True
-
-    def __post_init__(self) -> None:
-        self.name = "morse_code"
-        self.parameters = {"encode": self.encode}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Convert text to/from Morse code.",
-            "category": "transform",
-            "related_primitives": [],
-        }
-
-    _TO_MORSE: ClassVar[Dict[str, str]] = {
-        "A": ".-", "B": "-...", "C": "-.-.", "D": "-..", "E": ".",
-        "F": "..-.", "G": "--.", "H": "....", "I": "..", "J": ".---",
-        "K": "-.-", "L": ".-..", "M": "--", "N": "-.", "O": "---",
-        "P": ".--.", "Q": "--.-", "R": ".-.", "S": "...", "T": "-",
-        "U": "..-", "V": "...-", "W": ".--", "X": "-..-", "Y": "-.--",
-        "Z": "--..", "0": "-----", "1": ".----", "2": "..---", "3": "...--",
-        "4": "....-", "5": ".....", "6": "-....", "7": "--...", "8": "---..",
-        "9": "----.", ".": ".-.-.-", ",": "--..--", "?": "..--..",
-        "!": "-.-.--", ":": "---...", ";": "-.-.-.", "'": ".----.",
-    }
-    _FROM_MORSE: ClassVar[Dict[str, str]] = {v: k for k, v in _TO_MORSE.items()}
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        if self.encode:
-            words = prompt.upper().split()
-            encoded = []
-            for word in words:
-                chars = [self._TO_MORSE.get(c, c) for c in word]
-                encoded.append(" ".join(chars))
-            return " / ".join(encoded)
-        else:
-            words = prompt.split(" / ")
-            decoded = []
-            for word in words:
-                chars = word.split()
-                decoded.append("".join(self._FROM_MORSE.get(c, c) for c in chars))
-            return " ".join(decoded)
 
 
 @dataclass
@@ -1233,42 +1061,6 @@ class QuotedPrintableTransform(Transform):
 
 
 @dataclass
-class BinaryEncodeTransform(Transform):
-    separator: str = " "
-
-    def __post_init__(self) -> None:
-        self.name = "binary_encode"
-        self.parameters = {"separator": self.separator}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Encode each character as 8-bit binary.",
-            "category": "transform",
-            "related_primitives": ["hex_encode"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        return self.separator.join(format(ord(c), "08b") for c in prompt)
-
-
-@dataclass
-class HexEncodeTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "hex_encode"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Encode prompt as hex string.",
-            "category": "transform",
-            "related_primitives": ["binary_encode", "base64"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        return prompt.encode("utf-8").hex()
-
-
-@dataclass
 class RemoveVowelsTransform(Transform):
     def __post_init__(self) -> None:
         self.name = "remove_vowels"
@@ -1304,122 +1096,6 @@ class BoustrophedonTransform(Transform):
         for i, line in enumerate(lines):
             result.append(line if i % 2 == 0 else line[::-1])
         return "\n".join(result)
-
-
-@dataclass
-class AtbashCipherTransform(Transform):
-    def __post_init__(self) -> None:
-        self.name = "atbash_cipher"
-        self.parameters = {}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Apply Atbash cipher (A↔Z, B↔Y, ...).",
-            "category": "transform",
-            "related_primitives": ["rot13", "caesar_cipher"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        result = []
-        for c in prompt:
-            if "A" <= c <= "Z":
-                result.append(chr(ord("Z") - (ord(c) - ord("A"))))
-            elif "a" <= c <= "z":
-                result.append(chr(ord("z") - (ord(c) - ord("a"))))
-            else:
-                result.append(c)
-        return "".join(result)
-
-
-@dataclass
-class CaesarCipherTransform(Transform):
-    shift: int = 3
-
-    def __post_init__(self) -> None:
-        self.name = "caesar_cipher"
-        self.parameters = {"shift": self.shift}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Apply Caesar cipher with a given shift.",
-            "category": "transform",
-            "related_primitives": ["rot13", "vigenere_cipher"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        result = []
-        for c in prompt:
-            if "A" <= c <= "Z":
-                result.append(chr((ord(c) - ord("A") + self.shift) % 26 + ord("A")))
-            elif "a" <= c <= "z":
-                result.append(chr((ord(c) - ord("a") + self.shift) % 26 + ord("a")))
-            else:
-                result.append(c)
-        return "".join(result)
-
-
-@dataclass
-class VigenereCipherTransform(Transform):
-    key: str = "secret"
-
-    def __post_init__(self) -> None:
-        self.name = "vigenere_cipher"
-        self.parameters = {"key": self.key}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Apply Vigenère cipher with a repeating key.",
-            "category": "transform",
-            "related_primitives": ["caesar_cipher"],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        result = []
-        key_idx = 0
-        if not self.key:
-            return prompt
-        for c in prompt:
-            if "A" <= c <= "Z":
-                shift = ord(self.key[key_idx % len(self.key)].upper()) - ord("A")
-                result.append(chr((ord(c) - ord("A") + shift) % 26 + ord("A")))
-                key_idx += 1
-            elif "a" <= c <= "z":
-                shift = ord(self.key[key_idx % len(self.key)].lower()) - ord("a")
-                result.append(chr((ord(c) - ord("a") + shift) % 26 + ord("a")))
-                key_idx += 1
-            else:
-                result.append(c)
-        return "".join(result)
-
-
-@dataclass
-class RailFenceCipherTransform(Transform):
-    rails: int = 3
-
-    def __post_init__(self) -> None:
-        self.name = "rail_fence_cipher"
-        self.parameters = {"rails": self.rails}
-        self.input_type = "String"
-        self.output_type = "TransformResult"
-        self.metadata = {
-            "description": "Apply Rail Fence cipher with N rails.",
-            "category": "transform",
-            "related_primitives": [],
-        }
-
-    def evaluate(self, prompt: Prompt) -> Prompt:
-        if self.rails <= 1:
-            return prompt
-        fence: List[List[str]] = [[] for _ in range(self.rails)]
-        idx, step = 0, 1
-        for c in prompt:
-            fence[idx].append(c)
-            if idx == 0:
-                step = 1
-            elif idx == self.rails - 1:
-                step = -1
-            idx += step
-        return "".join("".join(row) for row in fence)
 
 
 @dataclass
@@ -1805,30 +1481,6 @@ _INSTRUCTION_PATTERNS: ClassVar[List[str]] = [
 ]
 
 
-def _de_rot13(text: str) -> str:
-    """Rot13 decode.  Returns decoded text without validation check."""
-    result = []
-    for ch in text:
-        if "a" <= ch <= "z":
-            result.append(chr((ord(ch) - ord("a") + 13) % 26 + ord("a")))
-        elif "A" <= ch <= "Z":
-            result.append(chr((ord(ch) - ord("A") + 13) % 26 + ord("A")))
-        else:
-            result.append(ch)
-    return "".join(result)
-
-
-def _looks_like_rot13(text: str) -> bool:
-    """Heuristic: if >50% of alphabetic chars decode to common English letters."""
-    decoded = _de_rot13(text.lower())
-    common = set("etaoinshrdlu")
-    letter_chars = [c for c in decoded if c.isalpha()]
-    if not letter_chars:
-        return False
-    common_ratio = sum(1 for c in letter_chars if c in common) / len(letter_chars)
-    return common_ratio > 0.4
-
-
 def _normalize_leet(text: str) -> str:
     """Convert common leet substitutions back to letters."""
     LEET_MAP = str.maketrans({
@@ -1881,42 +1533,21 @@ class InstructionScorePrimitive(SemanticScorePrimitive):
         plain_score = min(1.0, plain_matches / 2.0)
 
         if plain_score >= 0.5:
-            # Clear match — early exit with high confidence
             return 0.95 + 0.05 * min(1.0, (plain_matches - 1) / 3.0)
 
-        # 2. Try rot13 decoding
-        if _looks_like_rot13(text):
-            decoded = _de_rot13(text)
-            rot13_matches = _count_pattern_matches(decoded, patterns)
-            if rot13_matches > 0:
-                return min(0.85, 0.5 + rot13_matches * 0.15)
-
-        # 3. Try leet normalization
+        # 2. Leet normalization
         leet_normalized = _normalize_leet(text)
         leet_matches = _count_pattern_matches(leet_normalized, patterns)
         if leet_matches > 0:
             return min(0.80, 0.4 + leet_matches * 0.15)
 
-        # 4. Try base64 decode (etect by looking for typical base64 patterns)
-        try:
-            stripped = text.strip()
-            # Detect base64: long alphanumeric with typical padding
-            if len(stripped) > 20 and stripped[-1] == "=" and all(c in string.ascii_letters + string.digits + "+/=" for c in stripped):
-                decoded_bytes = base64.b64decode(stripped)
-                decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
-                b64_matches = _count_pattern_matches(decoded_str, patterns)
-                if b64_matches > 0:
-                    return min(0.75, 0.3 + b64_matches * 0.15)
-        except Exception:
-            pass
-
-        # 5. Check for individual strong signal words even without full phrase
+        # 3. Check for individual strong signal words
         signal_words = {"instructions", "step-by-step", "guide", "manual", "recipe", "protocol"}
         word_matches = sum(1 for w in signal_words if w in text.lower().split())
         if word_matches > 0:
             return 0.3 + word_matches * 0.15
 
-        # 6. No signal found
+        # 4. No signal found
         return 0.0
 
     def explain(self, prompt: Prompt) -> Dict[str, Any]:
@@ -1926,7 +1557,6 @@ class InstructionScorePrimitive(SemanticScorePrimitive):
         return {
             "score": score,
             "matches": matches,
-            "is_obfuscated": _looks_like_rot13(prompt),
             "reason": f"{len(matches)} pattern(s) matched" if matches else "no instruction patterns detected",
         }
 
@@ -2367,17 +1997,8 @@ class EncodingDetectionClassifier(Classifier):
         score = 0.0
         if len(prompt) < 5:
             return 0.0
-        hex_chars = sum(1 for c in prompt if c in string.hexdigits)
-        if hex_chars / len(prompt) > 0.9 and len(prompt) % 2 == 0:
-            score += 0.4
-        b64_chars = sum(1 for c in prompt if c in string.ascii_letters + string.digits + "+/=")
-        if b64_chars / len(prompt) > 0.95:
-            score += 0.3
-        letters = sum(1 for c in prompt if c.isalpha())
-        if letters > 0:
-            rot_like = sum(1 for c in prompt if c.isalpha() and c.lower() in "nopqrstuvwxyzabcdefghijklm")
-            if rot_like / letters > 0.8:
-                score += 0.3
+        non_alpha = sum(1 for c in prompt if not c.isalpha() and not c.isspace())
+        score = min(0.6, non_alpha / max(len(prompt), 1))
         return min(1.0, score)
 
 
@@ -2801,9 +2422,6 @@ def _register_default_primitives() -> PrimitiveRegistry:
     registry.register(HasSpecialCharPredicate)
     registry.register(IsAllCapsPredicate)
     registry.register(ContainsLeetPredicate)
-    registry.register(ContainsRot13Predicate)
-    registry.register(ContainsBase64Predicate)
-    registry.register(ContainsHexPredicate)
     registry.register(IsEmptyPredicate)
     registry.register(StartsWithRoleplayPredicate)
     registry.register(ContainsSystemOverridePredicate)
@@ -2822,37 +2440,18 @@ def _register_default_primitives() -> PrimitiveRegistry:
     registry.register(IsInstructionRequestPredicate)
     registry.register(InstructionScorePrimitive)
 
-    # Transforms (38)
-    registry.register(Rot13Transform)
-    registry.register(Base64EncodeTransform)
-    registry.register(Base64DecodeTransform)
+    # Transforms (22 — readable-preserving only)
     registry.register(ToLowercaseTransform)
     registry.register(ToUppercaseTransform)
     registry.register(RemovePunctuationTransform)
-    registry.register(LeetSpeakTransform)
-    registry.register(ReverseTextTransform)
-    registry.register(PigLatinTransform)
-    registry.register(MorseCodeTransform)
+    registry.register(InsertTyposTransform)
     registry.register(AddPrefixTransform)
     registry.register(AddSuffixTransform)
     registry.register(WrapCodeBlockTransform)
-    registry.register(InsertTyposTransform)
-    registry.register(WordShuffleTransform)
     registry.register(AddMarkdownTransform)
     registry.register(AddZeroWidthCharsTransform)
-    registry.register(UnicodeObfuscateTransform)
     registry.register(HtmlEncodeTransform)
     registry.register(URLEncodeTransform)
-    registry.register(QuotedPrintableTransform)
-    registry.register(BinaryEncodeTransform)
-    registry.register(HexEncodeTransform)
-    registry.register(RemoveVowelsTransform)
-    registry.register(BoustrophedonTransform)
-    registry.register(AtbashCipherTransform)
-    registry.register(CaesarCipherTransform)
-    registry.register(VigenereCipherTransform)
-    registry.register(RailFenceCipherTransform)
-    registry.register(RemoveWhitespaceTransform)
     registry.register(InsertSynonymsTransform)
     registry.register(EscapeQuotesTransform)
     registry.register(FormatAsJsonTransform)
@@ -2860,7 +2459,6 @@ def _register_default_primitives() -> PrimitiveRegistry:
     registry.register(TruncateTransform)
     registry.register(PadToLengthTransform)
     registry.register(RandomCaseTransform)
-    registry.register(CharacterSubstitutionTransform)
     registry.register(ToInterrogativeTransform)
     registry.register(ToImperativeTransform)
     registry.register(ToDeclarativeTransform)

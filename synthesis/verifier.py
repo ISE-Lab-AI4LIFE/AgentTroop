@@ -7,9 +7,7 @@ from typing import Any, Callable, List, Optional, Set, Tuple
 
 from core.executor import ProgramExecutor
 from core.primitive import (
-    Base64DecodeTransform,
     RemovePunctuationTransform,
-    Rot13Transform,
     ToLowercaseTransform,
     Transform,
     default_registry,
@@ -212,8 +210,6 @@ class ProgramVerifier:
         base_prompts = _BASE_PROMPTS.copy()
 
         transforms: List[Transform] = [
-            Rot13Transform(),
-            Base64DecodeTransform(),
             ToLowercaseTransform(),
             RemovePunctuationTransform(),
         ]

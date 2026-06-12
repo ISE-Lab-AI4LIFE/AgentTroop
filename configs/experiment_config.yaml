@@ -35,5 +35,13 @@ victim:
   temperature: 0.0
   max_tokens: 100
 
+red_team:
+  population_size: 10
+  refinement_rounds: 3
+  mutation_rate: 0.3
+  crossover_rate: 0.5
+  max_chain_depth: 3
+  enable_self_eval: false
+
 transforms:
   disabled: []

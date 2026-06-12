@@ -33,7 +33,7 @@ if _exp_dir not in sys.path:
 EXP_DIR = Path(__file__).resolve().parent
 LOGS_DIR = EXP_DIR / "logs"
 OUTPUTS_DIR = EXP_DIR / "outputs"
-CONFIG_PATH = EXP_DIR / "config.yaml"
+CONFIG_PATH = EXP_DIR.parent / "configs" / "experiment_config.yaml"
 BENIGN_CSV = str(EXP_DIR / "benign_prompts.csv")
 
 logger = logging.getLogger("llama31_8b_exp")
@@ -329,6 +329,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
     from agents.cognitive import CognitiveAgent
     from agents.researcher import ResearcherAgent
     from agents.strategist import StrategistAgent
+    from agents.red_team import RedTeamAgent
     from llm.llm_client import get_default_client
     from synthesis.cvc5_synthesizer import CVC5Synthesizer
 
@@ -354,6 +355,14 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         allowed_transform_names=tx_cfg.get("enabled"),
         blocked_transform_names=tx_cfg.get("disabled"),
     )
+
+    # ── Red Team Agent (LLM prompt refiner — pure refinement, no technique) ──
+    rt_cfg = config.get("red_team", {})
+    red_team = RedTeamAgent(
+        llm_client=llm,
+        refinement_rounds=rt_cfg.get("refinement_rounds", 3),
+    )
+    logger.info("Red Team Agent created (refine=%d rounds)", red_team.refinement_rounds)
 
     # ── SDE engine (semantic discovery + rescoring) ──
     from sde.engine import SemanticDiscoveryEngine
@@ -427,6 +436,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         cognitive_agent=cognitive,
         strategist_agent=strategist,
         researcher_agent=researcher,
+        red_team_agent=red_team,
         knowledge_manager=km,
         session_memory=session,
         victim=victim,
@@ -476,7 +486,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
     # ── Save outputs ──
     _save_outputs(result, defense, scientific, episodic, campaign_id, experiment_id)
 
-    # ── Evaluation (RQ0, RQ1, ASR) ──
+    # ── Evaluation (RQ0, RQ1, ASR, Harmony ASR) ──
     try:
         _run_evaluation(
             result,
@@ -488,6 +498,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
             harmful_csv,
             prior_campaign_id,
             llm=llm,
+            red_team=red_team,
         )
     except Exception as e:
         logger.warning("Evaluation failed (non-fatal): %s", e)
@@ -576,14 +587,17 @@ def _run_evaluation(
     csv_path: str = "",
     prior_campaign_id: Optional[str] = None,
     llm: Optional[Any] = None,
+    red_team: Optional[Any] = None,
 ) -> None:
     from evaluation.judges import LLMJudge, RuleBasedJudge
     from evaluation.evaluators import (
+        AdversarialASREvaluator,
+        ASREvaluator,
+        HarmonyASREvaluator,
         RQ0Evaluator,
         RQ1Evaluator,
         RQ2Evaluator,
         RQ3Evaluator,
-        ASREvaluator,
     )
 
     judge = LLMJudge(llm_client=llm, fallback_judge=RuleBasedJudge())
@@ -638,18 +652,58 @@ def _run_evaluation(
         logger.warning("RQ1 evaluation failed: %s", e)
         report["rq1"] = {"error": str(e)}
 
-    # ASR: Attack Success Rate
+    # ASR: Attack Success Rate (baseline — raw prompts)
     try:
         asr_eval = ASREvaluator(victim=victim, judge=judge, csv_path=csv_path)
         asr_result = asr_eval.evaluate(num_prompts=30)
         report["asr"] = asr_result
-        logger.info("ASR: %.4f (%d/%d accepted)",
+        logger.info("ASR (baseline): %.4f (%d/%d accepted)",
                     asr_result["asr"],
                     asr_result["successes"],
                     asr_result["total"])
     except Exception as e:
         logger.warning("ASR evaluation failed: %s", e)
         report["asr"] = {"error": str(e)}
+
+    # Harmony ASR: through Red Team Agent pipeline (full system)
+    try:
+        if red_team is not None:
+            harmony_asr_eval = HarmonyASREvaluator(
+                victim=victim, judge=judge, csv_path=csv_path,
+                red_team_agent=red_team, num_variants=1,
+            )
+            harmony_asr_result = harmony_asr_eval.evaluate(num_prompts=30)
+            report["harmony_asr"] = harmony_asr_result
+            logger.info("Harmony ASR (RedTeamAgent): %.4f (%d/%d accepted)",
+                        harmony_asr_result["asr"],
+                        harmony_asr_result["successes"],
+                        harmony_asr_result["total"])
+        else:
+            report["harmony_asr"] = {"note": "RedTeamAgent not available"}
+    except Exception as e:
+        logger.warning("Harmony ASR evaluation failed: %s", e)
+        report["harmony_asr"] = {"error": str(e)}
+
+    # Adversarial ASR: program-guided prompt crafting
+    try:
+        best_id_adv = result.get("best_program_id")
+        if best_id_adv:
+            record_adv = defense.get(best_id_adv)
+            if record_adv is not None:
+                program_adv = record_adv.program if hasattr(record_adv, "program") else record_adv
+                adv_eval = AdversarialASREvaluator(victim=victim, judge=judge, csv_path=csv_path)
+                adv_result = adv_eval.evaluate(program=program_adv, num_test_prompts=30)
+                report["adversarial_asr"] = adv_result
+                logger.info("Adversarial ASR: %.4f (%d/%d) pre-accepted=%d/%d program=%s",
+                            adv_result["adversarial_asr"],
+                            adv_result["adversarial_successes"],
+                            adv_result["adversarial_total"],
+                            adv_result["pre_accepted_accepts"],
+                            adv_result["pre_accepted_total"],
+                            program_adv.id)
+    except Exception as e:
+        logger.warning("Adversarial ASR evaluation failed: %s", e)
+        report["adversarial_asr"] = {"error": str(e)}
 
     # RQ2: Explanation score (human evaluation — export for annotation)
     try:
@@ -751,7 +805,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--config", default=str(CONFIG_PATH),
-        help="Path to config YAML (default: config.yaml)",
+        help="Path to config YAML (default: configs/experiment_config.yaml)",
     )
     parser.add_argument(
         "--num-seeds", type=int, default=30,

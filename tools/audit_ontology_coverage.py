@@ -79,7 +79,6 @@ def _get_mapped_condition_names() -> Set[str]:
         "IF starts_with_imperative(prompt) THEN ACCEPT",
         "IF has_number(prompt) THEN REFUSE",
         "IF contains_leet(prompt) THEN REFUSE",
-        "IF contains_rot13(prompt) THEN REFUSE",
         r"IF matches_regex(r'(?i)\btest\b') THEN REFUSE",
     ]
     for s in test_strings:
@@ -94,7 +93,7 @@ def _get_mapped_condition_names() -> Set[str]:
 def _get_compile_supported() -> Set[str]:
     """Return condition names that compile_condition_to_program supports."""
     return {"contains_word", "contains_any_word", "length_gt", "length_lt",
-            "has_number", "contains_leet", "contains_rot13", "matches_regex",
+            "has_number", "contains_leet", "matches_regex",
             "is_grammatical_question", "starts_with_imperative"}
 
 
@@ -102,7 +101,7 @@ def _get_score_supported() -> Set[str]:
     """Return condition names that _score_condition supports (keyword fallback)."""
     return {"contains_word", "contains_any_word", "length_gt", "length_lt",
             "has_number", "contains_leet", "matches_regex",
-            "is_grammatical_question", "contains_rot13", "starts_with_imperative"}
+            "is_grammatical_question", "starts_with_imperative"}
 
 
 def _get_classify_supported() -> Set[str]:
@@ -119,8 +118,7 @@ def _get_classify_supported() -> Set[str]:
                         "IsGrammaticalQuestionPredicate",
                         "StartsWithImperativePredicate"}
     semantic_preds = {"SentimentPredicate", "IntentPredicate",
-                      "ContainsLeetPredicate", "ContainsRot13Predicate",
-                      "ContainsBase64Predicate", "ContainsHexPredicate"}
+                      "ContainsLeetPredicate"}
     jailbreak_preds = {"StartsWithRoleplayPredicate",
                        "ContainsSystemOverridePredicate",
                        "MatchesJailbreakPatternPredicate",

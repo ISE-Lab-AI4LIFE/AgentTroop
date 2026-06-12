@@ -12,7 +12,6 @@ from core.primitive import (
     Predicate,
     Primitive,
     PrimitiveRegistry,
-    Rot13Transform,
     ToLowercaseTransform,
     Transform,
     default_registry,
@@ -74,7 +73,6 @@ def generate_random_program(
     ]
 
     transform_primitives: List[Transform] = [
-        Rot13Transform(),
         ToLowercaseTransform(),
     ]
 

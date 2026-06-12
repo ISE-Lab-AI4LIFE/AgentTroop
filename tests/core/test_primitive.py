@@ -10,24 +10,16 @@ from core.primitive import (
     AddSuffixTransform,
     AddZeroWidthCharsTransform,
     AdversarialSuffixScoreClassifier,
-    AtbashCipherTransform,
-    Base64DecodeTransform,
-    Base64EncodeTransform,
-    BinaryEncodeTransform,
     BoustrophedonTransform,
-    CaesarCipherTransform,
     CharacterSubstitutionTransform,
     CodeLikelihoodClassifier,
     ContainsAllWordsPredicate,
     ContainsAnyWordPredicate,
-    ContainsBase64Predicate,
     ContainsBlacklistedWordClassifier,
     ContainsCodeBlockPredicate,
     ContainsDelimiterPredicate,
     ContainsEncodingWrapperPredicate,
-    ContainsHexPredicate,
     ContainsLeetPredicate,
-    ContainsRot13Predicate,
     ContainsSystemOverridePredicate,
     ContainsURLPredicate,
     ContainsWordPredicate,
@@ -42,7 +34,6 @@ from core.primitive import (
     HasEmojiPredicate,
     HasNumberPredicate,
     HasSpecialCharPredicate,
-    HexEncodeTransform,
     HtmlEncodeTransform,
     InsertSynonymsTransform,
     InsertTyposTransform,
@@ -60,7 +51,6 @@ from core.primitive import (
     LengthScoreClassifier,
     MatchesJailbreakPatternPredicate,
     MatchesRegexPredicate,
-    MorseCodeTransform,
     ObscurityScoreClassifier,
     PadToLengthTransform,
     PersuasionScoreClassifier,
@@ -69,7 +59,6 @@ from core.primitive import (
     PromptInjectionLikelihoodClassifier,
     PunctuationRatioClassifier,
     QuotedPrintableTransform,
-    RailFenceCipherTransform,
     RandomCaseTransform,
     RefusalSimilarityClassifier,
     RemovePunctuationTransform,
@@ -78,7 +67,6 @@ from core.primitive import (
     RepetitionScoreClassifier,
     ReverseTextTransform,
     RoleplayLikelihoodClassifier,
-    Rot13Transform,
     SentimentPredicate,
     SentimentScoreClassifier,
     SpecialCharRatioClassifier,
@@ -93,7 +81,6 @@ from core.primitive import (
     UniqueTokenRatioClassifier,
     UpperCaseRatioClassifier,
     URLEncodeTransform,
-    VigenereCipherTransform,
     WhitespaceRatioClassifier,
     WordShuffleTransform,
     WrapCodeBlockTransform,
@@ -243,36 +230,6 @@ class TestContainsLeetPredicate:
         assert not ContainsLeetPredicate().evaluate("h3")
 
 
-class TestContainsRot13Predicate:
-    def test_contains_rot13(self):
-        assert ContainsRot13Predicate().evaluate("uryyb jbeyq")
-
-    def test_no_rot13(self):
-        assert not ContainsRot13Predicate().evaluate("hello world")
-
-    def test_too_short(self):
-        assert not ContainsRot13Predicate().evaluate("ab")
-
-
-class TestContainsBase64Predicate:
-    def test_contains_base64(self):
-        assert ContainsBase64Predicate().evaluate("SGVsbG8gV29ybGQ=")
-
-    def test_no_base64(self):
-        assert not ContainsBase64Predicate().evaluate("hello world")
-
-    def test_too_short(self):
-        assert not ContainsBase64Predicate().evaluate("abc")
-
-
-class TestContainsHexPredicate:
-    def test_contains_hex(self):
-        assert ContainsHexPredicate().evaluate("deadbeef  cafebabe")
-
-    def test_no_hex(self):
-        assert not ContainsHexPredicate().evaluate("hello world")
-
-
 class TestIsEmptyPredicate:
     def test_empty(self):
         assert IsEmptyPredicate().evaluate("")
@@ -392,30 +349,8 @@ class TestIsRepetitivePredicate:
 
 
 # =============================================================================
-# TRANSFORM TESTS (38)
+# TRANSFORM TESTS (28)
 # =============================================================================
-
-class TestRot13Transform:
-    def test_encode(self):
-        assert Rot13Transform().evaluate("abc") == "nop"
-        assert Rot13Transform().evaluate("nop") == "abc"
-        assert Rot13Transform().evaluate("Hello World") == "Uryyb Jbeyq"
-
-
-class TestBase64EncodeTransform:
-    def test_encode(self):
-        result = Base64EncodeTransform().evaluate("Hello World")
-        assert result == "SGVsbG8gV29ybGQ="
-
-
-class TestBase64DecodeTransform:
-    def test_decode(self):
-        result = Base64DecodeTransform().evaluate("SGVsbG8gV29ybGQ=")
-        assert result == "Hello World"
-
-    def test_invalid(self):
-        assert Base64DecodeTransform().evaluate("not base64!!") == "not base64!!"
-
 
 class TestToLowercaseTransform:
     def test_lowercase(self):
@@ -460,16 +395,6 @@ class TestPigLatinTransform:
     def test_multi_word(self):
         result = PigLatinTransform().evaluate("hello world")
         assert "ellohay" in result and "orldway" in result
-
-
-class TestMorseCodeTransform:
-    def test_encode(self):
-        result = MorseCodeTransform(encode=True).evaluate("SOS")
-        assert result == "... --- ..."
-
-    def test_decode(self):
-        result = MorseCodeTransform(encode=False).evaluate("... --- ...")
-        assert result == "SOS"
 
 
 class TestAddPrefixTransform:
@@ -569,19 +494,6 @@ class TestQuotedPrintableTransform:
         assert QuotedPrintableTransform().evaluate("hello") == "hello"
 
 
-class TestBinaryEncodeTransform:
-    def test_encode(self):
-        assert BinaryEncodeTransform().evaluate("A") == "01000001"
-
-    def test_custom_separator(self):
-        assert BinaryEncodeTransform(separator="-").evaluate("A") == "01000001"
-
-
-class TestHexEncodeTransform:
-    def test_encode(self):
-        assert HexEncodeTransform().evaluate("Hello") == "48656c6c6f"
-
-
 class TestRemoveVowelsTransform:
     def test_remove_vowels(self):
         assert RemoveVowelsTransform().evaluate("hello world") == "hll wrld"
@@ -597,47 +509,6 @@ class TestBoustrophedonTransform:
     def test_multi_line(self):
         result = BoustrophedonTransform().evaluate("hello\nworld")
         assert result == "hello\ndlrow"
-
-
-class TestAtbashCipherTransform:
-    def test_encode(self):
-        assert AtbashCipherTransform().evaluate("abc") == "zyx"
-        assert AtbashCipherTransform().evaluate("zyx") == "abc"
-        assert AtbashCipherTransform().evaluate("Hello") == "Svool"
-
-
-class TestCaesarCipherTransform:
-    def test_shift_3(self):
-        assert CaesarCipherTransform(shift=3).evaluate("abc") == "def"
-
-    def test_wrap_around(self):
-        assert CaesarCipherTransform(shift=3).evaluate("xyz") == "abc"
-
-    def test_default_shift(self):
-        assert CaesarCipherTransform().evaluate("abc") == "def"
-
-
-class TestVigenereCipherTransform:
-    def test_encode(self):
-        result = VigenereCipherTransform(key="key").evaluate("hello")
-        assert result != "hello"
-
-    def test_empty_key(self):
-        assert VigenereCipherTransform(key="").evaluate("hello") == "hello"
-
-    def test_default_key(self):
-        result = VigenereCipherTransform().evaluate("hello")
-        assert isinstance(result, str)
-        assert len(result) == 5
-
-
-class TestRailFenceCipherTransform:
-    def test_3_rails(self):
-        result = RailFenceCipherTransform(rails=3).evaluate("HELLO WORLD")
-        assert isinstance(result, str)
-
-    def test_1_rail(self):
-        assert RailFenceCipherTransform(rails=1).evaluate("hello") == "hello"
 
 
 class TestRemoveWhitespaceTransform:
@@ -1001,7 +872,6 @@ class TestRegistryCompleteness:
             "length_gt", "length_lt", "matches_regex",
             "starts_with", "ends_with", "has_number",
             "has_special_char", "is_all_caps", "contains_leet",
-            "contains_rot13", "contains_base64", "contains_hex",
             "is_empty", "starts_with_roleplay", "contains_system_override",
             "contains_delimiter", "contains_code_block", "has_emoji",
             "contains_url", "sentiment", "intent",
@@ -1013,16 +883,14 @@ class TestRegistryCompleteness:
     def test_transforms_registered(self):
         names = default_registry.list_primitives()
         transform_names = [
-            "rot13", "base64", "base64_decode",
             "to_lowercase", "to_uppercase", "remove_punctuation",
             "leet_speak", "reverse_text", "pig_latin",
-            "morse_code", "add_prefix", "add_suffix",
+            "add_prefix", "add_suffix",
             "wrap_code_block", "insert_typos", "word_shuffle",
             "add_markdown", "add_zero_width_chars", "unicode_obfuscate",
             "html_encode", "url_encode", "quoted_printable",
-            "binary_encode", "hex_encode", "remove_vowels",
-            "boustrophedon", "atbash_cipher", "caesar_cipher",
-            "vigenere_cipher", "rail_fence_cipher", "remove_whitespace",
+            "remove_vowels",
+            "boustrophedon", "remove_whitespace",
             "insert_synonyms",             "escape_quotes", "format_as_json",
             "add_role_play", "truncate",
             "pad_to_length", "random_case",

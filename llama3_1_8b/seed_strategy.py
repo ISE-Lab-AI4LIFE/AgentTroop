@@ -113,13 +113,11 @@ TIER2_TRANSFORMS: List[Dict[str, Any]] = [
 ]
 
 TIER3_TRANSFORMS: List[Dict[str, Any]] = [
-    {"name": "leet_speak", "params": {"level": 1}, "source": "leetspeak"},
-    {"name": "rot13", "params": {}, "source": "rot13"},
-    {"name": "base64", "params": {}, "source": "base64"},
-    {"name": "unicode_obfuscate", "params": {"alphabet": "cyrillic"}, "source": "unicode_obfuscation"},
     {"name": "insert_typos", "params": {"probability": 0.15}, "source": "typos"},
-    {"name": "reverse_text", "params": {}, "source": "text_reversal"},
-    {"name": "pig_latin", "params": {}, "source": "pig_latin"},
+    {"name": "add_zero_width_chars", "params": {}, "source": "zero_width"},
+    {"name": "html_encode", "params": {}, "source": "html_encoding"},
+    {"name": "random_case", "params": {}, "source": "random_case"},
+    {"name": "url_encode", "params": {}, "source": "url_encoding"},
 ]
 
 ALL_TIERS = {

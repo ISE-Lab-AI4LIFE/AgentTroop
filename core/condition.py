@@ -797,8 +797,7 @@ def _get_primitive(name: str) -> Any:
     from core.primitive import (
         ContainsWordPredicate, ContainsAnyWordPredicate, ContainsAllWordsPredicate,
         LengthGtPredicate, LengthLtPredicate, HasNumberPredicate, HasSpecialCharPredicate,
-        IsAllCapsPredicate, IsEmptyPredicate, ContainsLeetPredicate, ContainsRot13Predicate,
-        ContainsBase64Predicate, ContainsHexPredicate, MatchesRegexPredicate,
+        IsAllCapsPredicate, IsEmptyPredicate, ContainsLeetPredicate, MatchesRegexPredicate,
         StartsWithPredicate, EndsWithPredicate, StartsWithRoleplayPredicate,
         ContainsSystemOverridePredicate, ContainsDelimiterPredicate, ContainsCodeBlockPredicate,
         HasEmojiPredicate, ContainsURLPredicate, SentimentPredicate, IntentPredicate,
@@ -809,8 +808,7 @@ def _get_primitive(name: str) -> Any:
     _MAP = {c.__name__.replace("Predicate", "").lower(): c for c in
             [ContainsWordPredicate, ContainsAnyWordPredicate, ContainsAllWordsPredicate,
              LengthGtPredicate, LengthLtPredicate, HasNumberPredicate, HasSpecialCharPredicate,
-             IsAllCapsPredicate, IsEmptyPredicate, ContainsLeetPredicate, ContainsRot13Predicate,
-             ContainsBase64Predicate, ContainsHexPredicate, MatchesRegexPredicate,
+             IsAllCapsPredicate, IsEmptyPredicate, ContainsLeetPredicate, MatchesRegexPredicate,
              StartsWithPredicate, EndsWithPredicate, StartsWithRoleplayPredicate,
              ContainsSystemOverridePredicate, ContainsDelimiterPredicate, ContainsCodeBlockPredicate,
              HasEmojiPredicate, ContainsURLPredicate, SentimentPredicate, IntentPredicate,
@@ -838,7 +836,7 @@ def _example_condition(cd: ConditionDef) -> str:
                     "is_all_caps", "is_empty", "contains_code_block",
                     "contains_delimiter", "has_emoji", "contains_url",
                     "is_repetitive", "is_grammatical_question", "starts_with_imperative",
-                    "contains_leet", "contains_rot13", "contains_base64", "contains_hex"):
+                    "contains_leet"):
         return f'{cd.name}(prompt)'
     if cd.name == "matches_jailbreak_pattern":
         return 'matches_jailbreak_pattern(prompt)'

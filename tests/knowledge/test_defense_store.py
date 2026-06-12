@@ -21,12 +21,10 @@ from core.program import (
     TransformNode,
 )
 from core.primitive import (
-    Base64DecodeTransform,
     Classifier,
     ContainsWordPredicate,
     LengthGtPredicate,
     Predicate,
-    Rot13Transform,
     ToxicityScoreClassifier,
     Transform,
 )
@@ -76,29 +74,6 @@ def simple_program() -> Program:
     )
 
 
-def complex_program() -> Program:
-    return Program(
-        root=IfThenElseNode(
-            condition=AndNode(
-                left=PredicateNode(
-                    primitive=ContainsWordPredicate(word="bomb")
-                ),
-                right=NotNode(
-                    child=ApplyTransformNode(
-                        transform=Rot13Transform(),
-                        inner=ThresholdNode(
-                            classifier=ToxicityScoreClassifier(),
-                            threshold=0.5,
-                        ),
-                    )
-                ),
-            ),
-            then_outcome=1,
-            else_outcome=0,
-        ),
-    )
-
-
 def make_record(**overrides: Any) -> DefenseProgramRecord:
     base: Dict[str, Any] = dict(
         name="test_program",
@@ -135,7 +110,7 @@ class TestDefenseProgramRecordDataclass:
     def test_to_dict_roundtrip(self) -> None:
         r1 = DefenseProgramRecord(
             name="roundtrip",
-            program=complex_program(),
+            program=simple_program(),
             confidence=0.9,
             provenance=["ep_001"],
         )
@@ -271,18 +246,6 @@ class TestDefenseProgramStoreNeo4j:
         assert store.update_confidence("no_such_id", 0.9) is False
 
     @neo4j_required
-    def test_complex_program_roundtrip(
-        self, store: DefenseProgramStore
-    ) -> None:
-        prog = complex_program()
-        r = make_record(name="complex_test", program=prog)
-        pid = store.save(r)
-
-        retrieved = store.get(pid)
-        assert retrieved is not None
-        assert retrieved.program.root == prog.root
-
-    @neo4j_required
     def test_not_node_roundtrip(self, store: DefenseProgramStore) -> None:
         prog = Program(
             root=IfThenElseNode(
@@ -296,30 +259,6 @@ class TestDefenseProgramStoreNeo4j:
             ),
         )
         r = make_record(name="not_test", program=prog)
-        pid = store.save(r)
-
-        retrieved = store.get(pid)
-        assert retrieved is not None
-        assert retrieved.program.root == prog.root
-
-    @neo4j_required
-    def test_apply_transform_threshold_roundtrip(
-        self, store: DefenseProgramStore
-    ) -> None:
-        prog = Program(
-            root=IfThenElseNode(
-                condition=ApplyTransformNode(
-                    transform=Base64DecodeTransform(),
-                    inner=ThresholdNode(
-                        classifier=ToxicityScoreClassifier(),
-                        threshold=0.8,
-                    ),
-                ),
-                then_outcome=1,
-                else_outcome=0,
-            ),
-        )
-        r = make_record(name="apply_thresh_test", program=prog)
         pid = store.save(r)
 
         retrieved = store.get(pid)

@@ -35,8 +35,7 @@ PREDICATE_NAMES: Set[str] = {
     "contains_word", "contains_any_word", "contains_all_words",
     "length_gt", "length_lt",
     "has_number", "has_special_char", "is_all_caps", "is_empty",
-    "contains_leet", "contains_rot13", "contains_base64", "contains_hex",
-    "matches_regex",
+    "contains_leet", "matches_regex",
     "starts_with", "ends_with",
     "starts_with_roleplay",
     "contains_system_override", "contains_delimiter", "contains_code_block",
@@ -46,7 +45,7 @@ PREDICATE_NAMES: Set[str] = {
     "is_repetitive", "is_grammatical_question", "starts_with_imperative",
 }
 
-ALL_EXPECTED: int = len(PREDICATE_NAMES)  # 29
+ALL_EXPECTED: int = len(PREDICATE_NAMES)  # 26
 
 
 def test_1_registration() -> Dict[str, bool]:
@@ -89,9 +88,7 @@ def test_3_compile_path() -> Dict[str, bool]:
         "contains_code_block": "IF contains_code_block(prompt) THEN REFUSE",
         "contains_delimiter": "IF contains_delimiter(prompt) THEN REFUSE",
         "contains_leet": "IF contains_leet(prompt) THEN REFUSE",
-        "contains_rot13": "IF contains_rot13(prompt) THEN REFUSE",
-        "contains_base64": "IF contains_base64(prompt) THEN REFUSE",
-        "contains_hex": "IF contains_hex(prompt) THEN REFUSE",
+
         "has_number": "IF has_number(prompt) THEN REFUSE",
         "has_special_char": "IF has_special_char(prompt) THEN REFUSE",
         "is_all_caps": "IF is_all_caps(prompt) THEN REFUSE",
@@ -137,9 +134,7 @@ def test_4_execution() -> Dict[str, bool]:
         "contains_code_block": ("```code```", "Hello", 1, 0),
         "contains_delimiter": ('"""', "Hello", 1, 0),
         "contains_leet": ("h4ck3r", "hello", 1, 0),
-        "contains_rot13": ("uryyb", "hello", 1, 0),
-        "contains_base64": ("dGVzdA==", "hello", 1, 0),
-        "contains_hex": ("0xDEADBEEF", "hello", 1, 0),
+
         "has_number": ("test 123", "hello", 1, 0),
         "has_special_char": ("hello!@#", "hello", 1, 0),
         "is_all_caps": ("SHOUTING", "Hello", 1, 0),
@@ -169,9 +164,7 @@ def test_4_execution() -> Dict[str, bool]:
         "contains_code_block": "IF contains_code_block(prompt) THEN REFUSE",
         "contains_delimiter": "IF contains_delimiter(prompt) THEN REFUSE",
         "contains_leet": "IF contains_leet(prompt) THEN REFUSE",
-        "contains_rot13": "IF contains_rot13(prompt) THEN REFUSE",
-        "contains_base64": "IF contains_base64(prompt) THEN REFUSE",
-        "contains_hex": "IF contains_hex(prompt) THEN REFUSE",
+
         "has_number": "IF has_number(prompt) THEN REFUSE",
         "has_special_char": "IF has_special_char(prompt) THEN REFUSE",
         "is_all_caps": "IF is_all_caps(prompt) THEN REFUSE",
@@ -226,9 +219,7 @@ def test_5_version_space_reachable() -> Dict[str, bool]:
         "contains_code_block": "IF contains_code_block(prompt) THEN REFUSE",
         "contains_delimiter": "IF contains_delimiter(prompt) THEN REFUSE",
         "contains_leet": "IF contains_leet(prompt) THEN REFUSE",
-        "contains_rot13": "IF contains_rot13(prompt) THEN REFUSE",
-        "contains_base64": "IF contains_base64(prompt) THEN REFUSE",
-        "contains_hex": "IF contains_hex(prompt) THEN REFUSE",
+
         "has_number": "IF has_number(prompt) THEN REFUSE",
         "has_special_char": "IF has_special_char(prompt) THEN REFUSE",
         "is_all_caps": "IF is_all_caps(prompt) THEN REFUSE",
@@ -280,8 +271,7 @@ def test_6_synthesis_coverage() -> Dict[str, bool]:
         from core.primitive import (
             ContainsWordPredicate, ContainsAnyWordPredicate, ContainsAllWordsPredicate,
             LengthGtPredicate, LengthLtPredicate, HasNumberPredicate, HasSpecialCharPredicate,
-            IsAllCapsPredicate, IsEmptyPredicate, ContainsLeetPredicate, ContainsRot13Predicate,
-            ContainsBase64Predicate, ContainsHexPredicate, MatchesRegexPredicate,
+            IsAllCapsPredicate, IsEmptyPredicate, ContainsLeetPredicate, MatchesRegexPredicate,
             StartsWithPredicate, EndsWithPredicate, StartsWithRoleplayPredicate,
             ContainsSystemOverridePredicate, ContainsDelimiterPredicate, ContainsCodeBlockPredicate,
             HasEmojiPredicate, ContainsURLPredicate, SentimentPredicate, IntentPredicate,
@@ -299,9 +289,6 @@ def test_6_synthesis_coverage() -> Dict[str, bool]:
             "is_all_caps": "IsAllCapsPredicate",
             "is_empty": "IsEmptyPredicate",
             "contains_leet": "ContainsLeetPredicate",
-            "contains_rot13": "ContainsRot13Predicate",
-            "contains_base64": "ContainsBase64Predicate",
-            "contains_hex": "ContainsHexPredicate",
             "matches_regex": "MatchesRegexPredicate",
             "starts_with": "StartsWithPredicate",
             "ends_with": "EndsWithPredicate",
@@ -352,9 +339,7 @@ def test_8_posterior_update_participation() -> Dict[str, bool]:
         "contains_code_block": "IF contains_code_block(prompt) THEN REFUSE",
         "contains_delimiter": "IF contains_delimiter(prompt) THEN REFUSE",
         "contains_leet": "IF contains_leet(prompt) THEN REFUSE",
-        "contains_rot13": "IF contains_rot13(prompt) THEN REFUSE",
-        "contains_base64": "IF contains_base64(prompt) THEN REFUSE",
-        "contains_hex": "IF contains_hex(prompt) THEN REFUSE",
+
         "has_number": "IF has_number(prompt) THEN REFUSE",
         "has_special_char": "IF has_special_char(prompt) THEN REFUSE",
         "is_all_caps": "IF is_all_caps(prompt) THEN REFUSE",
@@ -421,9 +406,7 @@ def test_9_top_candidate_participation() -> Dict[str, bool]:
         "contains_code_block": "IF contains_code_block(prompt) THEN REFUSE",
         "contains_delimiter": "IF contains_delimiter(prompt) THEN REFUSE",
         "contains_leet": "IF contains_leet(prompt) THEN REFUSE",
-        "contains_rot13": "IF contains_rot13(prompt) THEN REFUSE",
-        "contains_base64": "IF contains_base64(prompt) THEN REFUSE",
-        "contains_hex": "IF contains_hex(prompt) THEN REFUSE",
+
         "has_number": "IF has_number(prompt) THEN REFUSE",
         "has_special_char": "IF has_special_char(prompt) THEN REFUSE",
         "is_all_caps": "IF is_all_caps(prompt) THEN REFUSE",

@@ -26,6 +26,7 @@ import time
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+from agents.red_team import RedTeamAgent
 from agents.cognitive import Anomaly, CognitiveAgent, Hypothesis
 from agents.researcher import ResearcherAgent
 from agents.strategist import StrategistAgent
@@ -41,6 +42,7 @@ from knowledge.manager import KnowledgeManager, Target
 from knowledge.session_memory import SessionMemory
 from orchestration.surrogate_policy_model import SurrogatePolicyModel
 from orchestration.counterfactual_learner import CounterfactualLearner
+from core.jailbreak import apply_technique_to_intervention
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +128,7 @@ class Orchestrator:
         victim: Any,
         campaign_id: str,
         experiment_id: Optional[str] = None,
+        red_team_agent: Optional[RedTeamAgent] = None,
         max_iterations: int = 50,
         max_interventions: int = 500,
         accuracy_threshold: float = 0.9,
@@ -150,6 +153,7 @@ class Orchestrator:
         self.cognitive = cognitive_agent
         self.strategist = strategist_agent
         self.researcher = researcher_agent
+        self.red_team = red_team_agent
         self.knowledge_manager = knowledge_manager
         self.session_memory = session_memory
         self.victim = victim
@@ -211,6 +215,7 @@ class Orchestrator:
 
         # Diversity tracking
         self._diversity_history: List[Dict[str, Any]] = []
+        self._used_techniques: List[str] = []
 
         self._session_created = self._ensure_session()
         logger.info(
@@ -246,6 +251,11 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
+
+    def _log_phase_time(self, phase_name: str, start: float) -> float:
+        elapsed = time.time() - start
+        logger.info("⏱ PHASE_TIMING: %s took %.3fs", phase_name, elapsed)
+        return time.time()
 
     def run(self) -> Dict[str, Any]:
         """Execute the full 6-phase loop with POMDP as the central mechanism.
@@ -288,11 +298,20 @@ class Orchestrator:
         self._synthesis_total_candidates = 0
         self._synthesis_fallbacks = 0
 
+        # Track timing per phase
+        self._phase_timing: Dict[str, List[float]] = {
+            "cognitive": [], "strategist_design": [], "strategist_execute": [],
+            "belief_update": [], "synthesis": [], "holdout_eval": [], "full_cycle": [],
+        }
+
         try:
             # Phase 1-2: Cognitive Agent → hypotheses
+            t0 = time.time()
             logger.info("=== Campaign %s: Phase 1-2 (Cognitive) ===",
                         self.campaign_id)
             anomalies, hypotheses = self._run_cognitive_phase()
+            t0 = self._log_phase_time("cognitive_phase_1_2", t0)
+            self._phase_timing["cognitive"].append(time.time() - t0 + (time.time() - start_time))
             self._init_belief_states(hypotheses)
 
             # Compute anomaly-source telemetry
@@ -315,6 +334,7 @@ class Orchestrator:
 
             for iteration in range(1, self.max_iterations + 1):
                 self.iteration = iteration
+                self._cycle_start = time.time()
                 logger.info(
                     "=== Cycle %d/%d (campaign=%s, VS entropy=%.3f, candidates=%d) ===",
                     iteration, self.max_iterations, self.campaign_id,
@@ -329,7 +349,9 @@ class Orchestrator:
                 self._record_belief_state()
 
                 # ── Design intervention (disagreement-driven) ──
+                t_design = time.time()
                 intervention = self._run_strategist_phase(hypotheses)
+                self._phase_timing["strategist_design"].append(time.time() - t_design)
 
                 if intervention is None:
                     stalled_iterations += 1
@@ -374,11 +396,35 @@ class Orchestrator:
                 else:
                     stalled_iterations = 0
 
+                # ── Technique selection & application (Phase 3+) ──
+                if self.phase.value > 2 and intervention is not None:
+                    if not intervention.metadata.get("technique"):
+                        tech = self.strategist.select_technique(
+                            goal=intervention.base_prompt,
+                            used_techniques=self._used_techniques,
+                        )
+                        intervention = apply_technique_to_intervention(intervention, tech)
+                        self._used_techniques.append(tech)
+
+                # ── Red Team LLM refinement (skips Phase 1-2 reconnaissance) ──
+                if self.red_team is not None and self.phase.value > 2:
+                    intervention = self.red_team.maybe_refine_intervention(intervention)
+
                 # ── Execute intervention → Observe outcome ──
+                t_exec = time.time()
                 outcome = self.strategist.execute_intervention(intervention, self.victim)
+                self._phase_timing["strategist_execute"].append(time.time() - t_exec)
+
+                # ── Record technique outcome for adaptive selection ──
+                technique = intervention.metadata.get("technique")
+                if technique:
+                    from core.jailbreak import record_technique_outcome
+                    record_technique_outcome(technique, intervention.base_prompt, outcome)
 
                 # ── Update version space belief ──
+                t_belief = time.time()
                 self._update_belief_from_observation(intervention, outcome, hypotheses)
+                self._phase_timing["belief_update"].append(time.time() - t_belief)
 
                 # ── Store episode ──
                 episode_id = self.strategist.store_intervention(
@@ -403,7 +449,9 @@ class Orchestrator:
 
                 # ── Phase 5: Top-K Program Synthesis → Version Space ──
                 if iteration == 1 or total_interventions % self.synthesis_interval == 0:
+                    t_synth = time.time()
                     self._synthesize_and_update_version_space()
+                    self._phase_timing["synthesis"].append(time.time() - t_synth)
 
                 # ── Holdout evaluation → posterior reweight (every cycle) ──
                 # Running every cycle differentiates near-identical candidates
@@ -427,9 +475,18 @@ class Orchestrator:
                         self._feed_holdout_failures(holdout_result)
 
                 # ── Diversity telemetry per cycle ──
-
-                # ── Diversity telemetry per cycle ──
                 self._emit_diversity_telemetry()
+
+                # ── Cycle timing summary ──
+                cycle_time = time.time() - self._cycle_start
+                self._phase_timing["full_cycle"].append(cycle_time)
+                logger.info(
+                    "⏱ CYCLE_TIMING: cycle=%d total=%.3fs design=%.3fs exec=%.3fs belief=%.3fs",
+                    iteration, cycle_time,
+                    self._phase_timing["strategist_design"][-1] if self._phase_timing["strategist_design"] else 0,
+                    self._phase_timing["strategist_execute"][-1] if self._phase_timing["strategist_execute"] else 0,
+                    self._phase_timing["belief_update"][-1] if self._phase_timing["belief_update"] else 0,
+                )
 
                 # ── VS-level entropy recording for convergence detection ──
                 self.version_space.record_entropy()
@@ -535,6 +592,21 @@ class Orchestrator:
             )
         finally:
             elapsed = time.time() - start_time
+            # Timing summary
+            timing_report = {
+                "total_elapsed_s": round(elapsed, 2),
+                "iterations": self.iteration,
+                "total_interventions": total_interventions,
+            }
+            for phase, timings in self._phase_timing.items():
+                if timings:
+                    timing_report[f"{phase}_total_s"] = round(sum(timings), 3)
+                    timing_report[f"{phase}_avg_s"] = round(sum(timings) / len(timings), 3)
+                    timing_report[f"{phase}_count"] = len(timings)
+            logger.info(
+                "⏱ TIMING_SUMMARY: %s",
+                json.dumps(timing_report, indent=2),
+            )
             logger.info(
                 "Campaign %s finished in %.1fs: "
                 "iterations=%d interventions=%d entropy_history=%d",
@@ -557,8 +629,16 @@ class Orchestrator:
         self._entropy_history = []
         self._efe_log = []
 
+        # Track timing per phase
+        self._phase_timing: Dict[str, List[float]] = {
+            "cognitive": [], "strategist_design": [], "strategist_execute": [],
+            "belief_update": [], "synthesis": [], "holdout_eval": [], "full_cycle": [],
+        }
+
         try:
+            t0 = time.time()
             anomalies, hypotheses = self._run_cognitive_phase()
+            t0 = self._log_phase_time("cognitive_phase_1_2", t0)
             self._init_belief_states(hypotheses)
 
             # Compute anomaly-source telemetry
@@ -577,6 +657,7 @@ class Orchestrator:
 
             for iteration in range(1, self.max_iterations + 1):
                 self.iteration = iteration
+                self._cycle_start = time.time()
                 logger.info(
                     "=== Async cycle %d/%d (campaign=%s, VS entropy=%.3f, candidates=%d) ===",
                     iteration, self.max_iterations, self.campaign_id,
@@ -590,7 +671,9 @@ class Orchestrator:
 
                 self._record_belief_state()
 
+                t_design = time.time()
                 intervention = self._run_strategist_phase(hypotheses)
+                self._phase_timing["strategist_design"].append(time.time() - t_design)
 
                 if intervention is None:
                     stalled_iterations += 1
@@ -634,10 +717,35 @@ class Orchestrator:
                 else:
                     stalled_iterations = 0
 
+                # ── Technique selection & application (Phase 3+) ──
+                if self.phase.value > 2 and intervention is not None:
+                    if not intervention.metadata.get("technique"):
+                        tech = self.strategist.select_technique(
+                            goal=intervention.base_prompt,
+                            used_techniques=self._used_techniques,
+                        )
+                        intervention = apply_technique_to_intervention(intervention, tech)
+                        self._used_techniques.append(tech)
+
+                # ── Red Team LLM refinement (skips Phase 1-2 reconnaissance) ──
+                if self.red_team is not None and self.phase.value > 2:
+                    intervention = self.red_team.maybe_refine_intervention(intervention)
+
+                t_exec = time.time()
                 outcome = await self.strategist.async_execute_intervention(
                     intervention, self.victim
                 )
+                self._phase_timing["strategist_execute"].append(time.time() - t_exec)
+
+                # ── Record technique outcome for adaptive selection ──
+                technique = intervention.metadata.get("technique")
+                if technique:
+                    from core.jailbreak import record_technique_outcome
+                    record_technique_outcome(technique, intervention.base_prompt, outcome)
+
+                t_belief = time.time()
                 self._update_belief_from_observation(intervention, outcome, hypotheses)
+                self._phase_timing["belief_update"].append(time.time() - t_belief)
 
                 episode_id = self.strategist.store_intervention(
                     intervention=intervention,
@@ -674,6 +782,17 @@ class Orchestrator:
 
                 # ── Diversity telemetry per cycle ──
                 self._emit_diversity_telemetry()
+
+                # ── Cycle timing summary (async) ──
+                cycle_time = time.time() - self._cycle_start
+                self._phase_timing["full_cycle"].append(cycle_time)
+                logger.info(
+                    "⏱ ASYNC_CYCLE_TIMING: cycle=%d total=%.3fs design=%.3fs exec=%.3fs belief=%.3fs",
+                    iteration, cycle_time,
+                    self._phase_timing["strategist_design"][-1] if self._phase_timing["strategist_design"] else 0,
+                    self._phase_timing["strategist_execute"][-1] if self._phase_timing["strategist_execute"] else 0,
+                    self._phase_timing["belief_update"][-1] if self._phase_timing["belief_update"] else 0,
+                )
 
                 # ── VS-level entropy recording for convergence detection ──
                 self.version_space.record_entropy()
@@ -747,6 +866,20 @@ class Orchestrator:
             )
         finally:
             elapsed = time.time() - start_time
+            timing_report = {
+                "total_elapsed_s": round(elapsed, 2),
+                "iterations": self.iteration,
+                "total_interventions": total_interventions,
+            }
+            for phase, timings in self._phase_timing.items():
+                if timings:
+                    timing_report[f"{phase}_total_s"] = round(sum(timings), 3)
+                    timing_report[f"{phase}_avg_s"] = round(sum(timings) / len(timings), 3)
+                    timing_report[f"{phase}_count"] = len(timings)
+            logger.info(
+                "⏱ ASYNC_TIMING_SUMMARY: %s",
+                json.dumps(timing_report, indent=2),
+            )
             logger.info(
                 "Async campaign %s finished in %.1fs: "
                 "iterations=%d interventions=%d entropy_history=%d",
@@ -1087,6 +1220,7 @@ class Orchestrator:
                     old_rate, new_rate, consecutive,
                 )
 
+            self._synthesis_attempts += 1
             programs = synthesizer.synthesize_top_k(
                 episodes, k=self.top_k_candidates,
             )
@@ -1094,8 +1228,10 @@ class Orchestrator:
             # ── Track synthesis success/failure ──
             if not programs:
                 self._consecutive_synthesis_failures = getattr(self, '_consecutive_synthesis_failures', 0) + 1
+                self._synthesis_fallbacks += 1
             else:
                 self._consecutive_synthesis_failures = 0
+                self._synthesis_successes += 1
 
             # ── Heuristic fallback: if synthesis found 0 programs ──
             if not programs:
@@ -1327,8 +1463,7 @@ class Orchestrator:
             StartsWithRoleplayPredicate, ContainsSystemOverridePredicate,
             MatchesJailbreakPatternPredicate, ContainsEncodingWrapperPredicate,
             ContainsCodeBlockPredicate, ContainsDelimiterPredicate,
-            ContainsLeetPredicate, ContainsRot13Predicate,
-            ContainsBase64Predicate, ContainsHexPredicate,
+            ContainsLeetPredicate,
             HasNumberPredicate, HasSpecialCharPredicate,
             IsAllCapsPredicate, IsEmptyPredicate,
             HasEmojiPredicate, ContainsURLPredicate,
@@ -1386,8 +1521,7 @@ class Orchestrator:
             StartsWithRoleplayPredicate(), ContainsSystemOverridePredicate(),
             MatchesJailbreakPatternPredicate(), ContainsEncodingWrapperPredicate(),
             ContainsCodeBlockPredicate(), ContainsDelimiterPredicate(),
-            ContainsLeetPredicate(), ContainsRot13Predicate(),
-            ContainsBase64Predicate(), ContainsHexPredicate(),
+            ContainsLeetPredicate(),
             HasNumberPredicate(), HasSpecialCharPredicate(),
             IsAllCapsPredicate(), IsEmptyPredicate(),
             HasEmojiPredicate(), ContainsURLPredicate(),
@@ -1679,7 +1813,7 @@ class Orchestrator:
             "posterior_by_source": vs.posterior_by_source(),
             "source_lifetime_stats": vs.source_lifetime_stats(),
             "survival_rate_by_source": vs.survival_rate_by_source(),
-            "synthesis_attemps": self._synthesis_attempts,
+            "synthesis_attempts": self._synthesis_attempts,
             "synthesis_successes": self._synthesis_successes,
             "synthesis_fallbacks": self._synthesis_fallbacks,
         }

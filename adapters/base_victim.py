@@ -28,6 +28,15 @@ class BaseVictim(ABC):
         """Alias for respond() — first-class interface for experiments."""
         return self.respond(prompt)
 
+    def query_raw(self, prompt: str) -> str:
+        """Return the raw text response without classification.
+
+        Subclasses with actual LLM backends should override this to
+        return the model's raw output. The default returns '0' or '1'.
+        """
+        outcome = self.query(prompt)
+        return str(outcome)
+
     async def async_query(self, prompt: str) -> Outcome:
         """Async variant of query() for concurrent execution.
 

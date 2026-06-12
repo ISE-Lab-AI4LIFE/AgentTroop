@@ -18,7 +18,7 @@ cd "$PROJECT_DIR"
 NUM_SEEDS=50
 FULL=""
 PRIOR_CAMPAIGN=""
-CONFIG_FILE="$SCRIPT_DIR/config.yaml"
+CONFIG_FILE="$PROJECT_DIR/configs/experiment_config.yaml"
 FORCE=0
 
 # ── Parse CLI: run_exp.sh --num-seeds 100 --full --prior-campaign "abc" ──

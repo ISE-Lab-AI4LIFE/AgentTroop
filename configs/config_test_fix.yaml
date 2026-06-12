@@ -33,6 +33,14 @@ victim:
   temperature: 0.0
   max_tokens: 100
 
+red_team:
+  population_size: 5
+  refinement_rounds: 2
+  mutation_rate: 0.3
+  crossover_rate: 0.5
+  max_chain_depth: 1
+  enable_self_eval: false
+
 transforms:
   enabled:
     - to_lowercase
@@ -45,11 +53,5 @@ transforms:
     - to_imperative
     - to_declarative
   disabled:
-    - rot13
-    - base64
-    - rail_fence_cipher
-    - vigenere_cipher
-    - unicode_obfuscate
     - add_zero_width_chars
     - url_encode
-    - hex_encode

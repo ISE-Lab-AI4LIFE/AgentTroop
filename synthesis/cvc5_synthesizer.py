@@ -361,6 +361,26 @@ class CVC5Synthesizer:
         # Collect all matching programs from enumeration
         all_matching: List[Program] = []
 
+        # ── Phase 1: CVC5 (only if binary is available) ──
+        cvc5_avail = self._cvc5_available()
+        _audit["cvc5_available"] = cvc5_avail
+        if cvc5_avail and self.enforce_cvc5_first:
+            logger.info(
+                "synthesize_top_k: attempting CVC5 first (timeout=%ds, max_depth=%d)",
+                self.timeout, self.max_depth,
+            )
+            cvc5_prog = self._try_cvc5(examples, exporter, max_errors)
+            if cvc5_prog is not None:
+                prog_id = getattr(cvc5_prog, "id", None) or f"cvc5_{uuid.uuid4().hex[:12]}"
+                if not hasattr(cvc5_prog, "id") or getattr(cvc5_prog, "id", None) is None:
+                    cvc5_prog.id = prog_id
+                cvc5_prog.metadata["source"] = "cvc5"
+                all_matching.append(cvc5_prog)
+                logger.info("  ✓ synthesize_top_k: CVC5 produced program %s", prog_id)
+            else:
+                logger.info("  ✗ synthesize_top_k: CVC5 did not produce a program")
+        _audit["cvc5_programs"] = len([p for p in all_matching if p.metadata.get("source") == "cvc5"])
+
         for depth in range(1, min(self.max_depth + 2, 7)):
             programs = exporter.enumerate_programs(max_depth=depth, examples=examples)
             _audit[f"depth_{depth}_enumerated"] = len(programs) if programs else 0
@@ -1007,16 +1027,21 @@ class CVC5Synthesizer:
     # ------------------------------------------------------------------
 
     def _cvc5_available(self) -> bool:
+        if self._cvc5_checked is not None:
+            return self._cvc5_checked
         resolved = shutil.which(self.cvc5_path)
         if not resolved:
+            self._cvc5_checked = False
             return False
         try:
             result = subprocess.run(
                 [resolved, "--version"],
                 capture_output=True, text=True, timeout=5,
             )
-            return result.returncode == 0
+            self._cvc5_checked = result.returncode == 0
+            return self._cvc5_checked
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            self._cvc5_checked = False
             return False
 
     def _fallback_from_smt(

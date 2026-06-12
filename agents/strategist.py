@@ -33,6 +33,7 @@ from core.executor import ProgramExecutor
 from core.intervention import Intervention
 from core.primitive import PrimitiveRegistry, Transform, default_registry
 from core.types import Outcome
+from core.jailbreak import select_technique as core_select_technique
 from inference.pomdp import POMDPAction, POMDPObservation
 from inference.version_space import VersionSpace
 from knowledge.episodic.episodic import (
@@ -2262,6 +2263,27 @@ class StrategistAgent:
 
     # ------------------------------------------------------------------
     # Active Inference: belief state access
+    def select_technique(
+        self,
+        goal: str,
+        used_techniques: Optional[List[str]] = None,
+    ) -> str:
+        """Select the best jailbreak technique for a given goal.
+
+        Delegates to ``core.jailbreak.select_technique()`` using the
+        Strategist's version space for structural defense context.
+
+        Args:
+            goal: The harmful request to jailbreak for.
+            used_techniques: Techniques already used in this session
+                             (to ensure diversity).
+
+        Returns:
+            A technique name string from ``core.jailbreak.TECHNIQUE_LIBRARY``.
+        """
+        vs = getattr(self, "_version_space", None)
+        return core_select_technique(goal, version_space=vs, used_techniques=used_techniques)
+
     # ------------------------------------------------------------------
 
     @property

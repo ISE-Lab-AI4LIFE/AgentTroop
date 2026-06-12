@@ -34,7 +34,7 @@ class OpenRouterClient:
         if not self.api_key:
             raise RuntimeError("OPENROUTER_API_KEY environment variable is not set.")
 
-        self.model = model or os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+        self.model = model or os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
         self.timeout_ms = timeout_ms
         self.max_retries = max_retries
         self.fallback_model = fallback_model or os.environ.get(

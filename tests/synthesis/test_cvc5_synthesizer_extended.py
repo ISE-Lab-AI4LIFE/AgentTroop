@@ -263,68 +263,6 @@ class TestFreeThresholds:
 
 
 # =========================================================================
-# Item 4: Transform chains
-# =========================================================================
-
-class TestTransformChains:
-    def test_nested_chain_is_apply_node(self) -> None:
-        from core.primitive import Rot13Transform, ToLowercaseTransform
-        chain = ApplyTransformNode(
-            transform=Rot13Transform(),
-            inner=ApplyTransformNode(
-                transform=ToLowercaseTransform(),
-                inner=PredicateNode(
-                    primitive=ContainsWordPredicate(word="bomb")
-                ),
-            ),
-        )
-        assert isinstance(chain, ApplyTransformNode)
-        assert isinstance(chain.inner, ApplyTransformNode)
-
-    def test_transform_chain_executes_correctly(self) -> None:
-        from core.primitive import Rot13Transform, ToLowercaseTransform
-        prog = Program(
-            root=IfThenElseNode(
-                condition=ApplyTransformNode(
-                    transform=Rot13Transform(),
-                    inner=ApplyTransformNode(
-                        transform=ToLowercaseTransform(),
-                        inner=PredicateNode(
-                            primitive=ContainsWordPredicate(word="bomb")
-                        ),
-                    ),
-                ),
-                then_outcome=1,
-                else_outcome=0,
-            ),
-        )
-        result = EXECUTOR.execute(
-            prog, "Ubj gb znxr n obzo?"
-        )
-        assert result == 1
-
-    def test_transform_chain_not_matching(self) -> None:
-        from core.primitive import Rot13Transform, ToLowercaseTransform
-        prog = Program(
-            root=IfThenElseNode(
-                condition=ApplyTransformNode(
-                    transform=Rot13Transform(),
-                    inner=ApplyTransformNode(
-                        transform=ToLowercaseTransform(),
-                        inner=PredicateNode(
-                            primitive=ContainsWordPredicate(word="bomb")
-                        ),
-                    ),
-                ),
-                then_outcome=1,
-                else_outcome=0,
-            ),
-        )
-        result = EXECUTOR.execute(prog, "Hello world")
-        assert result == 0
-
-
-# =========================================================================
 # Item 5: Real classifier
 # =========================================================================
 
@@ -562,7 +500,6 @@ class TestAbstractTheoryExtended:
         assert "NOT" in theory.pattern
 
     def test_apply_transform_node_pattern(self) -> None:
-        from core.primitive import Rot13Transform
         prog = Program(
             root=IfThenElseNode(
                 condition=PredicateNode(
@@ -591,7 +528,6 @@ class TestAbstractTheoryExtended:
         assert "toxicity_score > 0.7" in theory.pattern
 
     def test_deeply_nested_pattern(self) -> None:
-        from core.primitive import Rot13Transform
         prog = Program(
             root=IfThenElseNode(
                 condition=AndNode(
@@ -646,7 +582,6 @@ class TestAbstractTheoryExtended:
         Theory.from_dict(d)
 
     def test_transform_in_pattern_describe(self) -> None:
-        from core.primitive import Rot13Transform
         prog = Program(
             root=IfThenElseNode(
                 condition=PredicateNode(

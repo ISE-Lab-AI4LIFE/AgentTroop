@@ -20,6 +20,10 @@ class Intervention:
             self._final_prompt = self.apply()
         return self._final_prompt
 
+    @final_prompt.setter
+    def final_prompt(self, value: str) -> None:
+        self._final_prompt = value
+
     def apply(self) -> str:
         prompt = self.base_prompt
         for transform in self.transforms:

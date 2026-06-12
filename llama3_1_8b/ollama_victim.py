@@ -1,10 +1,13 @@
 """Adapter for Llama-3.1-8B running locally via Ollama."""
 
 import asyncio
+import logging
 from typing import Optional
 
 import httpx
 import requests
+
+logger = logging.getLogger(__name__)
 
 from adapters.base_victim import BaseVictim
 from core.types import Outcome
@@ -108,6 +111,10 @@ class OllamaVictim(BaseVictim):
         raw_text = self._call_ollama(prompt)
         is_refuse = self._classify(raw_text)
         return 1 if is_refuse else 0
+
+    def query_raw(self, prompt: str) -> str:
+        """Return the raw LLM response text (no classification)."""
+        return self._call_ollama(prompt)
 
     async def async_query(self, prompt: str) -> Outcome:
         """Async variant using httpx.AsyncClient for concurrent I/O."""

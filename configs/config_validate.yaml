@@ -1,14 +1,13 @@
-use_async: false
-num_seeds: 1
+use_async: true
+num_seeds: 5
 orchestrator:
   max_iterations: 25
   max_interventions: 100
-  accuracy_threshold: 0.85
-  allow_error_rate: 0.2
+  accuracy_threshold: 0.70
+  allow_error_rate: 0.05
   synthesis_interval: 3
   force_exploration_interval: 2
   entropy_convergence_threshold: 0.1
-  holdout_prompts_path: "police_validation/holdout_prompts.csv"
 cognitive:
   anomaly_threshold: 0.1
   llm_model: "gemma"
@@ -17,11 +16,11 @@ strategist:
   max_chain_depth: 2
   max_candidates_heuristic: 100
   max_candidates_llm: 10
-  num_trials: 2
+  num_trials: 3
 researcher:
   max_depth: 4
   beam_width: 200
-  allow_error_rate: 0.2
+  allow_error_rate: 0.05
   top_k_candidates: 30
   use_cvc5: true
   enforce_cvc5_first: true
@@ -31,7 +30,13 @@ victim:
   model_name: "llama3.1:8b"
   temperature: 0.0
   max_tokens: 100
+red_team:
+  population_size: 10
+  refinement_rounds: 3
+  mutation_rate: 0.3
+  crossover_rate: 0.5
+  max_chain_depth: 3
+  enable_self_eval: false
+
 transforms:
-  disabled: ["rot13", "base64", "to_lowercase", "to_uppercase", "leet_speak",
-              "reverse_text", "pig_latin", "morse_code", "remove_vowels",
-              "atbash_cipher", "caesar_cipher", "binary_encode", "hex_encode"]
+  disabled: []

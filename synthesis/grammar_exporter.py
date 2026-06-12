@@ -608,24 +608,9 @@ PREDICATE_ONTOLOGY: Dict[str, Dict[str, Any]] = {
         "dsl_class": "ContainsLeetPredicate",
         "category": "structural",
     },
-    "contains_rot13": {
-        "parser_supported": True,
-        "hypothesis_template": "IF contains_rot13(prompt) THEN REFUSE",
-        "dsl_class": "ContainsRot13Predicate",
-        "category": "structural",
-    },
-    "contains_base64": {
-        "parser_supported": False,
-        "hypothesis_template": "IF contains_base64(prompt) THEN REFUSE",
-        "dsl_class": "ContainsBase64Predicate",
-        "category": "structural",
-    },
-    "contains_hex": {
-        "parser_supported": False,
-        "hypothesis_template": "IF contains_hex(prompt) THEN REFUSE",
-        "dsl_class": "ContainsHexPredicate",
-        "category": "structural",
-    },
+
+
+
     "is_empty": {
         "parser_supported": False,
         "hypothesis_template": "IF is_empty(prompt) THEN REFUSE",
