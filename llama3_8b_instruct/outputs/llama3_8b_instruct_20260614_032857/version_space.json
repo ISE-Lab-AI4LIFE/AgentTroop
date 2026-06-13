@@ -1,0 +1,1078 @@
+{
+  "num_candidates": 18,
+  "max_candidates": 30,
+  "entropy": 0.08433366779540954,
+  "total_info_gain": 1.4639426982346517,
+  "num_updates": 3,
+  "num_prunes": 13,
+  "num_syntheses": 0,
+  "posterior_by_source": {
+    "compiled_from_condition": 0.0005882352941176475,
+    "type_rescue": 0.9923529411764707,
+    "synthesis": 0.007058823529411769
+  },
+  "survival_rate_by_source": {
+    "compiled_from_condition": 1.96875,
+    "init_heuristic": 0.32608695652173914,
+    "heuristic": 7.0,
+    "synthesis": 4.84,
+    "type_rescue": 3.888888888888889
+  },
+  "source_lifetime_stats": {
+    "total_by_source": {
+      "compiled_from_condition": 32,
+      "init_heuristic": 46,
+      "heuristic": 5,
+      "synthesis": 50,
+      "type_rescue": 9
+    },
+    "survived_by_source": {
+      "compiled_from_condition": 63,
+      "init_heuristic": 15,
+      "heuristic": 35,
+      "synthesis": 242,
+      "type_rescue": 35
+    },
+    "current_by_source": {
+      "compiled_from_condition": 1,
+      "type_rescue": 5,
+      "synthesis": 12
+    }
+  },
+  "posterior_by_predicate_type": {
+    "composite": 0.0005882352941176475,
+    "structural": 0.9905882352941177,
+    "keyword": 0.007058823529411769,
+    "semantic": 0.0017647058823529425
+  },
+  "survival_rate_by_predicate_type": {
+    "transform": 9.0,
+    "keyword": 3.8205128205128207,
+    "semantic": 1.0526315789473684,
+    "jailbreak": 1.0,
+    "structural": 1.21875,
+    "composite": 5.0
+  },
+  "predicate_type_lifetime_stats": {
+    "total_by_type": {
+      "transform": 1,
+      "keyword": 78,
+      "semantic": 19,
+      "jailbreak": 9,
+      "structural": 32,
+      "composite": 3
+    },
+    "survived_by_type": {
+      "transform": 9,
+      "keyword": 298,
+      "semantic": 20,
+      "jailbreak": 9,
+      "structural": 39,
+      "composite": 15
+    },
+    "current_by_type": {
+      "composite": 1,
+      "structural": 2,
+      "keyword": 12,
+      "semantic": 3
+    }
+  },
+  "entropy_history": [
+    2.9557174988891717,
+    2.482410486363075,
+    0.08433366779540954
+  ],
+  "holdout_accuracy_history": [
+    0.9444444444444444
+  ],
+  "posterior_history": [
+    [
+      0.22736846002871322,
+      0.059175092032793745,
+      0.05005361425087928,
+      0.002614264718353685,
+      0.006575010225865978,
+      0.012631581112706293,
+      0.002614264718353685,
+      0.023528382465183184,
+      0.059175092032793745,
+      0.05005361425087928,
+      0.05005361425087928,
+      0.05005361425087928,
+      0.023528382465183184,
+      0.023528382465183184,
+      0.012631581112706293,
+      0.03304122941303961,
+      0.03304122941303961,
+      0.047601771188277395,
+      0.03304122941303961,
+      0.03304122941303961,
+      0.047601771188277395,
+      0.002239317300057091,
+      0.002239317300057091,
+      0.001990504266717414,
+      0.001990504266717414,
+      0.027154003025196098,
+      0.01707479441293532,
+      0.016514965087921045,
+      0.024921591965166013,
+      0.024921591965166013
+    ],
+    [
+      0.037430689974874545,
+      0.01871534498743729,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.24984369662762335,
+      0.24984369662762335,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605,
+      0.027760410736402605
+    ],
+    [
+      0.006201698048953429,
+      0.027907641220290436,
+      0.041395314031318124,
+      0.004599479336813126,
+      0.004599479336813126,
+      0.004599479336813126,
+      0.004599479336813126,
+      0.004599479336813126,
+      0.004599479336813126,
+      0.004599479336813126,
+      0.041395314031318124,
+      0.041395314031318124,
+      0.004599479336813126,
+      0.004599479336813126,
+      0.372557826281863,
+      0.372557826281863,
+      0.041395314031318124,
+      0.004599479336813126,
+      0.004599479336813126,
+      0.004599479336813126
+    ]
+  ],
+  "topk_posterior_traces": {
+    "prog_1781382767356684_26b8": [
+      0.22736846002871322
+    ],
+    "prog_1781382780044720_7b11": [
+      0.2498436966276233,
+      0.372557826281863
+    ]
+  },
+  "candidates": [
+    {
+      "program_id": "prog_1781382767357512_fd2c",
+      "accuracy": 0.0,
+      "complexity": 4,
+      "posterior": 0.0005882352941176475,
+      "source": "compiled_from_condition",
+      "predicate_type": "composite",
+      "holdout_accuracy": 0.5,
+      "train_accuracy": 0.5,
+      "generalization_gap": 0.0
+    },
+    {
+      "program_id": "prog_1781382780044720_7b11",
+      "accuracy": 0.9,
+      "complexity": 2,
+      "posterior": 0.99,
+      "source": "type_rescue",
+      "predicate_type": "structural",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.8108108108108109,
+      "generalization_gap": 0.033033033033033066
+    },
+    {
+      "program_id": "prog_1781382780044731_a3a6",
+      "accuracy": 0.8,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "type_rescue",
+      "predicate_type": "structural",
+      "holdout_accuracy": 0.7777777777777778,
+      "train_accuracy": 0.8108108108108109,
+      "generalization_gap": 0.033033033033033066
+    },
+    {
+      "program_id": "evo_4a90ecb2",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_6911b8d9",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_e6539804",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_f3bd4dcd",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_c8212b4d",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_308e0818",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_fbd9e5ca",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_63c8a314",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_a74ead6a",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_f0d46377",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_2dec0bec",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "evo_8ae782d6",
+      "accuracy": 0.9456521739130435,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9444444444444444,
+      "train_accuracy": 0.9459459459459459,
+      "generalization_gap": 0.0015015015015015232
+    },
+    {
+      "program_id": "prog_1781382899552854_8f2e",
+      "accuracy": 0.6521739130434783,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "type_rescue",
+      "predicate_type": "semantic",
+      "holdout_accuracy": 0.6111111111111112,
+      "train_accuracy": 0.6621621621621622,
+      "generalization_gap": 0.05105105105105101
+    },
+    {
+      "program_id": "prog_1781382899552862_d219",
+      "accuracy": 0.6521739130434783,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "type_rescue",
+      "predicate_type": "semantic",
+      "holdout_accuracy": 0.7222222222222222,
+      "train_accuracy": 0.6351351351351351,
+      "generalization_gap": -0.08708708708708712
+    },
+    {
+      "program_id": "prog_1781382899552833_dad9",
+      "accuracy": 0.5217391304347826,
+      "complexity": 2,
+      "posterior": 0.0005882352941176475,
+      "source": "type_rescue",
+      "predicate_type": "semantic",
+      "holdout_accuracy": 0.5,
+      "train_accuracy": 0.527027027027027,
+      "generalization_gap": 0.027027027027026973
+    }
+  ],
+  "program_asts": {
+    "prog_1781382767357512_fd2c": {
+      "id": "prog_1781382767357512_fd2c",
+      "version_id": "1.0",
+      "created_at": 1781382767.3575182,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "AndNode",
+          "left": {
+            "type": "PredicateNode",
+            "primitive": {
+              "name": "length_lt",
+              "parameters": {
+                "threshold": 50
+              },
+              "type": "LengthLtPredicate",
+              "input_type": "String",
+              "output_type": "Boolean",
+              "version_id": "1.0",
+              "created_at": 0.0,
+              "deprecated_at": null,
+              "metadata": {
+                "description": "Check whether prompt length is below a threshold.",
+                "category": "predicate",
+                "related_primitives": [
+                  "length_gt"
+                ]
+              }
+            }
+          },
+          "right": {
+            "type": "PredicateNode",
+            "primitive": {
+              "name": "starts_with_imperative",
+              "parameters": {},
+              "type": "StartsWithImperativePredicate",
+              "input_type": "String",
+              "output_type": "Boolean",
+              "version_id": "1.0",
+              "created_at": 0.0,
+              "deprecated_at": null,
+              "metadata": {
+                "description": "Check if the prompt starts with an imperative verb.",
+                "category": "discourse",
+                "related_primitives": []
+              }
+            }
+          }
+        },
+        "then_outcome": 0,
+        "else_outcome": 1
+      }
+    },
+    "prog_1781382780044720_7b11": {
+      "id": "prog_1781382780044720_7b11",
+      "version_id": "1.0",
+      "created_at": 1781382780.044723,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "length_gt",
+            "parameters": {
+              "threshold": 100
+            },
+            "type": "LengthGtPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether prompt length exceeds a threshold.",
+              "category": "predicate",
+              "related_primitives": [
+                "length_lt"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "prog_1781382780044731_a3a6": {
+      "id": "prog_1781382780044731_a3a6",
+      "version_id": "1.0",
+      "created_at": 1781382780.044734,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "length_lt",
+            "parameters": {
+              "threshold": 100
+            },
+            "type": "LengthLtPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether prompt length is below a threshold.",
+              "category": "predicate",
+              "related_primitives": [
+                "length_gt"
+              ]
+            }
+          }
+        },
+        "then_outcome": 0,
+        "else_outcome": 1
+      }
+    },
+    "evo_4a90ecb2": {
+      "id": "evo_4a90ecb2",
+      "version_id": "1.0",
+      "created_at": 1781382899.494087,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_6911b8d9": {
+      "id": "evo_6911b8d9",
+      "version_id": "1.0",
+      "created_at": 1781382899.417888,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_e6539804": {
+      "id": "evo_e6539804",
+      "version_id": "1.0",
+      "created_at": 1781382899.494136,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_f3bd4dcd": {
+      "id": "evo_f3bd4dcd",
+      "version_id": "1.0",
+      "created_at": 1781382898.3161101,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_c8212b4d": {
+      "id": "evo_c8212b4d",
+      "version_id": "1.0",
+      "created_at": 1781382899.494208,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_308e0818": {
+      "id": "evo_308e0818",
+      "version_id": "1.0",
+      "created_at": 1781382899.496573,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_fbd9e5ca": {
+      "id": "evo_fbd9e5ca",
+      "version_id": "1.0",
+      "created_at": 1781382899.496597,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_63c8a314": {
+      "id": "evo_63c8a314",
+      "version_id": "1.0",
+      "created_at": 1781382899.456811,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_a74ead6a": {
+      "id": "evo_a74ead6a",
+      "version_id": "1.0",
+      "created_at": 1781382899.496646,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_f0d46377": {
+      "id": "evo_f0d46377",
+      "version_id": "1.0",
+      "created_at": 1781382899.4966679,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_2dec0bec": {
+      "id": "evo_2dec0bec",
+      "version_id": "1.0",
+      "created_at": 1781382899.496724,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_8ae782d6": {
+      "id": "evo_8ae782d6",
+      "version_id": "1.0",
+      "created_at": 1781382779.905329,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_any_word",
+            "parameters": {
+              "words": [
+                "you",
+                "they",
+                "generate"
+              ],
+              "case_sensitive": false
+            },
+            "type": "ContainsAnyWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt contains at least one word from a list.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_word",
+                "contains_all_words"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "prog_1781382899552854_8f2e": {
+      "id": "prog_1781382899552854_8f2e",
+      "version_id": "1.0",
+      "created_at": 1781382899.552856,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "sentiment",
+            "parameters": {
+              "threshold": 0.55
+            },
+            "type": "SentimentPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Compare sentiment score against a threshold (>= threshold = True).",
+              "category": "predicate",
+              "related_primitives": [
+                "sentiment_score"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "prog_1781382899552862_d219": {
+      "id": "prog_1781382899552862_d219",
+      "version_id": "1.0",
+      "created_at": 1781382899.552865,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "intent",
+            "parameters": {
+              "intent_type": "harmful"
+            },
+            "type": "IntentPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether prompt intent matches a type (harmful, innocuous, etc.).",
+              "category": "predicate",
+              "related_primitives": [
+                "intent_score"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "prog_1781382899552833_dad9": {
+      "id": "prog_1781382899552833_dad9",
+      "version_id": "1.0",
+      "created_at": 1781382899.552835,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "is_grammatical_question",
+            "parameters": {},
+            "type": "IsGrammaticalQuestionPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check if the prompt is a grammatical question.",
+              "category": "discourse",
+              "related_primitives": []
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    }
+  }
+}

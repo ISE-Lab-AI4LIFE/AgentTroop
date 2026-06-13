@@ -47,6 +47,7 @@ class OpenRouterClient:
         prompt: str,
         max_tokens: int = 4096,
         temperature: float = 0.0,
+        system_prompt: Optional[str] = None,
         **kwargs,
     ) -> str:
         """Send a prompt and return model response text.
@@ -57,6 +58,18 @@ class OpenRouterClient:
 
         Never raises an exception on rate-limit; returns empty string
         as last resort so the pipeline can continue.
+
+        Parameters
+        ----------
+        prompt : str
+            The user message to send.
+        max_tokens : int
+            Maximum tokens in the response.
+        temperature : float
+            Sampling temperature.
+        system_prompt : str, optional
+            If provided, prepended as a ``system`` message before the
+            ``user`` message.
         """
         enable_reasoning = kwargs.pop("reasoning", False)
         last_error: Optional[str] = None
@@ -71,6 +84,7 @@ class OpenRouterClient:
                     result = self._do_generate(
                         prompt, max_tokens, temperature,
                         enable_reasoning, attempt_model,
+                        system_prompt=system_prompt,
                     )
                     if result is not None:
                         return result
@@ -128,17 +142,21 @@ class OpenRouterClient:
         temperature: float,
         enable_reasoning: bool,
         model: str,
+        system_prompt: Optional[str] = None,
     ) -> Optional[str]:
         """Internal: performs a single generate request.
 
         Returns None if the model used was not the primary and the
         request failed (so the outer loop can try the fallback).
         """
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
         body: dict[str, Any] = {
             "model": model,
-            "messages": [
-                {"role": "user", "content": prompt},
-            ],
+            "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
         }

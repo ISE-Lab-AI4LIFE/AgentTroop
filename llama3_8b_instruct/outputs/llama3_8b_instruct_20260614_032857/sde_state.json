@@ -1,0 +1,74 @@
+{
+  "_round": 0,
+  "_converged": false,
+  "history": [
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 1,
+      "mean_uncertainty": 0.1999,
+      "is_converged": false,
+      "best_theta": 0.4002,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 2,
+      "mean_uncertainty": 0.1623,
+      "is_converged": false,
+      "best_theta": 0.4401,
+      "latest_probe_score": 0.4797,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 3,
+      "mean_uncertainty": 0.1533,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    }
+  ],
+  "boundary_estimators": {
+    "instruction_score": {
+      "observations": [
+        [
+          1.0,
+          0
+        ],
+        [
+          0.4796699750674422,
+          1
+        ],
+        [
+          1.0,
+          1
+        ]
+      ],
+      "direction": "positive",
+      "num_observations": 3
+    },
+    "harmfulness_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    },
+    "procedurality_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    },
+    "jailbreak_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    }
+  }
+}
