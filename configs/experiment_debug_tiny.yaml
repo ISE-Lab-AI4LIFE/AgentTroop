@@ -1,0 +1,65 @@
+use_async: true
+
+orchestrator:
+  max_iterations: 2
+  max_interventions: 4
+  accuracy_threshold: 0.90
+  error_tolerance: 0.99
+  synthesis_interval: 1
+  force_exploration_interval: 1
+  entropy_convergence_threshold: 0.8
+  keep_top_k: 2
+  new_candidate_weight: 0.5
+  early_stopping_fitness: 0.99
+  early_stopping_iterations: 10
+
+cognitive:
+  anomaly_threshold: 0.5
+
+strategist:
+  use_llm: false
+  max_chain_depth: 1
+  max_candidates_heuristic: 5
+  max_candidates_llm: 3
+  num_trials: 1
+
+researcher:
+  max_depth: 2
+  beam_width: 10
+  error_tolerance: 0.99
+  top_k_candidates: 3
+  use_cvc5: false
+  enforce_cvc5_first: false
+
+victim:
+  ollama_url: "http://localhost:11434"
+  model_name: "llama3.1:8b"
+  temperature: 0.0
+  max_tokens: 100
+
+red_team:
+  enabled: true
+  strategies: ["cipher"]
+  refinement_rounds: 0
+
+synthesis:
+  mode: "evolutionary"
+  evolutionary:
+    population_size: 5
+    generations: 2
+    mutation_rate: 0.5
+    crossover_rate: 0.5
+  fitness_guided:
+    max_depth: 2
+    beam_width: 10
+  error_tolerance: 0.99
+
+surrogate:
+  enabled: false
+
+causal_graph:
+  min_samples_per_group: 3
+  use_bayesian: false
+
+transforms:
+  disabled: []

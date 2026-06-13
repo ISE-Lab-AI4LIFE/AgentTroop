@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_NOISE_LEVEL = 0.1
 
 # Default posterior for newly added candidates (near-zero, not exactly zero)
-_NEW_CANDIDATE_INITIAL_POSTERIOR = 1e-6
+_NEW_CANDIDATE_INITIAL_POSTERIOR = 0.01
 
 
 def _classify_program(program: Program) -> str:
@@ -64,16 +64,15 @@ def _classify_program(program: Program) -> str:
         name = node.primitive.name if hasattr(node.primitive, "name") else ""
         keyword_preds = {"contains_word", "contains_any_word", "contains_all_words",
                          "starts_with", "ends_with", "matches_regex"}
-        structural_preds = {"has_number", "has_special_char", "is_all_caps",
-                            "is_empty", "has_emoji", "contains_url", "is_repetitive",
-                            "char_count", "length_gt", "length_lt",
+        structural_preds = {"has_number", "is_empty", "has_emoji", "contains_url",
+                            "is_repetitive", "char_count", "length_gt", "length_lt",
                             "contains_rot13", "contains_base64", "contains_hex",
                             "contains_code_block", "contains_delimiter"}
         jailbreak_preds = {"matches_jailbreak_pattern", "contains_system_override",
                            "contains_encoding_wrapper"}
         semantic_preds = {"starts_with_roleplay", "starts_with_imperative",
                           "is_grammatical_question", "sentiment", "intent",
-                          "contains_leet", "instruction_score"}
+                          "instruction_score"}
         discourse_preds = {"is_instruction_request"}
         if name in keyword_preds:
             return "keyword"
@@ -545,16 +544,16 @@ class VersionSpace:
 
     @staticmethod
     def _initial_posterior(accuracy: float, complexity: int = 0) -> float:
-        """Scale initial posterior by effective accuracy (complexity-adjusted).
-        Simpler programs with the same accuracy get higher initial belief."""
-        effective = accuracy / (1.0 + 0.01 * complexity) if accuracy > 0 else 0.0
-        return max(1e-6, effective * 0.3)
+        """All programs start with the same prior — complexity is NOT used to
+        advantage simple programs.  Only evidence (accuracy) matters."""
+        effective = max(accuracy, 0.0) if accuracy > 0 else 0.0
+        return max(0.005, effective * 0.3)
 
     def holdout_adjusted_score(self, candidate: CandidateProgram) -> float:
-        """Combined score that rewards high holdout accuracy and penalises
-        complexity.  Falls back to ``accuracy`` when holdout is unavailable."""
+        """Combined score that rewards high holdout accuracy.
+        Complexity is NOT penalised here — only accuracy matters."""
         if candidate.holdout_accuracy is not None and candidate.holdout_accuracy > 0.0:
-            score = candidate.holdout_accuracy * (1.0 - 0.01 * candidate.complexity)
+            score = candidate.holdout_accuracy
             if candidate.train_accuracy is not None:
                 gap_penalty = max(0.0, abs(candidate.train_accuracy - candidate.holdout_accuracy) - 0.05)
                 score -= gap_penalty * 0.5
@@ -645,14 +644,12 @@ class VersionSpace:
         nl = self._noise_level if noise_level is None else max(0.0, min(0.49, float(noise_level)))
         log_posterior = np.log(np.clip(self._posterior, 1e-12, 1.0))
 
-        lm = self._complexity_prior_lambda
         for i, c in enumerate(self._candidates):
             pred = predict_fn(c.program, prompt)
             likelihood = (1.0 - nl) if pred == observed_outcome else nl
             log_posterior[i] += np.log(max(likelihood, 1e-12))
-            # Occam factor: penalise complexity each update so it never washes out
-            if lm > 0.0 and c.complexity > 0:
-                log_posterior[i] -= lm * c.complexity
+            # NOTE: Occam penalty was removed — complexity is NOT penalised
+            # during belief updates.  All programs compete on evidence alone.
 
         log_posterior -= np.max(log_posterior)
         self._posterior = np.exp(log_posterior)
@@ -1123,6 +1120,10 @@ class VersionSpace:
                 }
                 for i, c in enumerate(self._candidates)
             ],
+            "program_asts": {
+                c.program_id: c.program.to_dict() if hasattr(c.program, "to_dict") else str(c.program)
+                for c in self._candidates
+            },
         }
 
     def record_entropy(self) -> float:

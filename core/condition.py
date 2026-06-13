@@ -796,19 +796,18 @@ def _get_primitive(name: str) -> Any:
     """Lazy-import a primitive class by name."""
     from core.primitive import (
         ContainsWordPredicate, ContainsAnyWordPredicate, ContainsAllWordsPredicate,
-        LengthGtPredicate, LengthLtPredicate, HasNumberPredicate, HasSpecialCharPredicate,
-        IsAllCapsPredicate, IsEmptyPredicate, ContainsLeetPredicate, MatchesRegexPredicate,
+        LengthGtPredicate, LengthLtPredicate, HasNumberPredicate,
+        IsEmptyPredicate, MatchesRegexPredicate,
         StartsWithPredicate, EndsWithPredicate, StartsWithRoleplayPredicate,
         ContainsSystemOverridePredicate, ContainsDelimiterPredicate, ContainsCodeBlockPredicate,
         HasEmojiPredicate, ContainsURLPredicate, SentimentPredicate, IntentPredicate,
         MatchesJailbreakPatternPredicate, ContainsEncodingWrapperPredicate,
         IsRepetitivePredicate, IsGrammaticalQuestionPredicate, StartsWithImperativePredicate,
-        IsAllCapsPredicate,
     )
     _MAP = {c.__name__.replace("Predicate", "").lower(): c for c in
             [ContainsWordPredicate, ContainsAnyWordPredicate, ContainsAllWordsPredicate,
-             LengthGtPredicate, LengthLtPredicate, HasNumberPredicate, HasSpecialCharPredicate,
-             IsAllCapsPredicate, IsEmptyPredicate, ContainsLeetPredicate, MatchesRegexPredicate,
+             LengthGtPredicate, LengthLtPredicate, HasNumberPredicate,
+             IsEmptyPredicate, MatchesRegexPredicate,
              StartsWithPredicate, EndsWithPredicate, StartsWithRoleplayPredicate,
              ContainsSystemOverridePredicate, ContainsDelimiterPredicate, ContainsCodeBlockPredicate,
              HasEmojiPredicate, ContainsURLPredicate, SentimentPredicate, IntentPredicate,
@@ -832,11 +831,10 @@ def _example_condition(cd: ConditionDef) -> str:
         return 'contains_all_words(["step1", "step2"])'
     if cd.name == "starts_with_roleplay":
         return 'starts_with_roleplay(prompt)'
-    if cd.name in ("contains_system_override", "has_number", "has_special_char",
-                    "is_all_caps", "is_empty", "contains_code_block",
+    if cd.name in ("contains_system_override", "has_number",
+                    "is_empty", "contains_code_block",
                     "contains_delimiter", "has_emoji", "contains_url",
-                    "is_repetitive", "is_grammatical_question", "starts_with_imperative",
-                    "contains_leet"):
+                    "is_repetitive", "is_grammatical_question", "starts_with_imperative"):
         return f'{cd.name}(prompt)'
     if cd.name == "matches_jailbreak_pattern":
         return 'matches_jailbreak_pattern(prompt)'

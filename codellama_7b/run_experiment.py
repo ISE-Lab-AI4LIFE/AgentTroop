@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HARMONY-X experiment: reverse-engineer Llama-3.1-8B safety layer via Ollama."""
+"""HARMONY-X experiment: reverse-engineer CodeLlama-7B safety layer via Ollama."""
 
 from __future__ import annotations
 
@@ -33,10 +33,10 @@ if _exp_dir not in sys.path:
 EXP_DIR = Path(__file__).resolve().parent
 LOGS_DIR = EXP_DIR / "logs"
 OUTPUTS_DIR = EXP_DIR / "outputs"
-CONFIG_PATH = EXP_DIR.parent / "configs" / "experiment_config.yaml"
+CONFIG_PATH = EXP_DIR / "configs" / "experiment_config.yaml"
 BENIGN_CSV = str(EXP_DIR / "benign_prompts.csv")
 
-logger = logging.getLogger("llama31_8b_exp")
+logger = logging.getLogger("codellama_7b_exp")
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -246,7 +246,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     cfg = config["orchestrator"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    campaign_id = f"llama31_8b_{timestamp}"
+    campaign_id = f"codellama_7b_{timestamp}"
     experiment_id = f"{campaign_id}_run"
 
     # ── Create stores ──
@@ -377,7 +377,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         max_rounds=25,
         use_composite=True,
     )
-    victim_name = config.get("victim", {}).get("model_name", "llama3.1:8b")
+    victim_name = config.get("victim", {}).get("model_name", "codellama:7b")
     sde_engine.initialise(victim_name)
     strategist.sde_engine = sde_engine
     strategist._semantic_enabled = True
@@ -805,7 +805,7 @@ def _run_evaluation(
 def print_report(result: dict) -> None:
     logger.info("")
     logger.info("=" * 60)
-    logger.info("  HARMONY-X Llama-3.1-8B Experiment — Summary")
+    logger.info("  HARMONY-X CodeLlama-7B Experiment — Summary")
     logger.info("=" * 60)
     logger.info("  Result:          %s", "PASS" if result.get("success") else "FAIL")
     logger.info("  Best program ID: %s", result.get("best_program_id", "N/A"))
@@ -844,7 +844,7 @@ def print_report(result: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="HARMONY-X experiment: reverse-engineer Llama-3.1-8B safety layer",
+        description="HARMONY-X experiment: reverse-engineer CodeLlama-7B safety layer",
     )
     parser.add_argument(
         "--config", default=str(CONFIG_PATH),
@@ -875,7 +875,7 @@ def main() -> None:
     setup_logging(log_file)
 
     logger.info("=" * 60)
-    logger.info("HARMONY-X — Llama-3.1-8B experiment")
+    logger.info("HARMONY-X — CodeLlama-7B experiment")
     logger.info("=" * 60)
     logger.info("Config: %s", args.config)
     logger.info("Log:    %s", os.path.abspath(log_file))

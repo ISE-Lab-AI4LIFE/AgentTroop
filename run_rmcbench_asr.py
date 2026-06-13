@@ -59,6 +59,9 @@ def main() -> None:
                         help="Victim model temperature")
     parser.add_argument("--max-tokens", type=int, default=512,
                         help="Max tokens for victim response")
+    parser.add_argument("--knowledge-dir", type=str, default="",
+                        help="Path to campaign state dir from training phase "
+                             "(loads learned VS, surrogate, technique stats, etc.)")
     args = parser.parse_args()
 
     # ── Load RMCBench dataset ──
@@ -121,6 +124,9 @@ def main() -> None:
 
     # ── Run evaluation via HarmonyASREvaluator ──
     from evaluation.evaluators import HarmonyASREvaluator
+    knowledge_dir = args.knowledge_dir or None
+    if knowledge_dir:
+        logger.info("Loading campaign knowledge from %s", knowledge_dir)
     evaluator = HarmonyASREvaluator(
         victim=victim,
         judge=judge,
@@ -128,6 +134,7 @@ def main() -> None:
         red_team_agent=red_team,
         strategist_agent=None,  # No strategist needed for standalone eval
         num_variants=1,
+        knowledge_dir=knowledge_dir,
     )
 
     logger.info("=" * 60)
@@ -136,6 +143,7 @@ def main() -> None:
     logger.info("  Victim:       %s", args.victim_model)
     logger.info("  Attacker:     %s", llm.model)
     logger.info("  Max retries:  %d", args.max_retries)
+    logger.info("  Knowledge:    %s", knowledge_dir or "(none — no learned state)")
     logger.info("=" * 60)
 
     start = time.time()

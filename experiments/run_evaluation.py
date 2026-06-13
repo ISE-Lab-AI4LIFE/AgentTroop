@@ -40,7 +40,6 @@ from evaluation.evaluators import (
     RQ0Evaluator,
     RQ1Evaluator,
     RQ2Evaluator,
-    RQ3Evaluator,
     BaselineASREvaluator,
 )
 from evaluation.utils import VictimWrapper, TestGenerator
@@ -78,7 +77,6 @@ def main() -> None:
         default=None,
         help="Prior campaign ID for transfer speed comparison (no-transfer baseline, RQ3)",
     )
-    parser.add_argument("--annotation-file", default=None, help="Annotation JSON file (RQ2)")
     parser.add_argument("--prompt-csv", default="", help="Path to prompt.csv (RMCBench harmful prompts)")
     parser.add_argument("--output-dir", default="evaluation/reports", help="Output directory")
     parser.add_argument("--episodic-db", default=None, help="Path to episodic DB (default: <campaign>_episodic.db)")
@@ -163,34 +161,25 @@ def main() -> None:
     report["results"]["RQ1"] = result
     logger.info("RQ1 result: %s", json.dumps(result, indent=2))
 
-    # RQ2: Explanation score (if annotation file provided)
-    if args.annotation_file and os.path.exists(args.annotation_file):
-        logger.info("=" * 60)
-        logger.info("RQ2: Explanation Score")
-        logger.info("=" * 60)
-        rq2 = RQ2Evaluator()
-        result = rq2.evaluate(
-            annotation_path=args.annotation_file,
-            program_id=args.program_id or "",
-        )
-        report["results"]["RQ2"] = result
-        logger.info("RQ2 result: %s", json.dumps(result, indent=2))
-
-    # RQ3: Transfer speed (if prior campaign provided)
+    # RQ2: Transfer speed (if prior campaign provided)
     if args.prior_campaign:
         logger.info("=" * 60)
-        logger.info("RQ3: Transfer Speed")
+        logger.info("RQ2: Transfer Speed")
         logger.info("=" * 60)
-        rq3 = RQ3Evaluator(episodic)
-        result = rq3.evaluate(
+        rq2 = RQ2Evaluator(
+            episodic,
+            db_dir=os.path.dirname(args.episodic_db) if args.episodic_db else ".",
+            outputs_dir=str(output_dir),
+        )
+        result = rq2.evaluate(
             prior_campaign_id=args.prior_campaign,
             target_campaign_id=args.campaign,
             prior_experiment_id=args.experiment,
             target_experiment_id=args.experiment,
             threshold=args.transfer_threshold,
         )
-        report["results"]["RQ3"] = result
-        logger.info("RQ3 result: %s", json.dumps(result, indent=2))
+        report["results"]["RQ2"] = result
+        logger.info("RQ2 result: %s", json.dumps(result, indent=2))
 
     # ASR
     if victim is not None:

@@ -1,45 +1,52 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 
-from evaluation.metrics.explanation_score import (
-    AnnotatorRating,
-    ExplanationScore,
-    ExplanationScoreMetric,
-)
+from knowledge.episodic import EpisodicMemory
+from evaluation.metrics.transfer_speed import TransferSpeedMetric
 
 logger = logging.getLogger(__name__)
 
 
 class RQ2Evaluator:
-    """RQ2: Can the system discover novel defense components (human evaluation)?
+    """RQ2: Does Scientific Memory support effective transfer?
 
-    Exports discovered programs and theories for annotation, then computes
-    Likert scores and Fleiss' Kappa.
+    Compares intervention counts for a target campaign against a prior
+    campaign that represents learning from scratch or without transfer.
     """
 
-    def __init__(self) -> None:
-        self._metric = ExplanationScoreMetric()
-
-    def export_for_annotation(
+    def __init__(
         self,
-        programs_data: list[dict],
-        output_path: str,
-    ) -> str:
-        return self._metric.export_for_annotation(programs_data, output_path)
+        episodic_memory: EpisodicMemory,
+        db_dir: str = ".",
+        outputs_dir: Optional[str] = None,
+    ) -> None:
+        self._metric = TransferSpeedMetric(
+            episodic_memory,
+            db_dir=db_dir,
+            outputs_dir=outputs_dir,
+        )
 
     def evaluate(
         self,
-        annotation_path: str,
-        program_id: str,
-        theory_pattern: str = "",
+        prior_campaign_id: str,
+        target_campaign_id: str,
+        prior_experiment_id: Optional[str] = None,
+        target_experiment_id: Optional[str] = None,
+        threshold: float = 0.9,
     ) -> dict:
-        score = self._metric.compute_from_file(annotation_path, program_id, theory_pattern)
-        result = score.to_dict()
+        result = self._metric.compute(
+            prior_campaign_id=prior_campaign_id,
+            target_campaign_id=target_campaign_id,
+            prior_experiment_id=prior_experiment_id,
+            target_experiment_id=target_experiment_id,
+            threshold=threshold,
+        )
         result["rq"] = "RQ2"
         logger.info(
-            "RQ2: program=%s overall_mean=%.2f fleiss_kappa=%.2f",
-            program_id, score.overall_mean, score.fleiss_kappa,
+            "RQ2: prior=%s target=%s speedup=%.2f",
+            prior_campaign_id, target_campaign_id,
+            result.get("transfer_speedup", 0.0),
         )
         return result

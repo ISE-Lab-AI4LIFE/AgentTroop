@@ -509,16 +509,18 @@ class Orchestrator:
                 # ── VS-level entropy recording for convergence detection ──
                 self.version_space.record_entropy()
 
-                # ── Entropy-based convergence check (hardened: Fix 3) ──
+                # ── Entropy-based convergence check (hardened) ──
                 current_entropy = self._get_current_entropy()
                 if len(self._entropy_history) >= 5 and self.version_space.num_candidates >= 2:
                     recent = self._entropy_history[-5:]
                     if all(e < self.entropy_convergence_threshold for e in recent):
                         best = self.version_space.most_likely()
                         real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
-                        # Fix 3: require minimum intervention count
-                        if total_interventions >= self.min_interventions_for_convergence:
-                            # Fix 3: require minimum holdout size and accuracy
+                        # Fix: require minimum iteration count for convergence
+                        if (self.iteration >= 15
+                                and total_interventions >= self.min_interventions_for_convergence
+                                and self.version_space.num_candidates >= 5):
+                            # Fix: require minimum holdout size and accuracy
                             last_holdout = getattr(self, '_last_holdout_size', 0)
                             if (last_holdout >= self.min_holdout_size_for_convergence
                                     and real_holdout >= self.min_holdout_accuracy_for_convergence):
@@ -601,7 +603,11 @@ class Orchestrator:
 
             best = self.version_space.most_likely()
             best_id = best.program_id if best is not None else None
-            best_acc = best.accuracy if best is not None else 0.0
+            if best is not None:
+                holdout_acc = getattr(best, "holdout_accuracy", None) or 0.0
+                best_acc = max(holdout_acc, (best.accuracy or 0.0) * 0.85)
+            else:
+                best_acc = 0.0
             if best_id:
                 self.session_memory.set_best_program(
                     self.campaign_id, best_id, best_acc,
@@ -1280,8 +1286,14 @@ class Orchestrator:
                 source = getattr(prog, "source", "synthesis")
                 entries.append((prog, accuracy, source, int(accuracy * len(episodes)), len(episodes)))
 
+            # Adaptive weight: explore more when entropy is low (converged too fast)
+            vs_entropy = self._get_current_entropy()
+            if vs_entropy < 0.5:
+                new_weight = 0.8
+            else:
+                new_weight = 0.5
             added = self.version_space.absorb_candidates(
-                entries, alpha=0.85, new_candidate_weight=0.1,
+                entries, alpha=0.85, new_candidate_weight=new_weight,
             )
 
             # FIX P1: DO NOT reset_belief — posterior preserved
@@ -1441,9 +1453,7 @@ class Orchestrator:
             StartsWithRoleplayPredicate, ContainsSystemOverridePredicate,
             MatchesJailbreakPatternPredicate, ContainsEncodingWrapperPredicate,
             ContainsCodeBlockPredicate, ContainsDelimiterPredicate,
-            ContainsLeetPredicate,
-            HasNumberPredicate, HasSpecialCharPredicate,
-            IsAllCapsPredicate, IsEmptyPredicate,
+            HasNumberPredicate, IsEmptyPredicate,
             HasEmojiPredicate, ContainsURLPredicate,
             IsGrammaticalQuestionPredicate, StartsWithImperativePredicate,
             IsRepetitivePredicate,
@@ -1495,13 +1505,13 @@ class Orchestrator:
                 programs.append(_make_prog(LengthLtPredicate(threshold=threshold), to, eo))
 
         # 4. Structural predicates (no-arg, one instance each)
+        # Surface-level predicates removed: HasSpecialCharPredicate,
+        # IsAllCapsPredicate, ContainsLeetPredicate (spurious correlation)
         structural_preds = [
             StartsWithRoleplayPredicate(), ContainsSystemOverridePredicate(),
             MatchesJailbreakPatternPredicate(), ContainsEncodingWrapperPredicate(),
             ContainsCodeBlockPredicate(), ContainsDelimiterPredicate(),
-            ContainsLeetPredicate(),
-            HasNumberPredicate(), HasSpecialCharPredicate(),
-            IsAllCapsPredicate(), IsEmptyPredicate(),
+            HasNumberPredicate(), IsEmptyPredicate(),
             HasEmojiPredicate(), ContainsURLPredicate(),
             IsGrammaticalQuestionPredicate(), StartsWithImperativePredicate(),
             IsRepetitivePredicate(),

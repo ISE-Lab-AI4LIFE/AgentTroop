@@ -411,8 +411,8 @@ class ResearcherAgent:
             report = self.verify_program(
                 program=program,
                 victim=victim,
-                num_test_interventions=25,
-                accuracy_threshold=0.7,
+                num_test_interventions=50,
+                accuracy_threshold=0.9,
             )
             if report.verified:
                 stored_id = self.store_program(

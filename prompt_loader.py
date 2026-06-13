@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import logging
 import random
+import string
 from pathlib import Path
 from typing import List, Optional
 
@@ -36,12 +37,14 @@ def load_prompts(
     """
     path = _resolve_path(csv_path)
     col = column or _detect_column(path)
+    _strip_punct = str.maketrans("", "", string.punctuation)
     prompts: List[str] = []
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             val = row.get(col, "").strip()
             if val:
+                val = val.translate(_strip_punct)
                 prompts.append(val)
 
     if n is not None and n < len(prompts):

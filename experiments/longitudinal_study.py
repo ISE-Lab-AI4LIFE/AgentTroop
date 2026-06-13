@@ -82,7 +82,7 @@ def run_campaign(
 
     # Lazy imports to avoid hard dependencies on all model backends
     from knowledge.scientific_memory import ScientificMemory, Theory
-    from evaluation.evaluators.rq3_evaluator import RQ3Evaluator
+    from evaluation.evaluators.rq2_evaluator import RQ2Evaluator
 
     start = time.time()
     result = CampaignResult(model=model, family=family, with_transfer=prior_knowledge)
@@ -127,12 +127,12 @@ def run_campaign(
 
         # --- RQ3 evaluation ---
         if prior_knowledge and theories:
-            rq3 = RQ3Evaluator(memory)
-            transfer_result = rq3.evaluate(
+            rq2 = RQ2Evaluator(memory)
+            transfer_result = rq2.evaluate(
                 prior_campaign_id="gpt-4o",
                 target_campaign_id=model,
             )
-            logger.info("Transfer speedup: %.2f", transfer_result.get("speedup_ratio", 0))
+            logger.info("Transfer speedup: %.2f", transfer_result.get("transfer_speedup", 0))
 
     except Exception as exc:
         logger.error("Campaign %s failed: %s", model, exc)

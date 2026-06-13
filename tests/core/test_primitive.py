@@ -768,7 +768,7 @@ class TestPersuasionScoreClassifier:
 class TestRegistryCompleteness:
     def test_all_95_primitives_registered(self):
         names = set(default_registry.list_primitives())
-        assert len(names) >= 74, f"Expected at least 74 primitives, got {len(names)}"
+        assert len(names) >= 71, f"Expected at least 71 primitives, got {len(names)}"
 
     def test_predicates_registered(self):
         names = default_registry.list_primitives()
@@ -776,7 +776,6 @@ class TestRegistryCompleteness:
             "contains_word", "contains_any_word", "contains_all_words",
             "length_gt", "length_lt", "matches_regex",
             "starts_with", "ends_with", "has_number",
-            "has_special_char", "is_all_caps", "contains_leet",
             "is_empty", "starts_with_roleplay", "contains_system_override",
             "contains_delimiter", "contains_code_block", "has_emoji",
             "contains_url", "sentiment", "intent",

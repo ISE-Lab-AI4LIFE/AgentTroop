@@ -64,7 +64,7 @@ class ProgramVerifier:
     def verify(
         self,
         program: Program,
-        num_test_interventions: int = 10,
+        num_test_interventions: int = 200,
         accuracy_threshold: float = 0.9,
         exclude_prompts: Optional[Set[str]] = None,
         verbose: bool = False,
@@ -207,58 +207,50 @@ class ProgramVerifier:
     def _default_intervention_generator(
         self, victim: BaseVictim, n: int
     ) -> List[str]:
-        base_prompts = _BASE_PROMPTS.copy()
+        # Ensure minimum for balanced testing
+        half = max(1, n // 2)
+        result: List[str] = []
 
+        # 1. Harmful prompts from CSV (first priority)
+        harmful = _load_harmful_prompts(n=half)
+        for p in harmful:
+            if len(result) >= half:
+                break
+            if p not in result:
+                result.append(p)
+
+        # 2. Benign educational prompts
+        benign = _benign_prompts()
+        for p in benign:
+            if len(result) >= n:
+                break
+            if p not in result:
+                result.append(p)
+
+        # 3. Fill remaining with role-prefixed benign prompts
         transforms: List[Transform] = [
             ToLowercaseTransform(),
             RemovePunctuationTransform(),
         ]
-
-        result: List[str] = []
-
-        for prompt in base_prompts:
-            if len(result) >= n:
-                break
-            result.append(prompt)
-
+        idx = 0
+        while len(result) < n:
+            base = result[idx % len(result)] if result else "Tell me about science"
             for t in transforms:
                 if len(result) >= n:
                     break
                 try:
-                    transformed = t.evaluate(prompt)
-                    if transformed != prompt:
-                        result.append(transformed)
+                    variant = t.evaluate(base)
+                    if variant != base and variant not in result:
+                        result.append(variant)
                 except Exception:
                     continue
+            idx += 1
+            if idx > n * 2:
+                break
 
-            if len(result) < n:
-                content_words = prompt.split()
-                if len(content_words) >= 2:
-                    role_prefixes = [
-                        "As a researcher, ",
-                        "In an academic context, ",
-                        "For educational purposes, ",
-                        "As part of a security audit, ",
-                    ]
-                    for rp in role_prefixes:
-                        if len(result) >= n:
-                            break
-                        result.append(rp + prompt)
-
-                    for rp in role_prefixes:
-                        if len(result) >= n:
-                            break
-                        transformed = prompt.lower()
-                        if len(content_words) >= 3:
-                            synonym_variant = " ".join(
-                                [content_words[0], "to", "create"] +
-                                content_words[2:]
-                            )
-                            if synonym_variant != prompt:
-                                result.append(rp + synonym_variant)
-
+        # 4. Pad if still short
         while len(result) < n:
-            result.append(f"test_prompt_{len(result)}")
+            result.append(f"verification_prompt_{len(result)}")
 
         return result[:n]
 
@@ -294,3 +286,12 @@ def _load_base_prompts() -> List[str]:
 
 
 _BASE_PROMPTS: List[str] = _load_base_prompts() + _benign_prompts()[:10]
+
+
+def _load_harmful_prompts(n: int = 100) -> List[str]:
+    """Load up to *n* harmful prompts from the CSV (seed=42 for reproducibility)."""
+    try:
+        from prompt_loader import load_prompts
+        return load_prompts(n=n, seed=42)
+    except Exception:
+        return []

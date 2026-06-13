@@ -56,13 +56,14 @@ class AdversarialASREvaluator:
 
         for prompt, expected in test_prompts:
             crafted = self._red_team.craft_adversarial_prompt(prompt, primitives)
-            raw = self._victim.respond(crafted)
             if self._metric._judge:
-                outcome = self._metric._judge.judge(raw)
+                raw_text = self._victim.query_raw(crafted)
+                outcome = self._metric._judge.judge(raw_text)
             else:
+                raw = self._victim.respond(crafted)
                 try:
-                    outcome = int(raw.strip())
-                except (ValueError, AttributeError):
+                    outcome = int(raw)
+                except (ValueError, TypeError):
                     outcome = 0
             if outcome == 0:
                 successes += 1

@@ -12,11 +12,17 @@ Metrics::
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+
+from core.executor import ProgramExecutor
+from core.primitive import default_registry
+from knowledge.episodic import EpisodicMemory
 
 logger = logging.getLogger(__name__)
 
@@ -115,11 +121,27 @@ def evaluate_transfer(
 class TransferSpeedMetric:
     """Metric class wrapping evaluate_transfer for the evaluation pipeline.
 
-    Provides the ``compute()`` interface expected by RQ3Evaluator.
+    Provides the ``compute()`` interface expected by RQ2Evaluator.
+    Loads per-campaign episodic DBs separately so prior campaigns can be
+    read from their own files.  Accuracy curves are built by evaluating
+    each campaign's best discovered program against the actual victim
+    outcomes episode by episode, giving real prediction accuracy rather
+    than a crude outcome proxy.
     """
 
-    def __init__(self, episodic_memory: Any) -> None:
+    def __init__(
+        self,
+        episodic_memory: Any,
+        db_dir: str = ".",
+        outputs_dir: Optional[str] = None,
+    ) -> None:
         self._episodic = episodic_memory
+        self._db_dir = db_dir
+        self._outputs_dir = outputs_dir or db_dir
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def compute(
         self,
@@ -143,25 +165,115 @@ class TransferSpeedMetric:
         metrics = evaluate_transfer(cold_curve, warm_curve, accuracy_threshold=threshold)
         return metrics.to_dict()
 
+    # ------------------------------------------------------------------
+    # Episode loading  — opens per-campaign DB independently
+    # ------------------------------------------------------------------
+
+    def _load_episodes(self, campaign_id: str) -> list:
+        """Return episodes for *campaign_id*, trying the shared memory first,
+        then falling back to the per-campaign DB file."""
+        try:
+            episodes = self._episodic.get_episodes_by_campaign(campaign_id)
+            if episodes:
+                return episodes
+        except Exception:
+            pass
+
+        db_path = os.path.join(self._db_dir, f"{campaign_id}_episodic.db")
+        if not os.path.exists(db_path):
+            logger.warning("No episodic DB found for campaign %s at %s", campaign_id, db_path)
+            return []
+
+        prior = EpisodicMemory(db_path=db_path)
+        try:
+            return prior.get_episodes_by_campaign(campaign_id)
+        except Exception as exc:
+            logger.warning("Failed to load episodes for %s: %s", campaign_id, exc)
+            return []
+        finally:
+            prior.close()
+
+    # ------------------------------------------------------------------
+    # Best-program loading  — reads version_space.json per campaign
+    # ------------------------------------------------------------------
+
+    def _load_best_program(self, campaign_id: str) -> Any:
+        """Load the highest-posterior program for *campaign_id* that can be
+        deserialised with the current primitive registry (i.e. whose
+        predicates have not been removed)."""
+        vs_path = os.path.join(self._outputs_dir, campaign_id, "version_space.json")
+        if not os.path.exists(vs_path):
+            return None
+        try:
+            with open(vs_path) as f:
+                vs = json.load(f)
+        except Exception:
+            return None
+
+        candidates = vs.get("candidates", [])
+        if not candidates:
+            return None
+
+        from core.program import Program
+
+        # Try candidates in descending posterior order; skip any whose
+        # predicates are no longer registered.
+        for cand in sorted(candidates, key=lambda c: c.get("posterior", 0.0), reverse=True):
+            best_id = cand.get("program_id")
+            if not best_id:
+                continue
+            prog_dict = vs.get("program_asts", {}).get(best_id)
+            if not prog_dict:
+                continue
+            try:
+                return Program.from_dict(prog_dict)
+            except Exception:
+                continue
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Accuracy curve  — real prediction accuracy, not outcome proxy
+    # ------------------------------------------------------------------
+
     def _build_accuracy_curve(
         self,
         campaign_id: str,
         experiment_id: Optional[str] = None,
         threshold: float = 0.9,
     ) -> List[float]:
-        """Build accuracy curve from episodic memory for a campaign.
-
-        Simplified: returns a mock curve when ground-truth isn't available.
-        Subclasses can override with actual victim-proxy comparisons.
-        """
-        try:
-            episodes = self._episodic.get_episodes_by_campaign(campaign_id)
-            if not episodes:
-                return []
-            curve: List[float] = []
-            for i, ep in enumerate(episodes):
-                acc = 1.0 if ep.outcome == 0 else 0.0
-                curve.append(sum(curve[-3:] + [acc]) / min(len(curve) + 1, 3))
-            return curve
-        except Exception:
+        episodes = self._load_episodes(campaign_id)
+        if not episodes:
             return []
+
+        program = self._load_best_program(campaign_id)
+        executor = ProgramExecutor(registry=default_registry) if program else None
+
+        raw: List[float] = []
+        curve: List[float] = []
+        for ep in episodes:
+            prompt = ""
+            if ep.intervention:
+                prompt = ep.intervention.final_prompt or ep.intervention.prompt or ""
+
+            if executor is not None and prompt:
+                try:
+                    predicted = int(executor.execute(program, prompt))
+                    correct = 1.0 if predicted == ep.outcome else 0.0
+                except Exception:
+                    correct = 1.0 if ep.outcome == 0 else 0.0
+            else:
+                correct = 1.0 if ep.outcome == 0 else 0.0
+
+            raw.append(correct)
+            # Rolling 3-step average
+            window = raw[-3:]
+            curve.append(sum(window) / len(window))
+
+        logger.info(
+            "Accuracy curve for %s: %d episodes, best_program=%s, final_acc=%.3f",
+            campaign_id, len(episodes),
+            program.id if program else None,
+            curve[-1] if curve else 0.0,
+        )
+        return curve

@@ -2222,9 +2222,9 @@ def _register_default_primitives() -> PrimitiveRegistry:
     registry.register(StartsWithPredicate)
     registry.register(EndsWithPredicate)
     registry.register(HasNumberPredicate)
-    registry.register(HasSpecialCharPredicate)
-    registry.register(IsAllCapsPredicate)
-    registry.register(ContainsLeetPredicate)
+    # Surface-level predicates removed (spurious correlation):
+    # HasSpecialCharPredicate, IsAllCapsPredicate, ContainsLeetPredicate
+    # All prompts are now punctuation-stripped at load time.
     registry.register(IsEmptyPredicate)
     registry.register(StartsWithRoleplayPredicate)
     registry.register(ContainsSystemOverridePredicate)

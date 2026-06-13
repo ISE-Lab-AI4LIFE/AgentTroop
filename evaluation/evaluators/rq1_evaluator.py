@@ -13,8 +13,8 @@ class RQ1Evaluator:
     """RQ1: Are targeted interventions more query-efficient than random probing?
 
     Measures the number of interventions needed to reach accuracy >85%.
-    When ``predict_fn`` is provided, accuracy is the program's running prediction
-    accuracy against ground-truth episode outcomes.
+    Accuracy is the program's running prediction accuracy on a held-out
+    validation set with known labels.
     """
 
     def __init__(self, episodic_memory: EpisodicMemory) -> None:
@@ -26,16 +26,23 @@ class RQ1Evaluator:
         experiment_id: Optional[str] = None,
         threshold: float = 0.85,
         predict_fn: Optional[Callable[[str], int]] = None,
-        baseline_campaign_id: Optional[str] = None,
-        baseline_experiment_id: Optional[str] = None,
     ) -> dict:
+        if predict_fn is None:
+            logger.error("RQ1 skipped: predict_fn is None (program unavailable)")
+            return {
+                "campaign_id": campaign_id,
+                "rq": "RQ1",
+                "error": "predict_fn is None — program unavailable, RQ1 cannot be evaluated",
+                "interventions_to_threshold": -1,
+                "best_accuracy": 0.0,
+                "threshold": threshold,
+                "reached": False,
+            }
         result = self._metric.compute(
             campaign_id=campaign_id,
             experiment_id=experiment_id,
             threshold=threshold,
             predict_fn=predict_fn,
-            baseline_campaign_id=baseline_campaign_id,
-            baseline_experiment_id=baseline_experiment_id,
         )
         result["rq"] = "RQ1"
         logger.info(
@@ -43,11 +50,4 @@ class RQ1Evaluator:
             campaign_id, result["interventions_to_threshold"],
             result["best_accuracy"], result["reached"],
         )
-        if baseline_campaign_id:
-            logger.info(
-                "RQ1 baseline: campaign=%s baseline=%s improvement=%.2f",
-                campaign_id,
-                baseline_campaign_id,
-                result.get("improvement_ratio", 0.0),
-            )
         return result

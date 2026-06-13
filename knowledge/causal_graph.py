@@ -633,6 +633,7 @@ class CausalGraph:
 
         total_trials = len(cum_x0) + len(cum_x1)
 
+        existing_edge = self.get_edge(source_id, target_id)
         base_iids: List[str] = [intervention_id]
 
         if existing_edge is not None:

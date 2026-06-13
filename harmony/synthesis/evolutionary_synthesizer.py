@@ -16,9 +16,7 @@ from core.primitive import (
     StartsWithRoleplayPredicate, ContainsSystemOverridePredicate,
     MatchesJailbreakPatternPredicate, ContainsEncodingWrapperPredicate,
     ContainsCodeBlockPredicate, ContainsDelimiterPredicate,
-    ContainsLeetPredicate,
-    HasNumberPredicate, HasSpecialCharPredicate,
-    IsAllCapsPredicate, HasEmojiPredicate, ContainsURLPredicate,
+    HasNumberPredicate, HasEmojiPredicate, ContainsURLPredicate,
     IsRepetitivePredicate, IsGrammaticalQuestionPredicate,
     StartsWithImperativePredicate, SentimentPredicate, IntentPredicate,
     PrimitiveRegistry, default_registry,
@@ -102,8 +100,9 @@ class EvolutionarySynthesizer:
         if base_programs:
             population.extend(base_programs)
         
+        # Balanced initialization: only 3 keyword programs (not 10)
         keywords = self._extract_keywords(examples)
-        for kw in keywords[:5]:
+        for kw in keywords[:3]:
             for to, eo in [(1, 0), (0, 1)]:
                 p = Program(
                     root=IfThenElseNode(
@@ -114,14 +113,41 @@ class EvolutionarySynthesizer:
                 p.id = f"evo_init_{uuid.uuid4().hex[:8]}"
                 population.append(p)
         
+        # Multi-keyword programs (contains_any_word with top 3 keywords)
+        if len(keywords) >= 3:
+            for to, eo in [(1, 0), (0, 1)]:
+                p = Program(
+                    root=IfThenElseNode(
+                        condition=PredicateNode(primitive=ContainsAnyWordPredicate(
+                            words=",".join(keywords[:3])
+                        )),
+                        then_outcome=to, else_outcome=eo,
+                    )
+                )
+                p.id = f"evo_multikw_{uuid.uuid4().hex[:8]}"
+                population.append(p)
+        
+        # Length-based programs
+        for threshold in [30, 80, 150]:
+            for to, eo in [(1, 0), (0, 1)]:
+                p = Program(
+                    root=IfThenElseNode(
+                        condition=PredicateNode(primitive=LengthGtPredicate(threshold=threshold)),
+                        then_outcome=to, else_outcome=eo,
+                    )
+                )
+                p.id = f"evo_len_{uuid.uuid4().hex[:8]}"
+                population.append(p)
+        
+        # Structural predicates (surface-level removed: HasSpecialChar, IsAllCaps, ContainsLeet)
         structural_preds = [
-            LengthGtPredicate(threshold=50), LengthLtPredicate(threshold=50),
+            HasNumberPredicate(), HasEmojiPredicate(), ContainsURLPredicate(),
+            IsRepetitivePredicate(), IsGrammaticalQuestionPredicate(),
             StartsWithRoleplayPredicate(), ContainsSystemOverridePredicate(),
             MatchesJailbreakPatternPredicate(), ContainsEncodingWrapperPredicate(),
-            HasNumberPredicate(), HasSpecialCharPredicate(),
-            IsAllCapsPredicate(), HasEmojiPredicate(), ContainsURLPredicate(),
-            IsRepetitivePredicate(), IsGrammaticalQuestionPredicate(),
-            StartsWithImperativePredicate(), ContainsLeetPredicate(),
+            ContainsCodeBlockPredicate(), ContainsDelimiterPredicate(),
+            StartsWithImperativePredicate(),
+            SentimentPredicate(threshold=0.5), IntentPredicate(intent_type="malicious"),
         ]
         for sp in structural_preds:
             for to, eo in [(1, 0), (0, 1)]:
@@ -181,7 +207,19 @@ class EvolutionarySynthesizer:
         recall_refuse = correct_refuse / max(total_refuse, 1)
         recall_accept = correct_accept / max(total_accept, 1)
         balanced_acc = (recall_refuse + recall_accept) / 2.0
-        return balanced_acc
+
+        # Penalty for surface-level predicates that cause spurious correlation
+        penalty = 0.0
+        root = program.root
+        if hasattr(root, 'condition') and hasattr(root.condition, 'primitive'):
+            pname = getattr(root.condition.primitive, 'name', '')
+            surface_preds = {"length_gt", "length_lt", "has_number",
+                             "has_emoji", "contains_url", "is_repetitive",
+                             "is_grammatical_question"}
+            if pname in surface_preds:
+                penalty = 0.15
+
+        return max(0.0, balanced_acc - penalty)
 
     def _evolve(
         self,
@@ -222,27 +260,76 @@ class EvolutionarySynthesizer:
     def _crossover(self, p1: Program, p2: Program) -> Program:
         root1 = p1.root.condition if hasattr(p1.root, 'condition') else p1.root
         root2 = p2.root.condition if hasattr(p2.root, 'condition') else p2.root
-        if random.random() < 0.5:
+        # Low clone rate — at most 20% clone
+        if random.random() < 0.2:
             return deepcopy(p1)
+        # Real crossover: swap conditions
+        if random.random() < 0.5:
+            child_cond = deepcopy(root2)
+            to = p1.root.then_outcome if hasattr(p1.root, 'then_outcome') else 1
+            eo = p1.root.else_outcome if hasattr(p1.root, 'else_outcome') else 0
         else:
-            child = Program(
-                root=IfThenElseNode(
-                    condition=deepcopy(root2),
-                    then_outcome=1, else_outcome=0,
-                )
+            child_cond = deepcopy(root1)
+            to = p2.root.then_outcome if hasattr(p2.root, 'then_outcome') else 1
+            eo = p2.root.else_outcome if hasattr(p2.root, 'else_outcome') else 0
+        child = Program(
+            root=IfThenElseNode(
+                condition=child_cond,
+                then_outcome=to, else_outcome=eo,
             )
-            return child
+        )
+        return child
+
+    def _change_predicate_type(self, condition: PredicateNode) -> None:
+        """Mutate the predicate type to a different kind, enabling cross-type exploration."""
+        predicate_types = [
+            (ContainsWordPredicate, {"word": random.choice(
+                ["code", "exploit", "malware", "write", "generate", "create", "attack", "script"]
+            )}),
+            (ContainsAnyWordPredicate, {"words": "code,exploit,malware,attack"}),
+            (LengthGtPredicate, {"threshold": random.choice([20, 50, 100, 200])}),
+            (LengthLtPredicate, {"threshold": random.choice([20, 50, 100])}),
+            (HasNumberPredicate, {}),
+            (HasEmojiPredicate, {}),
+            (ContainsURLPredicate, {}),
+            (IsRepetitivePredicate, {}),
+            (IsGrammaticalQuestionPredicate, {}),
+            (StartsWithRoleplayPredicate, {}),
+            (ContainsSystemOverridePredicate, {}),
+            (MatchesJailbreakPatternPredicate, {}),
+            (ContainsEncodingWrapperPredicate, {}),
+            (ContainsCodeBlockPredicate, {}),
+            (ContainsDelimiterPredicate, {}),
+            (StartsWithImperativePredicate, {}),
+            (SentimentPredicate, {"threshold": 0.5}),
+            (IntentPredicate, {"intent_type": random.choice(["malicious", "harmful", "code"])}),
+        ]
+        weights = [
+            3, 3, 1, 1, 1, 1, 0.5, 0.5,
+            0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+        ]
+        cls, params = random.choices(predicate_types, weights=weights, k=1)[0]
+        try:
+            condition.primitive = cls(**params)
+        except Exception:
+            pass
 
     def _mutate(self, program: Program, examples: List[Tuple[str, int]]) -> Program:
         root = program.root
         if hasattr(root, 'condition'):
             condition = root.condition
             if isinstance(condition, PredicateNode):
-                condition.primitive.parameters.get('word', None)
-                words = self._extract_keywords(examples)
-                if words:
-                    new_word = random.choice(words)
-                    condition.primitive = ContainsWordPredicate(word=new_word)
+                # 30% chance to change predicate type entirely
+                if random.random() < 0.3:
+                    self._change_predicate_type(condition)
+                else:
+                    # If it's a keyword predicate, change the keyword
+                    if hasattr(condition.primitive, 'parameters'):
+                        kw = condition.primitive.parameters.get('word', None)
+                        if kw is not None:
+                            words = self._extract_keywords(examples)
+                            if words:
+                                condition.primitive = ContainsWordPredicate(word=random.choice(words))
             elif isinstance(condition, ThresholdNode):
                 old_t = condition.threshold
                 condition.threshold = max(0.0, min(1.0, old_t + random.uniform(-0.1, 0.1)))

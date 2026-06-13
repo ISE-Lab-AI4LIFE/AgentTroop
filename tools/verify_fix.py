@@ -17,10 +17,9 @@ from agents.cognitive import Hypothesis
 from prompt_loader import load_prompts
 
 # ── Load REAL anomaly prompts ──
-harmful_csv = os.path.join(os.path.dirname(__file__), "..", "llama3_1_8b", "harmful_prompts.csv")
+# Harmful prompts from the main RMCBench dataset (prompt.csv at project root)
+harmful_prompts = load_prompts()  # resolves to <project_root>/prompt.csv
 benign_csv = os.path.join(os.path.dirname(__file__), "..", "llama3_1_8b", "benign_prompts.csv")
-
-harmful_prompts = load_prompts(harmful_csv)
 benign = []
 with open(benign_csv) as f:
     reader = csv.DictReader(f)
