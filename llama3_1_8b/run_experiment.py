@@ -62,8 +62,13 @@ def setup_logging(log_file: str) -> None:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 
-def _load_benign_prompts(path: str, n: int = 80) -> List[str]:
-    """Load benign prompts from a CSV file with a ``prompt`` column."""
+def _load_benign_prompts(path: str, n: Optional[int] = 80) -> List[str]:
+    """Load benign prompts from a CSV file with a ``prompt`` column.
+
+    Args:
+        path: Path to CSV file.
+        n: Number of prompts to return (``None`` = all).
+    """
     import csv
     prompts: List[str] = []
     with open(path, newline="", encoding="utf-8") as f:
@@ -80,7 +85,7 @@ def _load_benign_prompts(path: str, n: int = 80) -> List[str]:
             val = row.get(prompt_col, "").strip()
             if val:
                 prompts.append(val)
-            if len(prompts) >= n:
+            if n is not None and len(prompts) >= n:
                 break
     return prompts
 
