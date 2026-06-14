@@ -48,6 +48,7 @@ class OpenRouterClient:
         max_tokens: int = 4096,
         temperature: float = 0.0,
         system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
         **kwargs,
     ) -> str:
         """Send a prompt and return model response text.
@@ -70,11 +71,13 @@ class OpenRouterClient:
         system_prompt : str, optional
             If provided, prepended as a ``system`` message before the
             ``user`` message.
+        model : str, optional
+            Override the client's default model.
         """
         enable_reasoning = kwargs.pop("reasoning", False)
         last_error: Optional[str] = None
 
-        models_to_try = [self.model]
+        models_to_try = [model or self.model]
         if self.fallback_model and self.fallback_model != self.model:
             models_to_try.append(self.fallback_model)
 

@@ -48,13 +48,13 @@ def create(
     """
     name = victim_name.lower().replace("-", "_").replace(":", "_")
 
-    # Built-in mappings: name -> (package_or_module_path, class_name, file_path_override)
+    # Built-in mappings: name -> (package_or_module_path, class_name, _)
     builtins: Dict[str, tuple] = {
         "toy": ("experiments.toy_model", "ToyVictim", None),
-        "llama31_8b": (None, "OllamaVictim", None),
-        "llama3_1_8b": (None, "OllamaVictim", None),
+        "llama31_8b": ("victim.ollama", "OllamaVictim", None),
+        "llama3_1_8b": ("victim.ollama", "OllamaVictim", None),
         "gemma": ("llm.llm_client", "GemmaVictim", None),
-        "openrouter": ("llm.llm_client", "OpenRouterVictim", None),
+        "openrouter": ("victim.openrouter", "OpenRouterVictim", None),
     }
 
     if name in _VICTIM_REGISTRY:
@@ -63,33 +63,11 @@ def create(
         return cls(**kwargs)
 
     if name in builtins:
-        module_path, class_name, file_override = builtins[name]
+        module_path, class_name, _ = builtins[name]
         try:
-            if name in ("llama31_8b", "llama3_1_8b"):
-                # Special handling for non-standard module name
-                import importlib.util
-                # Try multiple possible paths for the ollama_victim module
-                import_paths = [
-                    os.path.join(os.path.dirname(__file__), "..", "llama3_1_8b", "ollama_victim.py"),
-                ]
-                victim_mod = None
-                for path in import_paths:
-                    resolved = os.path.abspath(path)
-                    if os.path.exists(resolved):
-                        spec = importlib.util.spec_from_file_location(
-                            "ollama_victim", resolved
-                        )
-                        if spec and spec.loader:
-                            victim_mod = importlib.util.module_from_spec(spec)
-                            spec.loader.exec_module(victim_mod)
-                            break
-                if victim_mod is None:
-                    raise ImportError("Could not find ollama_victim.py")
-                cls = getattr(victim_mod, class_name)
-            else:
-                import importlib
-                mod = importlib.import_module(module_path)
-                cls = getattr(mod, class_name)
+            import importlib
+            mod = importlib.import_module(module_path)
+            cls = getattr(mod, class_name)
             logger.info("Creating victim '%s' as %s", name, cls.__name__)
             return cls(**kwargs)
         except (ImportError, AttributeError) as exc:
@@ -109,25 +87,8 @@ except ImportError:
     pass
 
 try:
-    from adapters.base_victim import BaseVictim
-    # Lazy registration to avoid import errors from the non-standard path
-    def _register_ollama():
-        import importlib.util
-        import os
-        paths = [
-            os.path.join(os.path.dirname(__file__), "..", "llama3_1_8b", "ollama_victim.py"),
-        ]
-        for p in paths:
-            p = os.path.abspath(p)
-            if os.path.exists(p):
-                spec = importlib.util.spec_from_file_location("ollama_victim", p)
-                if spec and spec.loader:
-                    mod = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(mod)
-                    if hasattr(mod, "OllamaVictim"):
-                        register("llama31_8b", mod.OllamaVictim)
-                        register("llama3_1_8b", mod.OllamaVictim)
-                        break
-    _register_ollama()
+    from victim.ollama import OllamaVictim
+    register("llama31_8b", OllamaVictim)
+    register("llama3_1_8b", OllamaVictim)
 except Exception:
     pass
