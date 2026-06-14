@@ -1672,6 +1672,7 @@ class Orchestrator:
                     campaign_id=self.campaign_id,
                     victim=self.victim,
                     program_id=best.program_id,
+                    accuracy_threshold=self.accuracy_threshold,
                 )
                 # Semantic fix 1: Boost verified program's posterior immediately
                 if verified:

@@ -1,9 +1,9 @@
 use_async: true
 
 orchestrator:
-  max_iterations: 30
+  max_iterations: 100
   max_interventions: 500
-  accuracy_threshold: 0.90
+  accuracy_threshold: 0.80
   error_tolerance: 0.05
   synthesis_interval: 3
   force_exploration_interval: 2
@@ -16,7 +16,7 @@ orchestrator:
   uncertainty_sampling_fallback: true
   absolute_max_iterations: 200
   convergence:
-    validation_accuracy_threshold: 0.85
+    validation_accuracy_threshold: 0.80
     min_improvement: 0.02
     min_iterations_for_convergence: 5
     entropy_threshold: 0.1

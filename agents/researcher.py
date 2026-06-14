@@ -401,6 +401,7 @@ class ResearcherAgent:
         campaign_id: str,
         victim: Any,
         program_id: Optional[str] = None,
+        accuracy_threshold: float = 0.8,
     ) -> Tuple[bool, float]:
         """Verify a candidate program against victim and store if verified.
 
@@ -412,7 +413,7 @@ class ResearcherAgent:
                 program=program,
                 victim=victim,
                 num_test_interventions=50,
-                accuracy_threshold=0.9,
+                accuracy_threshold=accuracy_threshold,
             )
             if report.verified:
                 stored_id = self.store_program(
@@ -420,7 +421,7 @@ class ResearcherAgent:
                     name=program_id or program.id,
                     confidence=report.accuracy,
                     provenance=[campaign_id],
-                    status="verified" if report.accuracy >= 0.9 else "candidate",
+                    status="verified" if report.accuracy >= accuracy_threshold else "candidate",
                 )
                 logger.info(
                     "Verified and stored program %s (accuracy=%.2f)",

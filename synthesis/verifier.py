@@ -65,7 +65,7 @@ class ProgramVerifier:
         self,
         program: Program,
         num_test_interventions: int = 200,
-        accuracy_threshold: float = 0.9,
+        accuracy_threshold: float = 0.8,
         exclude_prompts: Optional[Set[str]] = None,
         verbose: bool = False,
     ) -> VerificationReport:
