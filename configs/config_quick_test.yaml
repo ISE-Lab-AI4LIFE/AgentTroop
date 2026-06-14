@@ -12,8 +12,27 @@ orchestrator:
   new_candidate_weight: 0.1
   early_stopping_fitness: 0.95
   early_stopping_iterations: 10
+  min_interventions_per_iteration: 2
+  uncertainty_sampling_fallback: true
+  absolute_max_iterations: 200
+  convergence:
+    validation_accuracy_threshold: 0.85
+    min_improvement: 0.02
+    min_iterations_for_convergence: 5
+    entropy_threshold: 0.1
+  force_exploration:
+    enabled: true
+    consecutive_iterations_without_intervention: 2
+    num_forced_prompts: 2
 cognitive:
   anomaly_threshold: 0.1
+  anomaly_selection:
+    method: "percentile"
+    percentile: 85
+    min_interventions: 2
+    max_interventions: 5
+    history_window: 3
+    exploration_decay: true
   llm_model: "gemma"
 strategist:
   use_llm: true

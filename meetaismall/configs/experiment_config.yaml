@@ -15,6 +15,13 @@ orchestrator:
 
 cognitive:
   anomaly_threshold: 0.15
+  anomaly_selection:
+    method: "percentile"
+    percentile: 85
+    min_interventions: 3
+    max_interventions: 10
+    history_window: 5
+    exploration_decay: true
   llm_model: "gemma"
 
 strategist:

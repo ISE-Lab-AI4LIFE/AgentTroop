@@ -347,6 +347,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         ontology_memory=ontology,
         llm_client=llm,
         anomaly_threshold=cog_cfg["anomaly_threshold"],
+        anomaly_selection_config=cog_cfg.get("anomaly_selection"),
     )
 
     strat_cfg = config["strategist"]
@@ -450,6 +451,11 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
         top_k_candidates=res_cfg.get("top_k_candidates", 30),
         seed_telemetry=seed_telemetry,
         holdout_prompts_path=cfg.get("holdout_prompts_path", None),
+        convergence_config=cfg.get("convergence"),
+        force_exploration_config=cfg.get("force_exploration"),
+        min_interventions_per_iteration=cfg.get("min_interventions_per_iteration", 3),
+        uncertainty_sampling_fallback=cfg.get("uncertainty_sampling_fallback", True),
+        absolute_max_iterations=cfg.get("absolute_max_iterations", 200),
     )
 
     # ── Run ──

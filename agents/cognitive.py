@@ -484,6 +484,15 @@ class CognitiveAgent:
         Number of additional LLM calls on parse failure (default 2).
     """
 
+    ADAPTIVE_DEFAULTS: Dict[str, Any] = {
+        "method": "percentile",
+        "percentile": 85,
+        "min_interventions": 3,
+        "max_interventions": 10,
+        "history_window": 5,
+        "exploration_decay": True,
+    }
+
     def __init__(
         self,
         episodic_memory: EpisodicMemory,
@@ -501,6 +510,7 @@ class CognitiveAgent:
         llm_timeout: Optional[float] = None,
         llm_retries: int = 2,
         hypothesis_store: Optional[HypothesisStore] = None,
+        anomaly_selection_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         if episodic_memory is None:
             raise TypeError("episodic_memory is required")
@@ -557,13 +567,27 @@ class CognitiveAgent:
             anomaly_threshold = max(0.0, min(1.0, anomaly_threshold))
         self.anomaly_threshold = anomaly_threshold
 
+        # Adaptive anomaly selection config
+        raw = anomaly_selection_config or {}
+        self.anomaly_selection: Dict[str, Any] = {
+            **self.ADAPTIVE_DEFAULTS,
+            **{k: v for k, v in raw.items() if v is not None},
+        }
+        self._anomaly_threshold_history: List[float] = []
+        self._anomaly_consecutive_low: int = 0
+        self._anomaly_iteration: int = 0
+        self._current_effective_percentile: float = float(
+            self.anomaly_selection["percentile"]
+        )
+
         logger.info(
             "CognitiveAgent initialised (threshold=%s, base_prompts=%d, "
-            "persist=%s, retries=%d)",
+            "persist=%s, retries=%d, adaptive=%s)",
             self.anomaly_threshold,
             len(self.base_prompts),
             persist_anomalies,
             self.llm_retries,
+            self.anomaly_selection.get("method", "none"),
         )
 
     @staticmethod
@@ -583,6 +607,191 @@ class CognitiveAgent:
                 )
             validated.append(stripped)
         return validated
+
+    # ------------------------------------------------------------------
+    # Adaptive anomaly selection
+    # ------------------------------------------------------------------
+
+    def _compute_group_anomaly_scores(
+        self,
+        groups: Dict[str, List[Any]],
+    ) -> List[Tuple[str, float, List[Any]]]:
+        """Score each base-prompt group by how anomalous its outcome
+        distribution is relative to the global distribution.
+
+        Anomaly score = |group_accept_rate - global_accept_rate| + entropy bonus.
+
+        Groups with mixed outcomes get higher scores; groups matching the
+        global average get lower scores.
+        """
+        all_outcomes: List[int] = []
+        for group in groups.values():
+            for ep in group:
+                if ep.outcome is not None:
+                    all_outcomes.append(int(ep.outcome))
+
+        if not all_outcomes:
+            return []
+
+        n_total = len(all_outcomes)
+        n_accept = sum(1 for o in all_outcomes if o == 0)
+        global_accept_rate = n_accept / n_total
+
+        scored: List[Tuple[str, float, List[Any]]] = []
+        for base_prompt, group in groups.items():
+            outcomes = [int(ep.outcome) for ep in group if ep.outcome is not None]
+            if not outcomes:
+                continue
+            n = len(outcomes)
+            group_accept = sum(1 for o in outcomes if o == 0)
+            group_accept_rate = group_accept / n
+
+            deviation = abs(group_accept_rate - global_accept_rate)
+
+            # Entropy bonus: balanced groups (50/50) get extra weight.
+            # Entropy is the PRIMARY signal — mixed-outcome groups are the
+            # most informative regardless of global rate.
+            p = group_accept_rate
+            if 0.0 < p < 1.0:
+                import math
+                entropy = -(p * math.log2(p) + (1 - p) * math.log2(1 - p))
+                entropy_bonus = entropy * 0.6
+            else:
+                entropy_bonus = 0.0
+
+            # Sample-size bonus: groups with more episodes = more reliable
+            size_bonus = min(n / 20.0, 0.1)
+
+            # Deviation is secondary (captures unusual vs global behaviour)
+            score = entropy_bonus + deviation * 0.3 + size_bonus
+            scored.append((base_prompt, score, group))
+
+        scored.sort(key=lambda x: -x[1])
+        return scored
+
+    def _select_groups_by_percentile(
+        self,
+        scored: List[Tuple[str, float, List[Any]]],
+    ) -> List[Tuple[str, float, List[Any]]]:
+        """Select groups using adaptive percentile-based thresholding.
+
+        - Computes a dynamic threshold = Nth percentile of scores
+        - Ensures at least ``min_interventions`` groups are selected
+        - Caps at ``max_interventions``
+        - Applies history smoothing and exploration decay
+        """
+        cfg = self.anomaly_selection
+        method = cfg.get("method", "fixed")
+        if method == "fixed" or not scored:
+            return scored
+
+        scores = [s[1] for s in scored]
+
+        # Effective percentile (may be lowered by exploration decay)
+        p = max(1.0, min(99.0, self._current_effective_percentile))
+        import numpy as np
+        threshold = float(np.percentile(scores, p))
+
+        # Select groups above threshold
+        selected = [s for s in scored if s[1] >= threshold]
+        n_raw = len(selected)
+
+        min_iv = int(cfg.get("min_interventions", 3))
+        max_iv = int(cfg.get("max_interventions", 10))
+
+        # Guarantee minimum
+        if len(selected) < min_iv:
+            n_extra = min(min_iv - len(selected), len(scored) - len(selected))
+            selected = scored[:len(selected) + n_extra]
+
+        # Cap maximum
+        selected = selected[:max_iv]
+
+        # Track threshold for smoothing
+        effective_threshold = float(np.percentile(scores, p))
+        self._anomaly_threshold_history.append(effective_threshold)
+        window = int(cfg.get("history_window", 5))
+        if len(self._anomaly_threshold_history) > window:
+            self._anomaly_threshold_history.pop(0)
+
+        # Exploration decay: if few groups naturally pass percentile,
+        # lower percentile to explore more broadly.
+        if cfg.get("exploration_decay", True):
+            if n_raw < min_iv // 2:
+                self._anomaly_consecutive_low += 1
+            else:
+                self._anomaly_consecutive_low = 0
+
+            if self._anomaly_consecutive_low >= 3:
+                old_p = self._current_effective_percentile
+                self._current_effective_percentile = max(20.0, old_p - 10.0)
+                logger.info(
+                    "Exploration decay: lowered percentile %.1f → %.1f "
+                    "(%d consecutive low selections)",
+                    old_p, self._current_effective_percentile,
+                    self._anomaly_consecutive_low,
+                )
+                self._anomaly_consecutive_low = 0
+
+        self._anomaly_iteration += 1
+
+        logger.info(
+            "Adaptive anomaly selection: percentile=%.1f threshold=%.4f "
+            "selected=%d/%d min=%d max=%d",
+            p, effective_threshold, len(selected), len(scored), min_iv, max_iv,
+        )
+        return selected
+
+    def _select_groups_by_fixed_threshold(
+        self,
+        scored: List[Tuple[str, float, List[Any]]],
+    ) -> List[Tuple[str, float, List[Any]]]:
+        """Legacy: select groups where any outcome difference ≥ anomaly_threshold."""
+        return [
+            s for s in scored
+            if s[1] >= self.anomaly_threshold
+        ]
+
+    def _build_anomalies_from_group(
+        self,
+        base_prompt: str,
+        group: List[Any],
+    ) -> List[Anomaly]:
+        """Generate pairwise Anomaly objects from episodes in a group."""
+        anoms: List[Anomaly] = []
+        valid = [ep for ep in group if ep.outcome is not None]
+        if len(valid) < 2:
+            return anoms
+
+        outcomes = {ep.outcome for ep in valid}
+        if len(outcomes) < 2:
+            return anoms
+
+        ref = valid[0]
+        ref_outcome = ref.outcome if ref.outcome is not None else 0
+
+        for other in valid[1:]:
+            other_outcome = other.outcome if other.outcome is not None else 0
+            if abs(ref_outcome - other_outcome) >= self.anomaly_threshold:
+                tx_list = other.intervention.transforms or []
+                transform_names = [
+                    t.get("name", str(t)) for t in tx_list
+                ] or ["(no transform)"]
+
+                tx0 = tx_list[0] if tx_list else {}
+                anoms.append(Anomaly(
+                    base_prompt=base_prompt,
+                    transform_names=transform_names,
+                    outcome_original=ref_outcome,
+                    outcome_transformed=other_outcome,
+                    difference=abs(ref_outcome - other_outcome),
+                    episode_id_original=ref.episode_id,
+                    episode_id_transformed=other.episode_id,
+                    transform_family=tx0.get("family", ""),
+                    semantic_category=tx0.get("semantic_category", ""),
+                    anomaly_source=tx0.get("anomaly_source", ""),
+                ))
+        return anoms
 
     # ------------------------------------------------------------------
     # Public API — anomaly detection
@@ -633,59 +842,37 @@ class CognitiveAgent:
 
         anomalies: List[Anomaly] = []
 
-        # --- Phase 1: pairwise anomalies within each base-prompt group ---
+        # --- Phase 1: group episodes by base prompt ---
         groups: Dict[str, List[Any]] = {}
         for ep in valid_episodes:
             groups.setdefault(ep.intervention.prompt, []).append(ep)
 
-        for base_prompt, group in groups.items():
-            if len(group) < 2:
-                continue
-            outcomes = {ep.outcome for ep in group if ep.outcome is not None}
-            if len(outcomes) < 2:
-                continue
+        # --- Phase 2: adaptive or fixed selection of groups ---
+        scored = self._compute_group_anomaly_scores(groups)
+        method = self.anomaly_selection.get("method", "fixed")
+        if method == "percentile":
+            selected_groups = self._select_groups_by_percentile(scored)
+        else:
+            selected_groups = self._select_groups_by_fixed_threshold(scored)
 
-            ref = group[0]
-            ref_outcome = ref.outcome if ref.outcome is not None else 0
+        for base_prompt, _score, group in selected_groups:
+            group_anoms = self._build_anomalies_from_group(base_prompt, group)
+            anomalies.extend(group_anoms)
 
-            for other in group[1:]:
-                other_outcome = other.outcome if other.outcome is not None else 0
-                if abs(ref_outcome - other_outcome) >= self.anomaly_threshold:
-                    tx_list = other.intervention.transforms or []
-                    transform_names = [
-                        t.get("name", str(t)) for t in tx_list
-                    ] or ["(no transform)"]
-
-                    # Extract multi-tier metadata from the first transform
-                    tx0 = tx_list[0] if tx_list else {}
-                    tf = tx0.get("family", "")
-                    sc = tx0.get("semantic_category", "")
-                    src = tx0.get("anomaly_source", "")
-
-                    anomalies.append(Anomaly(
-                        base_prompt=base_prompt,
-                        transform_names=transform_names,
-                        outcome_original=ref_outcome,
-                        outcome_transformed=other_outcome,
-                        difference=abs(ref_outcome - other_outcome),
-                        episode_id_original=ref.episode_id,
-                        episode_id_transformed=other.episode_id,
-                        transform_family=tf,
-                        semantic_category=sc,
-                        anomaly_source=src,
-                    ))
-
-        # --- Phase 2: transform-chain anomalies (order-aware) ---
+        # --- Phase 3: transform-chain anomalies (order-aware) ---
         chain_anomalies = self._detect_transform_chain_anomalies(valid_episodes)
         anomalies.extend(chain_anomalies)
 
         logger.info(
             "Detected %d anomalies (%d pairwise, %d chain) from %d episodes"
-            " across %d prompt groups",
+            " across %d prompt groups (adaptive=%s, selected=%d/%d)",
             len(anomalies),
             len(anomalies) - len(chain_anomalies),
             len(chain_anomalies),
             len(episodes),
+            len(groups),
+            method,
+            len(selected_groups) if method == "percentile" else len(groups),
             len(groups),
         )
 

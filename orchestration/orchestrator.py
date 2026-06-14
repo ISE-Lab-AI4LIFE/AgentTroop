@@ -118,6 +118,19 @@ class Orchestrator:
         When belief entropy drops below this value, consider converged.
     """
 
+    CONVERGENCE_DEFAULTS: Dict[str, Any] = {
+        "validation_accuracy_threshold": 0.85,
+        "min_improvement": 0.02,
+        "min_iterations_for_convergence": 5,
+        "entropy_threshold": 0.1,
+    }
+
+    FORCE_EXPLORATION_DEFAULTS: Dict[str, Any] = {
+        "enabled": True,
+        "consecutive_iterations_without_intervention": 3,
+        "num_forced_prompts": 3,
+    }
+
     def __init__(
         self,
         cognitive_agent: CognitiveAgent,
@@ -149,6 +162,15 @@ class Orchestrator:
         max_generalization_gap: float = 0.1,
         # Semantic fix 2: External holdout prompts file
         holdout_prompts_path: Optional[str] = None,
+        # Dynamic convergence-based early stopping
+        convergence_config: Optional[Dict[str, Any]] = None,
+        # Adaptive force exploration config
+        force_exploration_config: Optional[Dict[str, Any]] = None,
+        # Uncertainty sampling fallback
+        min_interventions_per_iteration: int = 3,
+        uncertainty_sampling_fallback: bool = True,
+        # Safety net
+        absolute_max_iterations: int = 200,
     ) -> None:
         self.cognitive = cognitive_agent
         self.strategist = strategist_agent
@@ -171,6 +193,30 @@ class Orchestrator:
         self.min_holdout_size_for_convergence = max(1, int(min_holdout_size_for_convergence))
         self.min_holdout_accuracy_for_convergence = min(1.0, max(0.0, float(min_holdout_accuracy_for_convergence)))
         self.max_generalization_gap = min(1.0, max(0.0, float(max_generalization_gap)))
+
+        # Convergence-based early stopping config
+        raw_cv = convergence_config or {}
+        self.convergence: Dict[str, Any] = {
+            **self.CONVERGENCE_DEFAULTS,
+            **{k: v for k, v in raw_cv.items() if v is not None},
+        }
+        self._accuracy_history: List[float] = []
+
+        # Adaptive force exploration config
+        raw_fe = force_exploration_config or {}
+        self.force_exploration: Dict[str, Any] = {
+            **self.FORCE_EXPLORATION_DEFAULTS,
+            **{k: v for k, v in raw_fe.items() if v is not None},
+        }
+
+        # Uncertainty sampling fallback
+        self.min_interventions_per_iteration = max(1, int(min_interventions_per_iteration))
+        self.uncertainty_sampling_fallback = bool(uncertainty_sampling_fallback)
+
+        # Safety net
+        self.absolute_max_iterations = max(1, int(absolute_max_iterations))
+        self._deep_dive_prompts: List[str] = []
+        self._deep_dive_used: List[str] = []
 
         # Semantic fix 2: External holdout prompts
         self.holdout_prompts_path = holdout_prompts_path
@@ -275,6 +321,183 @@ class Orchestrator:
         logger.info("⏱ PHASE_TIMING: %s took %.3fs", phase_name, elapsed)
         return time.time()
 
+    # ------------------------------------------------------------------
+    # Dynamic convergence-based early stopping
+    # ------------------------------------------------------------------
+
+    def _check_convergence(self) -> Optional[str]:
+        """Check whether the pipeline has converged.
+
+        Returns ``None`` if not converged, or a reason string if converged.
+        Uses three criteria:
+          1. Validation accuracy ≥ threshold (last 5 iterations)
+          2. Improvement over last 10 iterations < min_improvement
+          3. Version space entropy < threshold
+        """
+        cv = self.convergence
+        val_thresh = float(cv.get("validation_accuracy_threshold", 0.85))
+        min_impr = float(cv.get("min_improvement", 0.02))
+        min_iters = int(cv.get("min_iterations_for_convergence", 5))
+        ent_thresh = float(cv.get("entropy_threshold", 0.1))
+
+        # Need enough history
+        if len(self._accuracy_history) < min_iters:
+            return None
+
+        # 1. Validation accuracy
+        recent_acc = self._accuracy_history[-min_iters:]
+        if all(a < val_thresh for a in recent_acc):
+            return None
+
+        # 2. Improvement over last 10 iterations
+        window = min(10, len(self._accuracy_history))
+        if window >= 5:
+            acc_window = self._accuracy_history[-window:]
+            improvement = max(acc_window) - acc_window[0]
+            if improvement > min_impr:
+                return None
+        else:
+            improvement = 0.0
+
+        # 3. Version space entropy
+        current_entropy = self._get_current_entropy()
+        if current_entropy > ent_thresh:
+            return None
+
+        return (
+            f"converged: acc={recent_acc[-1]:.3f} ≥ {val_thresh}, "
+            f"entropy={current_entropy:.3f} < {ent_thresh}, "
+            f"improvement={improvement:.3f} < {min_impr}"
+        )
+
+    def _update_accuracy_history(self) -> None:
+        """Record the latest holdout accuracy for convergence tracking."""
+        best = self.version_space.most_likely()
+        if best is not None:
+            acc = getattr(best, "holdout_accuracy", None) or getattr(best, "accuracy", 0.0) or 0.0
+        else:
+            acc = 0.0
+        self._accuracy_history.append(acc)
+
+    # ------------------------------------------------------------------
+    # Adaptive force exploration — deep-dive prompts
+    # ------------------------------------------------------------------
+
+    def _maybe_force_exploration(
+        self,
+        stalled_iterations: int,
+    ) -> Optional[Intervention]:
+        """Force exploration when pipeline is stalled.
+
+        When consecutive stalled iterations exceed the configured threshold,
+        picks random deep-dive prompts that have never been called and
+        creates identity interventions for them.
+        """
+        fe = self.force_exploration
+        if not fe.get("enabled", True):
+            return None
+
+        threshold = int(fe.get("consecutive_iterations_without_intervention", 3))
+        if stalled_iterations < threshold:
+            return None
+
+        n_forced = int(fe.get("num_forced_prompts", 3))
+        if not self._deep_dive_prompts:
+            logger.info("Force exploration: no deep-dive prompts available")
+            return None
+
+        # Pick prompts not yet used
+        available = [p for p in self._deep_dive_prompts if p not in self._deep_dive_used]
+        if not available:
+            logger.info("Force exploration: all deep-dive prompts exhausted")
+            return None
+
+        chosen = available[:n_forced]
+        self._deep_dive_used.extend(chosen)
+
+        from core.intervention import Intervention
+        # Return the first forced intervention immediately; the loop
+        # will handle the rest in subsequent iterations.
+        intervention = Intervention(
+            base_prompt=chosen[0],
+            transforms=[],
+            metadata={
+                "forced_exploration": True,
+                "deep_dive": True,
+                "deep_dive_pool": chosen,
+            },
+        )
+        logger.info(
+            "Force exploration: %d deep-dive prompts (%s)",
+            len(chosen), chosen[0][:60],
+        )
+        return intervention
+
+    # ------------------------------------------------------------------
+    # Uncertainty sampling fallback
+    # ------------------------------------------------------------------
+
+    def _uncertainty_sampling_intervention(
+        self,
+        hypotheses: List[Any],
+    ) -> Optional[Intervention]:
+        """Create an intervention using the prompt with highest predictive
+        entropy from the version space (active learning).
+
+        Used when anomaly detection or strategist fails to find enough
+        candidates — ensures each iteration yields at least one intervention.
+        """
+        if not self.uncertainty_sampling_fallback:
+            return None
+        try:
+            prompts = self.strategist._default_base_prompts()
+            prompt, entropy = self.version_space.get_highest_entropy_prompt(
+                prompts, self.strategist.executor,
+            )
+            if prompt is None or entropy <= 0.0:
+                return None
+
+            from core.intervention import Intervention
+            intervention = Intervention(
+                base_prompt=prompt,
+                transforms=[],
+                metadata={
+                    "uncertainty_sampling": True,
+                    "entropy": round(entropy, 4),
+                },
+            )
+            logger.info(
+                "Uncertainty sampling: prompt entropy=%.4f prompt=%s",
+                entropy, prompt[:60],
+            )
+            return intervention
+        except Exception as exc:
+            logger.debug("Uncertainty sampling failed: %s", exc)
+            return None
+
+    # ------------------------------------------------------------------
+    # Dynamic intervention budget
+    # ------------------------------------------------------------------
+
+    def _dynamic_intervention_budget(self) -> int:
+        """Compute the dynamic intervention budget based on available prompts."""
+        n_available = len(self._deep_dive_prompts) if self._deep_dive_prompts else 500
+        return min(self.max_interventions, max(50, n_available))
+
+    # ------------------------------------------------------------------
+    # Deep-dive prompt pool
+    # ------------------------------------------------------------------
+
+    def _load_deep_dive_prompts(self) -> None:
+        """Load the full pool of available prompts for deep-dive exploration."""
+        try:
+            prompts = self.strategist._default_base_prompts()
+            self._deep_dive_prompts = list(prompts)
+            logger.info("Loaded %d deep-dive prompts", len(self._deep_dive_prompts))
+        except Exception as exc:
+            logger.warning("Failed to load deep-dive prompts: %s", exc)
+            self._deep_dive_prompts = []
+
     def run(self) -> Dict[str, Any]:
         """Execute the full 6-phase loop with POMDP as the central mechanism.
 
@@ -346,22 +569,36 @@ class Orchestrator:
             stalled_iterations = 0
             converged_by_entropy = False
             converged_by_accuracy = False
+            converged_by_dynamic = False
             executor = ProgramExecutor(
                 getattr(self.strategist, "primitive_registry", None),
             )
 
-            for iteration in range(1, self.max_iterations + 1):
+            # Load deep-dive pool for adaptive force exploration
+            self._load_deep_dive_prompts()
+
+            # Dynamic intervention budget
+            effective_max_iterations = min(
+                self.max_iterations,
+                self.absolute_max_iterations,
+            )
+            effective_max_interventions = self._dynamic_intervention_budget()
+
+            for iteration in range(1, effective_max_iterations + 1):
                 self.iteration = iteration
                 self._cycle_start = time.time()
                 logger.info(
                     "=== Cycle %d/%d (campaign=%s, VS entropy=%.3f, candidates=%d) ===",
-                    iteration, self.max_iterations, self.campaign_id,
+                    iteration, effective_max_iterations, self.campaign_id,
                     self._get_current_entropy(),
                     self.version_space.num_candidates,
                 )
 
-                if total_interventions >= self.max_interventions:
-                    logger.info("Intervention budget exhausted (%d)", total_interventions)
+                if total_interventions >= effective_max_interventions:
+                    logger.info(
+                        "Dynamic intervention budget exhausted (%d/%d)",
+                        total_interventions, effective_max_interventions,
+                    )
                     break
 
                 self._record_belief_state()
@@ -377,37 +614,50 @@ class Orchestrator:
                         "No intervention designed (%d consecutive stalls)",
                         stalled_iterations,
                     )
-                    if stalled_iterations >= self.force_exploration_interval:
-                        logger.warning(
-                            "Force exploration after %d stalled iterations",
-                            stalled_iterations,
+
+                    # ── Try adaptive force exploration (deep-dive prompts) ──
+                    forced = self._maybe_force_exploration(stalled_iterations)
+                    if forced is not None:
+                        intervention = forced
+                        stalled_iterations = 0
+                        logger.info("Adaptive force exploration intervention created")
+
+                    # ── Then try uncertainty sampling fallback ──
+                    if intervention is None and self.uncertainty_sampling_fallback:
+                        uns = self._uncertainty_sampling_intervention(hypotheses)
+                        if uns is not None:
+                            intervention = uns
+                            stalled_iterations = 0
+                            logger.info("Uncertainty sampling intervention created")
+
+                    # ── Then try counterfactual prompts ──
+                    if intervention is None and self._counterfactual_pairs:
+                        cf_pair = self._counterfactual_pairs.pop(0)
+                        from core.intervention import Intervention
+                        intervention = Intervention(
+                            base_prompt=cf_pair.counterfactual_prompt,
+                            transforms=[],
+                            metadata={
+                                "counterfactual": True,
+                                "pair_id": cf_pair.pair_id,
+                                "feature_changed": cf_pair.feature_changed,
+                            },
                         )
-                        # Try counterfactual prompts before force exploration
-                        if self._counterfactual_pairs:
-                            cf_pair = self._counterfactual_pairs.pop(0)
-                            from core.intervention import Intervention
-                            intervention = Intervention(
-                                base_prompt=cf_pair.counterfactual_prompt,
-                                transforms=[],
-                                metadata={
-                                    "counterfactual": True,
-                                    "pair_id": cf_pair.pair_id,
-                                    "feature_changed": cf_pair.feature_changed,
-                                },
-                            )
+                        stalled_iterations = 0
+                        logger.info(
+                            "Using counterfactual prompt (feature=%s) as intervention",
+                            cf_pair.feature_changed,
+                        )
+
+                    # ── Finally try old force exploration ──
+                    if intervention is None:
+                        intervention = self._force_exploration_intervention(hypotheses)
+                        if intervention is not None:
                             stalled_iterations = 0
-                            logger.info(
-                                "Using counterfactual prompt (feature=%s) as intervention",
-                                cf_pair.feature_changed,
-                            )
+                            logger.info("Legacy force exploration intervention created")
                         else:
-                            intervention = self._force_exploration_intervention(hypotheses)
-                            if intervention is None:
-                                logger.warning("Force exploration also failed; stopping")
-                                break
-                            stalled_iterations = 0
-                    else:
-                        continue
+                            logger.warning("All fallback strategies failed; stopping")
+                            break
 
                 elif intervention.metadata.get("exploratory"):
                     stalled_iterations += 1
@@ -491,6 +741,8 @@ class Orchestrator:
                         # Feed holdout failures back into EpisodicMemory
                         # to amplify signal for candidates with large generalization gap.
                         self._feed_holdout_failures(holdout_result)
+                    # Track accuracy for convergence detection
+                    self._update_accuracy_history()
 
                 # ── Diversity telemetry per cycle ──
                 self._emit_diversity_telemetry()
@@ -508,80 +760,44 @@ class Orchestrator:
 
                 # ── VS-level entropy recording for convergence detection ──
                 self.version_space.record_entropy()
-
-                # ── Entropy-based convergence check (hardened) ──
                 current_entropy = self._get_current_entropy()
-                if len(self._entropy_history) >= 5 and self.version_space.num_candidates >= 2:
-                    recent = self._entropy_history[-5:]
-                    if all(e < self.entropy_convergence_threshold for e in recent):
-                        best = self.version_space.most_likely()
-                        real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
-                        # Fix: require minimum iteration count for convergence
-                        if (self.iteration >= 15
-                                and total_interventions >= self.min_interventions_for_convergence
-                                and self.version_space.num_candidates >= 5):
-                            # Fix: require minimum holdout size and accuracy
-                            last_holdout = getattr(self, '_last_holdout_size', 0)
-                            if (last_holdout >= self.min_holdout_size_for_convergence
-                                    and real_holdout >= self.min_holdout_accuracy_for_convergence):
-                                gap = abs(getattr(best, "accuracy", 0.0) - real_holdout)
-                                if gap <= self.max_generalization_gap:
-                                    converged_by_entropy = True
-                                    logger.info(
-                                        "Version space entropy below %.3f for 5 cycles "
-                                        "(%d candidates, holdout=%.3f, interventions=%d, "
-                                        "holdout_size=%d, gap=%.3f); converged by entropy",
-                                        self.entropy_convergence_threshold,
-                                        self.version_space.num_candidates,
-                                        real_holdout, total_interventions,
-                                        last_holdout, gap,
-                                    )
-                                    self._emit_vs_telemetry(
-                                        "converged_by_entropy",
-                                        threshold=self.entropy_convergence_threshold,
-                                    )
-                                    break
 
-                # ── Holdout-based convergence check (hardened: Fix 3) ──
-                # Convergence is purely evidence-driven: if the candidate
-                # with the highest posterior also has high accuracy on both
-                # train and holdout with a small generalization gap, it has
-                # genuinely learned the policy — regardless of whether the
-                # predicate is keyword, structural, or semantic.
-                best = self.version_space.most_likely()
-                if best is not None:
-                    real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
-                    last_holdout_size = getattr(self, '_last_holdout_size', 0)
-                    if (total_interventions >= self.min_interventions_for_convergence
-                            and last_holdout_size >= self.min_holdout_size_for_convergence
-                            and real_holdout >= self.min_holdout_accuracy_for_convergence
-                            and best.accuracy >= self.accuracy_threshold):
-                        gap = abs(best.accuracy - real_holdout)
-                        if gap <= self.max_generalization_gap:
-                            converged_by_accuracy = True
-                            logger.info(
-                                "Best candidate train=%.3f holdout=%.3f gap=%.3f "
-                                "type=%s interventions=%d holdout_size=%d; "
-                                "converged by holdout",
-                                best.accuracy, real_holdout, gap,
-                                best.predicate_type,
-                                total_interventions, last_holdout_size,
-                            )
-                            self.session_memory.set_best_program(
-                                self.campaign_id, best.program_id, best.accuracy,
-                            )
-                            self._emit_vs_telemetry(
-                                "converged_by_accuracy",
-                                best_id=best.program_id,
-                                best_accuracy=best.accuracy,
-                                holdout_accuracy=real_holdout,
-                                predicate_type=best.predicate_type,
-                            )
-                            break
+                # ── Convergence check (unified: entropy + accuracy + dynamic) ──
+                convergence_reason = self._check_convergence()
+                if convergence_reason:
+                    if "acc=" in convergence_reason:
+                        converged_by_accuracy = True
+                    elif "entropy" in convergence_reason:
+                        converged_by_entropy = True
+                    else:
+                        converged_by_dynamic = True
+                    logger.info(
+                        "Converged (interventions=%d iterations=%d candidates=%d "
+                        "entropy=%.4f): %s",
+                        total_interventions, iteration,
+                        self.version_space.num_candidates, current_entropy,
+                        convergence_reason,
+                    )
+                    best = self.version_space.most_likely()
+                    if best is not None:
+                        self.session_memory.set_best_program(
+                            self.campaign_id, best.program_id, best.accuracy,
+                        )
+                    break
 
-            if converged_by_entropy or converged_by_accuracy:
+            if converged_by_entropy or converged_by_accuracy or converged_by_dynamic:
                 self._diversity_preservation = False
                 self.version_space.diversity_preservation = False
+
+            # Build convergence reason string
+            conv_reasons = []
+            if converged_by_accuracy:
+                conv_reasons.append("accuracy")
+            if converged_by_entropy:
+                conv_reasons.append("entropy")
+            if converged_by_dynamic:
+                conv_reasons.append("dynamic")
+            converged_by_str = " + ".join(conv_reasons) if conv_reasons else "iteration_limit"
 
             # Red Team Agent evaluation
             harmony_asr = 0.0
@@ -618,7 +834,7 @@ class Orchestrator:
                 best_program_id=best_id,
                 best_accuracy=best_acc,
                 total_interventions=total_interventions,
-                converged_by=f"{'accuracy' if converged_by_accuracy else ''}{' + ' if converged_by_accuracy and converged_by_entropy else ''}{'entropy' if converged_by_entropy else 'iteration_limit'}",
+                converged_by=converged_by_str,
                 harmony_asr=harmony_asr,
             )
 
@@ -697,19 +913,33 @@ class Orchestrator:
             stalled_iterations = 0
             converged_by_entropy = False
             converged_by_accuracy = False
+            converged_by_dynamic = False
 
-            for iteration in range(1, self.max_iterations + 1):
+            # Load deep-dive pool for adaptive force exploration
+            self._load_deep_dive_prompts()
+
+            # Dynamic intervention budget
+            effective_max_iterations = min(
+                self.max_iterations,
+                self.absolute_max_iterations,
+            )
+            effective_max_interventions = self._dynamic_intervention_budget()
+
+            for iteration in range(1, effective_max_iterations + 1):
                 self.iteration = iteration
                 self._cycle_start = time.time()
                 logger.info(
                     "=== Async cycle %d/%d (campaign=%s, VS entropy=%.3f, candidates=%d) ===",
-                    iteration, self.max_iterations, self.campaign_id,
+                    iteration, effective_max_iterations, self.campaign_id,
                     self._get_current_entropy(),
                     self.version_space.num_candidates,
                 )
 
-                if total_interventions >= self.max_interventions:
-                    logger.info("Intervention budget exhausted (%d)", total_interventions)
+                if total_interventions >= effective_max_interventions:
+                    logger.info(
+                        "Dynamic intervention budget exhausted (%d/%d)",
+                        total_interventions, effective_max_interventions,
+                    )
                     break
 
                 self._record_belief_state()
@@ -724,37 +954,50 @@ class Orchestrator:
                         "No intervention designed (%d consecutive stalls)",
                         stalled_iterations,
                     )
-                    if stalled_iterations >= self.force_exploration_interval:
-                        logger.warning(
-                            "Force exploration after %d stalled iterations",
-                            stalled_iterations,
+
+                    # ── Try adaptive force exploration (deep-dive prompts) ──
+                    forced = self._maybe_force_exploration(stalled_iterations)
+                    if forced is not None:
+                        intervention = forced
+                        stalled_iterations = 0
+                        logger.info("Adaptive force exploration intervention created")
+
+                    # ── Then try uncertainty sampling fallback ──
+                    if intervention is None and self.uncertainty_sampling_fallback:
+                        uns = self._uncertainty_sampling_intervention(hypotheses)
+                        if uns is not None:
+                            intervention = uns
+                            stalled_iterations = 0
+                            logger.info("Uncertainty sampling intervention created")
+
+                    # ── Then try counterfactual prompts ──
+                    if intervention is None and self._counterfactual_pairs:
+                        cf_pair = self._counterfactual_pairs.pop(0)
+                        from core.intervention import Intervention
+                        intervention = Intervention(
+                            base_prompt=cf_pair.counterfactual_prompt,
+                            transforms=[],
+                            metadata={
+                                "counterfactual": True,
+                                "pair_id": cf_pair.pair_id,
+                                "feature_changed": cf_pair.feature_changed,
+                            },
                         )
-                        # Try counterfactual prompts before force exploration
-                        if self._counterfactual_pairs:
-                            cf_pair = self._counterfactual_pairs.pop(0)
-                            from core.intervention import Intervention
-                            intervention = Intervention(
-                                base_prompt=cf_pair.counterfactual_prompt,
-                                transforms=[],
-                                metadata={
-                                    "counterfactual": True,
-                                    "pair_id": cf_pair.pair_id,
-                                    "feature_changed": cf_pair.feature_changed,
-                                },
-                            )
+                        stalled_iterations = 0
+                        logger.info(
+                            "Using counterfactual prompt (feature=%s) as intervention",
+                            cf_pair.feature_changed,
+                        )
+
+                    # ── Finally try old force exploration ──
+                    if intervention is None:
+                        intervention = self._force_exploration_intervention(hypotheses)
+                        if intervention is not None:
                             stalled_iterations = 0
-                            logger.info(
-                                "Using counterfactual prompt (feature=%s) as intervention",
-                                cf_pair.feature_changed,
-                            )
+                            logger.info("Legacy force exploration intervention created")
                         else:
-                            intervention = self._force_exploration_intervention(hypotheses)
-                            if intervention is None:
-                                logger.warning("Force exploration also failed; stopping")
-                                break
-                            stalled_iterations = 0
-                    else:
-                        continue
+                            logger.warning("All fallback strategies failed; stopping")
+                            break
                 elif intervention.metadata.get("exploratory"):
                     stalled_iterations += 1
                 else:
@@ -822,6 +1065,7 @@ class Orchestrator:
                             self.version_space.set_holdout_accuracy(
                                 holdout_result.get("holdout_accuracy", 0.0)
                             )
+                    self._update_accuracy_history()
 
                 # ── Diversity telemetry per cycle ──
                 self._emit_diversity_telemetry()
@@ -839,46 +1083,61 @@ class Orchestrator:
 
                 # ── VS-level entropy recording for convergence detection ──
                 self.version_space.record_entropy()
-
                 current_entropy = self._get_current_entropy()
-                if len(self._entropy_history) >= 5 and self.version_space.num_candidates >= 2:
-                    recent = self._entropy_history[-5:]
-                    if all(e < self.entropy_convergence_threshold for e in recent):
-                        best = self.version_space.most_likely()
-                        real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
-                        if real_holdout >= 0.65:
-                            converged_by_entropy = True
-                            logger.info(
-                                "Version space entropy below %.3f for 5 cycles "
-                                "(%d candidates, holdout=%.3f); converged by entropy",
-                                self.entropy_convergence_threshold,
-                                self.version_space.num_candidates,
-                                real_holdout,
-                            )
-                            break
 
-                # ── Holdout-based convergence check (async) ──
-                best = self.version_space.most_likely()
-                if best is not None:
-                    real_holdout = getattr(best, "holdout_accuracy", 0.0) or 0.0
-                    if (real_holdout > 0.0
-                            and best.accuracy >= self.accuracy_threshold):
-                        gap = abs(best.accuracy - real_holdout)
-                        if gap < 0.15:
-                            converged_by_accuracy = True
-                            logger.info(
-                                "Best candidate train=%.3f holdout=%.3f gap=%.3f "
-                                "type=%s >= threshold; converged by holdout",
-                                best.accuracy, real_holdout, gap,
-                                best.predicate_type,
-                            )
-                            self.session_memory.set_best_program(
-                                self.campaign_id, best.program_id, best.accuracy,
-                            )
-                            break
+                # ── Convergence check (unified: entropy + accuracy + dynamic) ──
+                convergence_reason = self._check_convergence()
+                if convergence_reason:
+                    if "acc=" in convergence_reason:
+                        converged_by_accuracy = True
+                    elif "entropy" in convergence_reason:
+                        converged_by_entropy = True
+                    else:
+                        converged_by_dynamic = True
+                    logger.info(
+                        "Converged (interventions=%d iterations=%d candidates=%d "
+                        "entropy=%.4f): %s",
+                        total_interventions, iteration,
+                        self.version_space.num_candidates, current_entropy,
+                        convergence_reason,
+                    )
+                    best = self.version_space.most_likely()
+                    if best is not None:
+                        self.session_memory.set_best_program(
+                            self.campaign_id, best.program_id, best.accuracy,
+                        )
+                    break
+
+            if converged_by_entropy or converged_by_accuracy or converged_by_dynamic:
+                self._diversity_preservation = False
+                self.version_space.diversity_preservation = False
+
+            # Build convergence reason string
+            conv_reasons = []
+            if converged_by_accuracy:
+                conv_reasons.append("accuracy")
+            if converged_by_entropy:
+                conv_reasons.append("entropy")
+            if converged_by_dynamic:
+                conv_reasons.append("dynamic")
+            converged_by_str = " + ".join(conv_reasons) if conv_reasons else "iteration_limit"
 
             self.session_memory.set_status(self.campaign_id, "completed")
             self._persist_belief_history()
+
+            # Red Team Agent ASR evaluation
+            harmony_asr = 0.0
+            if self.red_team is not None:
+                try:
+                    best = self.version_space.most_likely()
+                    if best is not None and hasattr(self.red_team, 'evaluate_asr'):
+                        test_prompts = self._load_holdout_prompts()
+                        harmony_asr = self.red_team.evaluate_asr(
+                            best.program, test_prompts, self.victim,
+                        )
+                        logger.info("Async Red Team ASR: %.4f", harmony_asr)
+                except Exception as e:
+                    logger.warning("Async Red Team evaluation failed: %s", e)
 
             best = self.version_space.most_likely()
             best_id = best.program_id if best is not None else None
@@ -893,7 +1152,8 @@ class Orchestrator:
                 best_program_id=best_id,
                 best_accuracy=best_acc,
                 total_interventions=total_interventions,
-                converged_by=f"{'accuracy' if converged_by_accuracy else ''}{' + ' if converged_by_accuracy and converged_by_entropy else ''}{'entropy' if converged_by_entropy else 'iteration_limit'}",
+                converged_by=converged_by_str,
+                harmony_asr=harmony_asr,
             )
 
         except Exception as exc:

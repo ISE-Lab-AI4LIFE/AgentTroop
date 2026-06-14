@@ -1,0 +1,1427 @@
+{
+  "num_candidates": 15,
+  "max_candidates": 30,
+  "entropy": 2.461230031638738,
+  "total_info_gain": 4.688048512623949,
+  "num_updates": 30,
+  "num_prunes": 37,
+  "num_syntheses": 0,
+  "posterior_by_source": {
+    "type_rescue": 0.2527929615249252,
+    "synthesis": 0.7472070384750746
+  },
+  "survival_rate_by_source": {
+    "compiled_from_condition": 1.65625,
+    "init_heuristic": 0.2692307692307692,
+    "heuristic": 7.0,
+    "synthesis": 3.283154121863799,
+    "type_rescue": 3.8333333333333335
+  },
+  "source_lifetime_stats": {
+    "total_by_source": {
+      "compiled_from_condition": 32,
+      "init_heuristic": 52,
+      "heuristic": 5,
+      "synthesis": 279,
+      "type_rescue": 24
+    },
+    "survived_by_source": {
+      "compiled_from_condition": 53,
+      "init_heuristic": 14,
+      "heuristic": 35,
+      "synthesis": 916,
+      "type_rescue": 92
+    },
+    "current_by_source": {
+      "type_rescue": 3,
+      "synthesis": 12
+    }
+  },
+  "posterior_by_predicate_type": {
+    "structural": 2.3336831497385435e-12,
+    "semantic": 0.2527929615225915,
+    "keyword": 0.7472070384750746
+  },
+  "survival_rate_by_predicate_type": {
+    "composite": 1.0,
+    "unknown": 3.75,
+    "keyword": 3.1493506493506493,
+    "structural": 1.8484848484848484,
+    "semantic": 1.588235294117647,
+    "jailbreak": 0.6666666666666666
+  },
+  "predicate_type_lifetime_stats": {
+    "total_by_type": {
+      "composite": 4,
+      "unknown": 4,
+      "keyword": 308,
+      "structural": 33,
+      "semantic": 34,
+      "jailbreak": 9
+    },
+    "survived_by_type": {
+      "unknown": 15,
+      "keyword": 970,
+      "structural": 61,
+      "semantic": 54,
+      "composite": 4,
+      "jailbreak": 6
+    },
+    "current_by_type": {
+      "structural": 1,
+      "semantic": 2,
+      "keyword": 12
+    }
+  },
+  "entropy_history": [
+    2.9019736020504587,
+    2.4035055496095996,
+    2.7719429323427445,
+    2.686618559779734,
+    2.647990842502119,
+    2.7010086498183132,
+    2.610051009672109,
+    2.5394641994511344,
+    2.699939354346235,
+    2.1356100477586946,
+    2.1884157296678413,
+    2.088113628530452,
+    2.07156525579509,
+    2.0687127889423493,
+    2.669282429165996,
+    2.621963251858685,
+    2.52030886132557,
+    2.707579106042834,
+    2.617949228065124,
+    2.1512833505746825,
+    2.5226885869149966,
+    2.468150603844193,
+    2.4506770089805823,
+    2.7023766325882574,
+    2.1248525120575485,
+    1.202261252316517,
+    2.653394455130588,
+    2.6283572499441816,
+    2.623200547657267,
+    2.461230031638738
+  ],
+  "holdout_accuracy_history": [
+    0.8666666666666667,
+    0.8666666666666667,
+    0.9333333333333333,
+    0.8823529411764706,
+    0.8823529411764706,
+    0.8823529411764706,
+    0.8421052631578947,
+    0.9473684210526315,
+    0.7894736842105263,
+    0.8
+  ],
+  "posterior_history": [
+    [
+      0.00839217045955999,
+      0.00839217045955999,
+      0.00839217045955999,
+      0.00839217045955999,
+      0.0284777922802752,
+      0.13382556893399736,
+      0.15105906827207966,
+      0.0284777922802752,
+      0.0284777922802752,
+      0.014869507659333044,
+      0.011189560612746641,
+      0.011189560612746641,
+      0.011189560612746641,
+      0.0284777922802752,
+      0.0284777922802752,
+      0.15105906827207966,
+      0.050353022757359894,
+      0.0055947803063733205,
+      0.008392170459559983,
+      0.0055947803063733205,
+      0.07552953413603983,
+      0.017928784965006318,
+      0.017928784965006318,
+      0.017928784965006318,
+      0.024448343134099514,
+      0.024448343134099514,
+      0.019151202121711286,
+      0.019151202121711286,
+      0.018743729736142967,
+      0.034466998676164665
+    ],
+    [
+      0.013895524559603953,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.029003072807070467,
+      0.26102765526363425,
+      0.26102765526363425
+    ],
+    [
+      0.00720685472553473,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.015042320382946442,
+      0.13538088344651794,
+      0.13538088344651794,
+      0.13538088344651794,
+      0.13538088344651794,
+      0.13538088344651808,
+      0.13538088344651808
+    ],
+    [
+      0.006695841697178141,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.07039163326555431,
+      0.007821292585061592,
+      0.07039163326555431,
+      0.07039163326555431
+    ],
+    [
+      0.0007537083533533735,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0713118498884391,
+      0.0008803932084992486,
+      0.0713118498884391,
+      0.0713118498884391
+    ],
+    [
+      0.0008631335032512104,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.08166507183273124,
+      0.0010082107633670539,
+      0.009073896870303475,
+      0.009073896870303475
+    ],
+    [
+      4.740815034409242e-05,
+      0.0403695487413189,
+      0.07851133989068212,
+      0.07851133989068212,
+      0.07851133989068212,
+      0.07851133989068212,
+      0.07851133989068212,
+      0.07851133989068212,
+      0.07851133989068212,
+      0.07851133989068212,
+      0.07851133989068212,
+      0.07851133989068212,
+      0.07851133989068212,
+      0.008723482210075795,
+      0.07851133989068212,
+      0.008723482210075795
+    ],
+    [
+      5.139329231018219e-05,
+      0.04376302394913585,
+      0.08511102439938777,
+      0.08511102439938777,
+      0.08511102439938777,
+      0.08511102439938777,
+      0.08511102439938777,
+      0.08511102439938777,
+      0.08511102439938777,
+      0.08511102439938777,
+      0.08511102439938777,
+      0.08511102439938777,
+      0.08511102439938777,
+      0.009456780488820874,
+      0.009456780488820867,
+      0.001050753387646764
+    ],
+    [
+      5.187783283099045e-05,
+      0.04417562562268656,
+      0.08591345869061993,
+      0.08591345869061993,
+      0.08591345869061993,
+      0.08591345869061993,
+      0.08591345869061993,
+      0.08591345869061993,
+      0.08591345869061993,
+      0.08591345869061993,
+      0.08591345869061993,
+      0.08591345869061993,
+      0.08591345869061993,
+      0.00954593985451334,
+      0.0010606599838348144,
+      0.00011785110931497952
+    ],
+    [
+      9.586842924212009e-05,
+      0.01764056456393177,
+      0.03274211890022753,
+      0.03274211890022753,
+      0.03274211890022753,
+      0.03274211890022753,
+      0.03274211890022753,
+      0.03274211890022753,
+      0.03274211890022753,
+      0.03274211890022753,
+      0.03274211890022753,
+      0.03274211890022753,
+      0.03274211890022753,
+      0.29467907010204786,
+      0.03274211890022753,
+      0.29467907010204786
+    ],
+    [
+      1.502672096868822e-05,
+      0.02488534120931249,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.046188929940144584,
+      0.005132103326682732,
+      0.4157003694613011
+    ],
+    [
+      3.44123923498342e-06,
+      0.005698942086159704,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.010577634219942613,
+      0.8567883718153513
+    ],
+    [
+      1.6750511261781794e-07,
+      0.0005148749302953096,
+      0.004633874372657781,
+      0.004633874372657781,
+      0.37534382418528,
+      0.06831926495933296,
+      0.06831926495933296,
+      0.06831926495933296,
+      0.06831926495933296,
+      0.06831926495933296,
+      0.06831926495933296,
+      0.06831926495933296,
+      0.06831926495933296,
+      0.06831926495933296
+    ],
+    [
+      1.8620203797634624e-08,
+      5.723452844251752e-05,
+      0.004635996803843912,
+      0.004635996803843912,
+      0.3755157411113564,
+      0.06835055690358995,
+      0.06835055690358995,
+      0.06835055690358995,
+      0.06835055690358995,
+      0.06835055690358995,
+      0.06835055690358995,
+      0.06835055690358995,
+      0.06835055690358995,
+      0.06835055690358995
+    ],
+    [
+      1.8621151151239245e-08,
+      6.3597156005672225e-06,
+      0.004636232672813498,
+      0.004636232672813498,
+      0.3755348464978924,
+      0.06835403442441432,
+      0.06835403442441432,
+      0.06835403442441432,
+      0.06835403442441432,
+      0.06835403442441432,
+      0.06835403442441432,
+      0.06835403442441432,
+      0.06835403442441432,
+      0.06835403442441432
+    ],
+    [
+      8.516956754442199e-10,
+      0.15458618102008223,
+      0.06448071494198304,
+      0.06448071494198304,
+      0.06448071494198304,
+      0.06448071494198304,
+      0.06448071494198304,
+      0.06448071494198304,
+      0.06448071494198304,
+      0.06448071494198304,
+      0.06448071494198304,
+      0.06448071494198304,
+      0.06448071494198304,
+      0.007164523882442565,
+      0.06448071494198304,
+      0.06448071494198304
+    ],
+    [
+      9.619684052627866e-10,
+      0.1746011237570176,
+      0.07282931252479535,
+      0.07282931252479535,
+      0.07282931252479535,
+      0.07282931252479535,
+      0.07282931252479535,
+      0.07282931252479535,
+      0.07282931252479535,
+      0.07282931252479535,
+      0.07282931252479535,
+      0.07282931252479535,
+      0.07282931252479535,
+      0.008092145836088381,
+      0.008092145836088374,
+      0.008092145836088374
+    ],
+    [
+      9.760093113694203e-10,
+      0.17714960452974662,
+      0.07389233032597979,
+      0.07389233032597979,
+      0.07389233032597979,
+      0.07389233032597979,
+      0.07389233032597979,
+      0.07389233032597979,
+      0.07389233032597979,
+      0.07389233032597979,
+      0.07389233032597979,
+      0.07389233032597979,
+      0.07389233032597979,
+      0.00821025892510888,
+      0.000912250991678763,
+      0.000912250991678763
+    ],
+    [
+      4.6486135909299883e-10,
+      0.08437420111181239,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.07491483805281761,
+      0.008323870894757513,
+      0.008323870894757513
+    ],
+    [
+      2.6159590396456627e-09,
+      0.052756339735351244,
+      0.04684171933427587,
+      0.04684171933427587,
+      0.04684171933427587,
+      0.04684171933427587,
+      0.04684171933427587,
+      0.04684171933427587,
+      0.04684171933427587,
+      0.04684171933427587,
+      0.04684171933427587,
+      0.04684171933427587,
+      0.04684171933427587,
+      0.4215754740084827,
+      0.005204635481586209,
+      0.005204635481586209
+    ],
+    [
+      4.6486135909299924e-10,
+      0.08437420111181246,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.0749148380528176,
+      0.008323870894757522,
+      0.008323870894757522
+    ],
+    [
+      3.152439355471594e-11,
+      0.005721803866217695,
+      0.045722887319036856,
+      0.045722887319036856,
+      0.045722887319036856,
+      0.09523439268279418,
+      0.09523439268279418,
+      0.09523439268279418,
+      0.09523439268279418,
+      0.09523439268279418,
+      0.09523439268279418,
+      0.09523439268279418,
+      0.09523439268279418,
+      0.09523439268279418
+    ],
+    [
+      3.5206164187437373e-12,
+      0.0006390060002668614,
+      0.04595662491509575,
+      0.04595662491509575,
+      0.04595662491509575,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503
+    ],
+    [
+      3.5206164187437373e-12,
+      0.0006390060002668614,
+      0.04595662491509575,
+      0.04595662491509575,
+      0.04595662491509575,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503,
+      0.09572123547232503
+    ],
+    [
+      5.238230857038889e-12,
+      0.015824562446745107,
+      0.025899353619684647,
+      0.025899353619684647,
+      0.025899353619684647,
+      0.025899353619684647,
+      0.025899353619684647,
+      0.025899353619684647,
+      0.025899353619684647,
+      0.025899353619684647,
+      0.025899353619684647,
+      0.025899353619684647,
+      0.025899353619684647,
+      0.23309418257716186,
+      0.23309418257716186,
+      0.23309418257716186
+    ],
+    [
+      1.1075638421248972e-12,
+      0.003345922251576758,
+      0.005476121306303935,
+      0.005476121306303935,
+      0.005476121306303935,
+      0.005476121306303935,
+      0.005476121306303935,
+      0.005476121306303935,
+      0.005476121306303935,
+      0.005476121306303935,
+      0.005476121306303935,
+      0.005476121306303935,
+      0.005476121306303935,
+      0.0492850917567354,
+      0.4435658258106185,
+      0.4435658258106185
+    ],
+    [
+      5.238230857038888e-12,
+      0.015824562446745093,
+      0.025899353619684654,
+      0.025899353619684654,
+      0.025899353619684654,
+      0.025899353619684654,
+      0.025899353619684654,
+      0.025899353619684654,
+      0.025899353619684654,
+      0.025899353619684654,
+      0.025899353619684654,
+      0.025899353619684654,
+      0.025899353619684654,
+      0.23309418257716183,
+      0.23309418257716183,
+      0.23309418257716183
+    ],
+    [
+      2.4317106677520804e-13,
+      0.0012023092567644545,
+      0.09738704979792076,
+      0.09738704979792076,
+      0.09738704979792076,
+      0.06423968557720275,
+      0.06423968557720275,
+      0.06423968557720275,
+      0.06423968557720275,
+      0.06423968557720275,
+      0.06423968557720275,
+      0.06423968557720275,
+      0.06423968557720275,
+      0.06423968557720275,
+      0.06423968557720275,
+      0.06423968557720275
+    ],
+    [
+      1.1122998474693994e-13,
+      0.00013373284029101511,
+      0.09749124057214995,
+      0.09749124057214995,
+      0.09749124057214995,
+      0.06430841322210436,
+      0.06430841322210436,
+      0.06430841322210436,
+      0.06430841322210436,
+      0.06430841322210436,
+      0.06430841322210436,
+      0.06430841322210436,
+      0.06430841322210436,
+      0.06430841322210436,
+      0.06430841322210436,
+      0.06430841322210436
+    ],
+    [
+      5.0533414232471715e-12,
+      0.0006757977014910837,
+      0.4926565243869992,
+      0.05473961382077773,
+      0.05473961382077773,
+      0.03610804093317282,
+      0.03610804093317282,
+      0.03610804093317282,
+      0.03610804093317282,
+      0.03610804093317282,
+      0.03610804093317282,
+      0.03610804093317282,
+      0.03610804093317282,
+      0.03610804093317282,
+      0.03610804093317282,
+      0.03610804093317282
+    ]
+  ],
+  "topk_posterior_traces": {
+    "prog_1781433601344574_e204": [
+      0.15105906827207963
+    ],
+    "prog_1781433618724851_e57a": [
+      0.26102765526363425,
+      0.13538088344651808
+    ],
+    "evo_4ec69806": [
+      0.07039163326555431,
+      0.0713118498884391,
+      0.08166507183273124
+    ],
+    "evo_b540476b": [
+      0.07851133989068212,
+      0.08511102439938777,
+      0.08591345869061993
+    ],
+    "prog_1781434110064050_8ddc": [
+      0.29467907010204786
+    ],
+    "prog_1781434110064082_3073": [
+      0.4157003694613011,
+      0.8567883718153513
+    ],
+    "evo_1c4a8ac5": [
+      0.37534382418528006,
+      0.3755157411113564,
+      0.3755348464978923,
+      0.15458618102008223,
+      0.1746011237570176,
+      0.17714960452974662,
+      0.08437420111181239,
+      0.08437420111181246
+    ],
+    "prog_1781434518653605_2abf": [
+      0.4215754740084827
+    ],
+    "evo_7392f93f": [
+      0.09523439268279414,
+      0.09572123547232503,
+      0.09572123547232503
+    ],
+    "prog_1781434794175148_b7b2": [
+      0.23309418257716186,
+      0.23309418257716183
+    ],
+    "prog_1781434794175176_6a95": [
+      0.4435658258106185,
+      0.09738704979792073,
+      0.09749124057214995,
+      0.4926565243869992
+    ]
+  },
+  "candidates": [
+    {
+      "program_id": "prog_1781433618609795_bcf4",
+      "accuracy": 0.8133333333333334,
+      "complexity": 2,
+      "posterior": 2.3336831497385435e-12,
+      "source": "type_rescue",
+      "predicate_type": "structural",
+      "holdout_accuracy": 0.65,
+      "train_accuracy": 0.7380952380952381,
+      "generalization_gap": 0.08809523809523812
+    },
+    {
+      "program_id": "prog_1781434794175176_6a95",
+      "accuracy": 0.5714285714285714,
+      "complexity": 2,
+      "posterior": 0.22751366537033235,
+      "source": "type_rescue",
+      "predicate_type": "semantic",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.5952380952380952,
+      "generalization_gap": 0.04523809523809519
+    },
+    {
+      "program_id": "prog_1781434794175158_2d7e",
+      "accuracy": 0.5612244897959183,
+      "complexity": 2,
+      "posterior": 0.025279296152259167,
+      "source": "type_rescue",
+      "predicate_type": "semantic",
+      "holdout_accuracy": 0.7,
+      "train_accuracy": 0.5357142857142857,
+      "generalization_gap": -0.16428571428571426
+    },
+    {
+      "program_id": "evo_b2f4c2b4",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.025279296152259167,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_18dc861d",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.01667505114698311,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_a671c033",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.07052526911758322,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_a96d49d8",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.07052526911758322,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_1d71c29a",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.07052526911758322,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_9caffd7c",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.07052526911758322,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_e8948f60",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.07052526911758322,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_eea68c49",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.07052526911758322,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_a254e865",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.07052526911758322,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_c22f2c82",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.07052526911758322,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_073533de",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.07052526911758322,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    },
+    {
+      "program_id": "evo_70ee1359",
+      "accuracy": 0.8653846153846154,
+      "complexity": 2,
+      "posterior": 0.07052526911758322,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.8,
+      "train_accuracy": 0.8809523809523809,
+      "generalization_gap": 0.08095238095238089
+    }
+  ],
+  "program_asts": {
+    "prog_1781433618609795_bcf4": {
+      "id": "prog_1781433618609795_bcf4",
+      "version_id": "1.0",
+      "created_at": 1781433618.609798,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "length_gt",
+            "parameters": {
+              "threshold": 100
+            },
+            "type": "LengthGtPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether prompt length exceeds a threshold.",
+              "category": "predicate",
+              "related_primitives": [
+                "length_lt"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "prog_1781434794175176_6a95": {
+      "id": "prog_1781434794175176_6a95",
+      "version_id": "1.0",
+      "created_at": 1781434794.175179,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "intent",
+            "parameters": {
+              "intent_type": "innocuous"
+            },
+            "type": "IntentPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether prompt intent matches a type (harmful, innocuous, etc.).",
+              "category": "predicate",
+              "related_primitives": [
+                "intent_score"
+              ]
+            }
+          }
+        },
+        "then_outcome": 0,
+        "else_outcome": 1
+      }
+    },
+    "prog_1781434794175158_2d7e": {
+      "id": "prog_1781434794175158_2d7e",
+      "version_id": "1.0",
+      "created_at": 1781434794.1751611,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "sentiment",
+            "parameters": {
+              "threshold": 0.55
+            },
+            "type": "SentimentPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Compare sentiment score against a threshold (>= threshold = True).",
+              "category": "predicate",
+              "related_primitives": [
+                "sentiment_score"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_b2f4c2b4": {
+      "id": "evo_b2f4c2b4",
+      "version_id": "1.0",
+      "created_at": 1781435044.379797,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_18dc861d": {
+      "id": "evo_18dc861d",
+      "version_id": "1.0",
+      "created_at": 1781435044.382336,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_a671c033": {
+      "id": "evo_a671c033",
+      "version_id": "1.0",
+      "created_at": 1781435044.3212318,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_a96d49d8": {
+      "id": "evo_a96d49d8",
+      "version_id": "1.0",
+      "created_at": 1781435044.323804,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_1d71c29a": {
+      "id": "evo_1d71c29a",
+      "version_id": "1.0",
+      "created_at": 1781435044.382429,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_9caffd7c": {
+      "id": "evo_9caffd7c",
+      "version_id": "1.0",
+      "created_at": 1781434930.771012,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_e8948f60": {
+      "id": "evo_e8948f60",
+      "version_id": "1.0",
+      "created_at": 1781435044.3849568,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_eea68c49": {
+      "id": "evo_eea68c49",
+      "version_id": "1.0",
+      "created_at": 1781435044.385,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_a254e865": {
+      "id": "evo_a254e865",
+      "version_id": "1.0",
+      "created_at": 1781435044.385047,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_c22f2c82": {
+      "id": "evo_c22f2c82",
+      "version_id": "1.0",
+      "created_at": 1781434930.776112,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_073533de": {
+      "id": "evo_073533de",
+      "version_id": "1.0",
+      "created_at": 1781434930.771012,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_70ee1359": {
+      "id": "evo_70ee1359",
+      "version_id": "1.0",
+      "created_at": 1781435044.336854,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    }
+  }
+}
