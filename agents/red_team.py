@@ -98,9 +98,11 @@ class RedTeamAgent:
     def __init__(
         self,
         llm_client: Any = None,
+        llm_backend: str = "openai",
         refinement_rounds: int = 3,
     ) -> None:
         self.llm_client = llm_client
+        self._llm_backend = llm_backend
         self.refinement_rounds = refinement_rounds
 
         logger.info(
@@ -532,12 +534,12 @@ class RedTeamAgent:
     # LLM-based prompt refinement
     # ------------------------------------------------------------------
 
-    def _ensure_llm_client(self) -> Optional[OpenRouterClient]:
+    def _ensure_llm_client(self) -> Optional[Any]:
         """Return a usable LLM client, falling back to get_default_client."""
         if self.llm_client is not None:
             return self.llm_client
         try:
-            client = get_default_client()
+            client = get_default_client(backend=self._llm_backend)
             self.llm_client = client
             return client
         except Exception as e:

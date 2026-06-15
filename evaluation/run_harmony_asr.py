@@ -75,30 +75,31 @@ def main() -> None:
     judge = LLMJudge(llm_client=llm, fallback_judge=RuleBasedJudge())
     logger.info("Judge: LLMJudge + RuleBasedJudge fallback")
 
-    # ── Harmony ASR Evaluator ──
-    from evaluation.evaluators import HarmonyASREvaluator
-    evaluator = HarmonyASREvaluator(
+    # ── HARMONY_X ASR Evaluator ──
+    from evaluation.evaluators import HarmonyXASREvaluator
+    evaluator = HarmonyXASREvaluator(
         victim=victim,
         judge=judge,
         csv_path=args.csv,
         red_team_agent=red_team,
-        strategist_agent=strategist,
         num_variants=1,
     )
-    logger.info("Starting Harmony ASR evaluation (%d prompts, csv=%s)", args.num_prompts, args.csv)
+    logger.info("Starting HARMONY_X ASR evaluation (%d prompts, csv=%s)", args.num_prompts, args.csv)
 
     start = time.time()
     result = evaluator.evaluate(num_prompts=args.num_prompts, judge=judge)
     elapsed = time.time() - start
 
     print("\n" + "=" * 60)
-    print("HARMONY ASR RESULT")
+    print("HARMONY_X ASR RESULT")
     print("=" * 60)
-    print(f"  ASR:       {result['asr']:.4f} ({result['successes']}/{result['total']})")
-    print(f"  Duration:  {elapsed:.1f}s")
-    print(f"  Prompts:   {result['total']}")
-    print(f"  Successes: {result['successes']}")
-    print(f"  Failures:  {result['failures']}")
+    print(f"  ASR:            {result['asr']:.4f} ({result['successes']}/{result['total']})")
+    print(f"  EASR:           {result['easr']:.4f} ({result['successes']}/{result['attempted']})")
+    print(f"  Duration:       {elapsed:.1f}s")
+    print(f"  Prompts:        {result['total']}")
+    print(f"  Successes:      {result['successes']}")
+    print(f"  Failures:       {result['failures']}")
+    print(f"  Program blocked: {result['program_blocked']}")
     print("=" * 60)
 
     # ── Save detailed JSON (includes full prompts + responses) ──

@@ -71,11 +71,13 @@ class LLMJudge(Judge):
     def __init__(
         self,
         llm_client: Optional[Any] = None,
+        llm_backend: str = "openai",
         model_name: Optional[str] = None,
         fallback_judge: Optional[Judge] = None,
         cache_path: Optional[str] = None,
         prompt_template: str = _JUDGE_PROMPT_TEMPLATE,
     ) -> None:
+        self._llm_backend = llm_backend
         self._llm = llm_client if llm_client is not None else self._create_llm_client(model_name)
         self._fallback = fallback_judge or RuleBasedJudge()
         self._prompt_template = prompt_template
@@ -88,7 +90,7 @@ class LLMJudge(Judge):
         if model_name is None:
             return None
         try:
-            return get_default_client()
+            return get_default_client(backend=self._llm_backend)
         except Exception:
             return None
 

@@ -498,6 +498,7 @@ class CognitiveAgent:
         episodic_memory: EpisodicMemory,
         ontology_memory: Optional[OntologyMemory] = None,
         llm_client: Optional[Any] = None,
+        llm_backend: str = "openai",
         grammar_exporter: Optional[GrammarExporter] = None,
         primitive_registry: Any = default_registry,
         condition_registry: Optional[ConditionRegistry] = None,
@@ -518,7 +519,7 @@ class CognitiveAgent:
         self.condition_registry = condition_registry or _condition_registry
         self.episodic_memory = episodic_memory
         self.ontology_memory = ontology_memory
-        self.llm_client = llm_client or get_default_client()
+        self.llm_client = llm_client or get_default_client(backend=llm_backend)
         self.grammar_exporter = grammar_exporter or GrammarExporter(
             primitive_registry=primitive_registry,
             condition_registry=self.condition_registry,

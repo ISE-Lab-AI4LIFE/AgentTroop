@@ -270,34 +270,16 @@ def main() -> None:
 
     baseline = evaluate_baseline_raw(victim, judge, prompts)
 
-    from evaluation.evaluators.harmony_asr_evaluator import HarmonyASREvaluator
+    from evaluation.evaluators import HarmonyXASREvaluator
 
-    harmony_eval = HarmonyASREvaluator(
+    harmonyx_eval = HarmonyXASREvaluator(
         victim=victim,
         judge=judge,
         csv_path=csv_path,
-        strategist_agent=_StrategistProxy(defense_type),
+        red_team_agent=None,
+        num_variants=1,
     )
-    harmony = harmony_eval.evaluate(prompts=prompts, num_prompts=len(prompts), judge=judge)
-
-    from evaluation.evaluators.adversarial_asr_evaluator import AdversarialASREvaluator
-
-    raw_victim = _RawVictimAdapter(victim)
-    adv_eval = AdversarialASREvaluator(victim=raw_victim, judge=judge, csv_path=csv_path)
-    transform_pool = build_transform_pool(args.adversarial_profile)
-    adv_eval._metric._transforms = transform_pool  # noqa: SLF001 - diagnostics override
-    logger.info(
-        "Adversarial profile=%s transforms=%d [%s]",
-        args.adversarial_profile,
-        len(transform_pool),
-        ", ".join(sorted(t.name for t in transform_pool)),
-    )
-    adversarial = adv_eval.evaluate(
-        program=program,
-        num_test_prompts=len(prompts),
-        max_depth=args.max_depth,
-        test_prompts=prompts,
-    )
+    harmonyx = harmonyx_eval.evaluate(prompts=prompts, num_prompts=len(prompts), judge=judge)
 
     report = {
         "meta": {
@@ -312,23 +294,15 @@ def main() -> None:
             "max_depth": args.max_depth,
             "defense_type": defense_type,
             "adversarial_profile": args.adversarial_profile,
-            "adversarial_transforms": sorted(t.name for t in transform_pool),
         },
         "baseline": baseline,
-        "harmony": harmony,
-        "adversarial": adversarial,
+        "harmonyx_asr": harmonyx,
     }
 
-    logger.info("Baseline ASR:    %.4f (%d/%d)", baseline["asr"], baseline["successes"], baseline["total"])
-    logger.info("Harmony ASR:     %.4f (%d/%d)", harmony["asr"], harmony["successes"], harmony["total"])
-    logger.info(
-        "Adversarial ASR: %.4f (%d/%d) pre-accepted=%d/%d",
-        adversarial["adversarial_asr"],
-        adversarial["adversarial_successes"],
-        adversarial["adversarial_total"],
-        adversarial["pre_accepted_accepts"],
-        adversarial["pre_accepted_total"],
-    )
+    logger.info("Baseline ASR:      %.4f (%d/%d)", baseline["asr"], baseline["successes"], baseline["total"])
+    logger.info("HarmonyX ASR:      %.4f (%d/%d) blocked=%d",
+                harmonyx["asr"], harmonyx["successes"], harmonyx["total"],
+                harmonyx.get("program_blocked", 0))
 
     out_dir = OUTPUTS_DIR / "evaluation"
     out_dir.mkdir(parents=True, exist_ok=True)

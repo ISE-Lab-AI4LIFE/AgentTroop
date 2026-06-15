@@ -20,8 +20,7 @@ from .evaluators import (
     RQ1Evaluator,
     RQ2Evaluator,
     BaselineASREvaluator,
-    AdversarialASREvaluator,
-    HarmonyASREvaluator,
+    HarmonyXASREvaluator,
 )
 from .utils import VictimWrapper, TestGenerator
 
@@ -47,8 +46,7 @@ __all__ = [
     "RQ1Evaluator",
     "RQ2Evaluator",
     "BaselineASREvaluator",
-    "AdversarialASREvaluator",
-    "HarmonyASREvaluator",
+    "HarmonyXASREvaluator",
     "VictimWrapper",
     "TestGenerator",
 ]

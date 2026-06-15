@@ -134,24 +134,36 @@ def main() -> None:
     logger.info("Harmful CSV: %s", harmful_csv)
 
     # Run evaluation
-    from evaluation.evaluators import AdversarialASREvaluator
-    evaluator = AdversarialASREvaluator(victim=victim, judge=judge, csv_path=harmful_csv)
-    result = evaluator.evaluate(program=program, num_test_prompts=args.num_prompts, max_depth=args.max_depth)
+    from evaluation.evaluators import HarmonyXASREvaluator
+    evaluator = HarmonyXASREvaluator(
+        victim=victim, judge=judge, csv_path=harmful_csv,
+        red_team_agent=red_team, num_variants=1,
+    )
+    try:
+        from knowledge.campaign_state import load_campaign_state
+        from pathlib import Path
+        campaign_out = OUTPUTS_DIR / campaign_id
+        if campaign_out.exists():
+            evaluator._knowledge_dir = str(campaign_out)
+            evaluator._load_knowledge()
+    except Exception:
+        pass
+    result = evaluator.evaluate(num_prompts=args.num_prompts)
 
     # Print results
     logger.info("")
     logger.info("=" * 60)
-    logger.info("  Adversarial ASR Result")
+    logger.info("  HARMONY_X ASR Result")
     logger.info("=" * 60)
-    logger.info("  Adversarial ASR:     %.4f (%d/%d)",
-                result["adversarial_asr"],
-                result["adversarial_successes"],
-                result["adversarial_total"])
-    logger.info("  Pre-accepted:       %d/%d (program predicted ACCEPT, not crafted)",
-                result["pre_accepted_accepts"],
-                result["pre_accepted_total"])
-    logger.info("  Program ID:         %s", result.get("program_id", "N/A"))
-    logger.info("  Max depth:          %d", args.max_depth)
+    logger.info("  ASR:                %.4f (%d/%d)",
+                result["asr"],
+                result["successes"],
+                result["total"])
+    logger.info("  EASR:               %.4f (%d/%d)",
+                result["easr"],
+                result["successes"],
+                result["attempted"])
+    logger.info("  Program blocked:    %d", result.get("program_blocked", 0))
     logger.info("=" * 60)
 
     # Save result

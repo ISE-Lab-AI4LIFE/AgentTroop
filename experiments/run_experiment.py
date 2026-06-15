@@ -242,7 +242,8 @@ def seed_episodic_memory(
 
 def run_experiment(config: dict, backend: str = "ollama",
                    campaign_prefix: Optional[str] = None,
-                   prior_campaign_id: Optional[str] = None) -> Dict[str, Any]:
+                   prior_campaign_id: Optional[str] = None,
+                   agentic_backend: str = "openai") -> Dict[str, Any]:
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     cfg = config["orchestrator"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -316,6 +317,16 @@ def run_experiment(config: dict, backend: str = "ollama",
             temperature=victim_cfg["temperature"],
             max_tokens=victim_cfg["max_tokens"],
         )
+    elif backend == "openai":
+        from victim.openai import OpenAIVictim
+        from llm.llm_client import OpenAIClient
+        client = OpenAIClient()
+        victim = OpenAIVictim(
+            model_name=victim_cfg["model_name"],
+            temperature=victim_cfg["temperature"],
+            max_tokens=victim_cfg["max_tokens"],
+            client=client,
+        )
     logger.info("Victim: %s (via %s)", victim.model_name, backend)
     logger.info("Victim metadata: %s", victim.get_metadata())
 
@@ -353,13 +364,14 @@ def run_experiment(config: dict, backend: str = "ollama",
     from llm.llm_client import get_default_client
     from synthesis import get_synthesizer
 
-    llm = get_default_client()
+    llm = get_default_client(backend=agentic_backend)
 
     cog_cfg = config["cognitive"]
     cognitive = CognitiveAgent(
         episodic_memory=episodic,
         ontology_memory=ontology,
         llm_client=llm,
+        llm_backend=agentic_backend,
         anomaly_threshold=cog_cfg["anomaly_threshold"],
         anomaly_selection_config=cog_cfg.get("anomaly_selection"),
     )
@@ -381,6 +393,7 @@ def run_experiment(config: dict, backend: str = "ollama",
     rt_cfg = config.get("red_team", {})
     red_team = RedTeamAgent(
         llm_client=llm,
+        llm_backend=agentic_backend,
         refinement_rounds=rt_cfg.get("refinement_rounds", 3),
     )
     logger.info("Red Team Agent created (refine=%d rounds)", red_team.refinement_rounds)
@@ -535,6 +548,7 @@ def run_experiment(config: dict, backend: str = "ollama",
             llm=llm,
             red_team=red_team,
             knowledge_dir=campaign_state_dir,
+            agentic_backend=agentic_backend,
         )
     except Exception as e:
         logger.warning("Evaluation failed (non-fatal): %s", e)
@@ -633,19 +647,19 @@ def _run_evaluation(
     llm: Optional[Any] = None,
     red_team: Optional[Any] = None,
     knowledge_dir: Optional[str] = None,
+    agentic_backend: str = "openai",
 ) -> None:
     from evaluation.judges import LLMJudge, RuleBasedJudge
     from evaluation.evaluators import (
-        AdversarialASREvaluator,
         BaselineASREvaluator,
-        HarmonyASREvaluator,
+        HarmonyXASREvaluator,
         RQ0Evaluator,
         RQ1Evaluator,
         RQ2Evaluator,
     )
     from prompt_loader import load_prompts
 
-    judge = LLMJudge(llm_client=llm, fallback_judge=RuleBasedJudge())
+    judge = LLMJudge(llm_client=llm, llm_backend=agentic_backend, fallback_judge=RuleBasedJudge())
     campaign_out = OUTPUTS_DIR / campaign_id
     eval_dir = campaign_out / "evaluation"
     eval_dir.mkdir(parents=True, exist_ok=True)
@@ -745,48 +759,24 @@ def _run_evaluation(
         logger.warning("ASR evaluation failed: %s", e)
         report["asr"] = {"error": str(e)}
 
-    # Harmony ASR: through Red Team Agent pipeline (full system)
+    # HARMONY_X ASR: unified knowledge-aware attack pipeline
     try:
-        if red_team is not None:
-            harmony_asr_eval = HarmonyASREvaluator(
-                victim=victim, judge=judge, csv_path=csv_path,
-                red_team_agent=red_team, num_variants=1,
-                knowledge_dir=knowledge_dir,
-            )
-            harmony_asr_result = harmony_asr_eval.evaluate(num_prompts=30)
-            report["harmony_asr"] = harmony_asr_result
-            easr = harmony_asr_result.get("easr", harmony_asr_result["asr"])
-            logger.info("Harmony ASR (RedTeamAgent): asr=%.4f easr=%.4f (%d/%d attempted, %d skipped)",
-                        harmony_asr_result["asr"], easr,
-                        harmony_asr_result["successes"],
-                        harmony_asr_result["attempted"],
-                        harmony_asr_result.get("skipped", 0))
-        else:
-            report["harmony_asr"] = {"note": "RedTeamAgent not available"}
+        harmonyx_asr_eval = HarmonyXASREvaluator(
+            victim=victim, judge=judge, csv_path=csv_path,
+            red_team_agent=red_team, num_variants=1,
+            knowledge_dir=knowledge_dir,
+        )
+        harmonyx_asr_result = harmonyx_asr_eval.evaluate(num_prompts=30)
+        report["harmonyx_asr"] = harmonyx_asr_result
+        easr = harmonyx_asr_result.get("easr", harmonyx_asr_result["asr"])
+        logger.info("HarmonyX ASR: asr=%.4f easr=%.4f (%d/%d) program_blocked=%d",
+                    harmonyx_asr_result["asr"], easr,
+                    harmonyx_asr_result["successes"],
+                    harmonyx_asr_result["total"],
+                    harmonyx_asr_result.get("program_blocked", 0))
     except Exception as e:
-        logger.warning("Harmony ASR evaluation failed: %s", e)
-        report["harmony_asr"] = {"error": str(e)}
-
-    # Adversarial ASR: program-guided prompt crafting
-    try:
-        best_id_adv = result.get("best_program_id")
-        if best_id_adv:
-            record_adv = defense.get(best_id_adv)
-            if record_adv is not None:
-                program_adv = record_adv.program if hasattr(record_adv, "program") else record_adv
-                adv_eval = AdversarialASREvaluator(victim=victim, judge=judge, csv_path=csv_path)
-                adv_result = adv_eval.evaluate(program=program_adv, num_test_prompts=30)
-                report["adversarial_asr"] = adv_result
-                logger.info("Adversarial ASR: %.4f (%d/%d) pre-accepted=%d/%d program=%s",
-                            adv_result["adversarial_asr"],
-                            adv_result["adversarial_successes"],
-                            adv_result["adversarial_total"],
-                            adv_result["pre_accepted_accepts"],
-                            adv_result["pre_accepted_total"],
-                            program_adv.id)
-    except Exception as e:
-        logger.warning("Adversarial ASR evaluation failed: %s", e)
-        report["adversarial_asr"] = {"error": str(e)}
+        logger.warning("HarmonyX ASR evaluation failed: %s", e)
+        report["harmonyx_asr"] = {"error": str(e)}
 
     # RQ2: Transfer speed (requires a prior campaign for comparison)
     try:
@@ -883,8 +873,12 @@ def main() -> None:
         help="Prior campaign ID for RQ2 transfer speed evaluation",
     )
     parser.add_argument(
-        "--backend", choices=["openrouter", "ollama"], default="ollama",
+        "--backend", choices=["openrouter", "ollama", "openai"], default="ollama",
         help="Backend to use for the victim LLM (default: ollama)",
+    )
+    parser.add_argument(
+        "--agentic-backend", choices=["openrouter", "openai"], default="openai",
+        help="Backend for cognitive/red-team/judge LLMs (default: openai)",
     )
     parser.add_argument(
         "--campaign-prefix", type=str, default=None,
@@ -916,14 +910,17 @@ def main() -> None:
     logger.info("=" * 60)
     logger.info("HARMONY-X — %s experiment", campaign_prefix)
     logger.info("=" * 60)
+    agentic_backend = args.agentic_backend
     logger.info("Config: %s", config_path)
     logger.info("Backend: %s", args.backend)
+    logger.info("Agentic backend: %s", agentic_backend)
     logger.info("Log:    %s", os.path.abspath(log_file))
     logger.info("")
 
     result = run_experiment(config, backend=args.backend,
                             campaign_prefix=args.campaign_prefix,
-                            prior_campaign_id=args.prior_campaign)
+                            prior_campaign_id=args.prior_campaign,
+                            agentic_backend=agentic_backend)
 
     title = args.campaign_prefix or f"HARMONY-X — {model_name} experiment"
     print_report(result, title=title)

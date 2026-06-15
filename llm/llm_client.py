@@ -8,19 +8,68 @@ from typing import Any, Optional
 from dotenv import load_dotenv
 import requests
 
-# Load .env from project root (idempotent if already loaded by caller)
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
 
-class OpenRouterClient:
-    """LLM client backed by OpenRouter API.
+class OpenAIClient:
+    """LLM client backed by OpenAI SDK.
 
-    Fix 6C: Added exponential backoff retry for 429 rate-limit responses,
-    configurable fallback model, and graceful degradation (returns empty
-    string on persistent failure instead of crashing the pipeline).
+    Uses ``openai.OpenAI()`` with key from ``OPENAI_API_KEY`` env var.
+    Shares the same ``generate()`` interface as ``OpenRouterClient``.
     """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "",
+        timeout_ms: int = 180000,
+    ):
+        from openai import OpenAI
+
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        if not self.api_key:
+            raise RuntimeError("OPENAI_API_KEY environment variable is not set.")
+        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        self.timeout_ms = timeout_ms
+        self._client = OpenAI(api_key=self.api_key)
+
+    def generate(
+        self,
+        prompt: str,
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        **kwargs,
+    ) -> str:
+        """Send a prompt and return model response text.
+
+        Returns empty string on failure so the pipeline can continue.
+        """
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        model_name = model or self.model
+        try:
+            response = self._client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout=self.timeout_ms / 1000,
+            )
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.warning("OpenAI API error (model=%s): %s", model_name, e)
+            return ""
+
+
+class OpenRouterClient:
+    """LLM client backed by OpenRouter API."""
 
     def __init__(
         self,
@@ -59,20 +108,6 @@ class OpenRouterClient:
 
         Never raises an exception on rate-limit; returns empty string
         as last resort so the pipeline can continue.
-
-        Parameters
-        ----------
-        prompt : str
-            The user message to send.
-        max_tokens : int
-            Maximum tokens in the response.
-        temperature : float
-            Sampling temperature.
-        system_prompt : str, optional
-            If provided, prepended as a ``system`` message before the
-            ``user`` message.
-        model : str, optional
-            Override the client's default model.
         """
         enable_reasoning = kwargs.pop("reasoning", False)
         last_error: Optional[str] = None
@@ -147,11 +182,7 @@ class OpenRouterClient:
         model: str,
         system_prompt: Optional[str] = None,
     ) -> Optional[str]:
-        """Internal: performs a single generate request.
-
-        Returns None if the model used was not the primary and the
-        request failed (so the outer loop can try the fallback).
-        """
+        """Internal: performs a single generate request."""
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -186,7 +217,6 @@ class OpenRouterClient:
         message = choice.get("message", {})
         content = message.get("content", "")
 
-        # store reasoning context if available
         if enable_reasoning and "reasoning_details" in message:
             self._reasoning_history = {
                 "role": "assistant",
@@ -203,11 +233,25 @@ class OpenRouterClient:
         self._reasoning_history = None
 
 
-def get_default_client() -> OpenRouterClient:
-    """Return OpenRouter client (only backend now)."""
-    return OpenRouterClient()
+def get_default_client(backend: str = "openai") -> Any:
+    """Return a default LLM client for the requested backend.
+
+    Parameters
+    ----------
+    backend : str
+        ``"openai"`` (default) or ``"openrouter"``.
+
+    Returns
+    -------
+    ``OpenAIClient`` or ``OpenRouterClient``.
+    """
+    if backend == "openrouter":
+        return OpenRouterClient()
+    return OpenAIClient()
 
 
 if __name__ == "__main__":
-    client = get_default_client()
-    print("Client ready — model:", client.model)
+    import sys
+    backend = sys.argv[1] if len(sys.argv) > 1 else "openai"
+    client = get_default_client(backend)
+    print(f"Client ready — backend={backend} model={client.model}")
