@@ -535,7 +535,7 @@ def main() -> None:
         from core.executor import ProgramExecutor
         from core.primitive import default_registry
         from knowledge.episodic import EpisodeFilter
-        from harmony.synthesis import get_synthesizer
+        from synthesis import get_synthesizer
 
         episodes = episodic_memory.filter_episodes(EpisodeFilter(campaign_id=campaign_id))
 

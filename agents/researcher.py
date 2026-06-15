@@ -26,7 +26,7 @@ from graphrag.query_parser import QueryParser
 from graphrag.subgraph_retriever import SubgraphRetriever
 from knowledge.scientific_memory import ScientificMemory, Theory
 from knowledge.defense_store import DefenseProgramRecord, DefenseProgramStore
-from harmony.synthesis import get_synthesizer, SynthesisStats
+from synthesis import get_synthesizer, SynthesisStats
 from synthesis.preprocessor import Preprocessor
 from synthesis.verifier import ProgramVerifier, VerificationReport
 

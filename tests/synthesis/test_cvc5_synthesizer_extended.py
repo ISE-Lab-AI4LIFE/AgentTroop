@@ -22,7 +22,7 @@ from core.program import (
     ThresholdNode,
 )
 from synthesis.grammar_exporter import GrammarExporter
-from harmony.synthesis import get_synthesizer
+from synthesis import get_synthesizer
 
 EXECUTOR = ProgramExecutor(default_registry)
 
@@ -270,7 +270,7 @@ class TestFitnessGuidedSynthesizer:
 
 class TestSynthesizerAbstractTheory:
     def setup_method(self) -> None:
-        from harmony.synthesis.evolutionary_synthesizer import (
+        from synthesis.evolutionary_synthesizer import (
             EvolutionarySynthesizer,
         )
         self.synth = EvolutionarySynthesizer()

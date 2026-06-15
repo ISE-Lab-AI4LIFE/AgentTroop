@@ -9,7 +9,7 @@ from core.executor import ProgramExecutor
 from core.primitive import default_registry
 from core.program import Program
 from knowledge.scientific_memory import Theory
-from harmony.synthesis import SynthesisStats
+from synthesis import SynthesisStats
 from synthesis.verifier import VerificationReport
 
 # ---------------------------------------------------------------------------

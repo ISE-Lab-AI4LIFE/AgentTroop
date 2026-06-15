@@ -335,7 +335,7 @@ class TestSynthesisIntegration(unittest.TestCase):
 
     def test_synthesize_candidates_include_semantic_primitives(self):
         """Verify the synthesis pipeline works with semantic primitives."""
-        from harmony.synthesis import get_synthesizer
+        from synthesis import get_synthesizer
         p = default_registry.get("instruction_score")
         tn = ThresholdNode(classifier=p, threshold=0.75, operator="gt")
         prog = Program(

@@ -24,7 +24,7 @@ from core.executor import ProgramExecutor
 from core.primitive import default_registry
 from core.program import Program
 
-from harmony.synthesis import get_synthesizer, SynthesisStats
+from synthesis import get_synthesizer, SynthesisStats
 from .grammar_exporter import GrammarExporter
 
 logger = logging.getLogger(__name__)

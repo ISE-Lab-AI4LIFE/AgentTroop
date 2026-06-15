@@ -337,7 +337,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
     from agents.strategist import StrategistAgent
     from agents.red_team import RedTeamAgent
     from llm.llm_client import get_default_client
-    from harmony.synthesis import get_synthesizer
+    from synthesis import get_synthesizer
 
     llm = get_default_client()
 
@@ -492,7 +492,7 @@ def run_experiment(config: dict, prior_campaign_id: Optional[str] = None) -> Dic
 
     # ── Save all learned campaign state ──
     from core.jailbreak import _TECHNIQUE_STATS
-    from harmony.campaign_state import save_campaign_state
+    from knowledge.campaign_state import save_campaign_state
     campaign_state_dir = save_campaign_state(
         output_dir=str(OUTPUTS_DIR),
         campaign_id=campaign_id,

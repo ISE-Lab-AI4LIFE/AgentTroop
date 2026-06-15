@@ -236,7 +236,7 @@ class Orchestrator:
 
         self._synthesizer_mode = "evolutionary"
 
-        from harmony.synthesis import get_synthesizer
+        from synthesis import get_synthesizer
         synthesis_config = {
             "population_size": 100,
             "generations": 30,

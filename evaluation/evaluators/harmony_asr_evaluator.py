@@ -32,7 +32,7 @@ from core.jailbreak import (
     record_technique_outcome,
     select_technique,
 )
-from harmony.refusal_analyzer import RefusalAnalyzer
+from evaluation.refusal_analyzer import RefusalAnalyzer
 from evaluation.judges.base import Judge
 from evaluation.metrics.asr import AttackSuccessRateMetric
 
@@ -404,7 +404,7 @@ class HarmonyASREvaluator:
         if self._knowledge or not self._knowledge_dir:
             return
         from core.jailbreak import _TECHNIQUE_STATS
-        from harmony.campaign_state import load_campaign_state
+        from knowledge.campaign_state import load_campaign_state
         self._knowledge = load_campaign_state(self._knowledge_dir)
         vs = self._knowledge.get("version_space", {})
         # Inject saved technique stats into the global so select_technique()
@@ -496,7 +496,7 @@ class HarmonyASREvaluator:
         try:
             from orchestration.surrogate_policy_model import SurrogatePolicyModel
             model = SurrogatePolicyModel()
-            from harmony.campaign_state import restore_surrogate
+            from knowledge.campaign_state import restore_surrogate
             restore_surrogate(model, surr)
             result = model.predict(prompt)
             if result.confidence > 0.8:
