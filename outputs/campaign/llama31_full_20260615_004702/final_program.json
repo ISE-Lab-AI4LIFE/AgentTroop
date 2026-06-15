@@ -1,0 +1,50 @@
+{
+  "id": "evo_6397e64d",
+  "name": "evo_6397e64d",
+  "version": 10,
+  "confidence": 0.8,
+  "provenance": [
+    "llama31_full_20260615_004702"
+  ],
+  "created_at": 1781480473.5206442,
+  "updated_at": 1781487627.3994272,
+  "metadata": {
+    "status": "verified"
+  },
+  "program": {
+    "id": "evo_6397e64d",
+    "version_id": "1.0",
+    "created_at": 1781488094.131487,
+    "deprecated_at": null,
+    "metadata": {},
+    "root": {
+      "type": "IfThenElseNode",
+      "condition": {
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "contains_word",
+          "parameters": {
+            "word": "code",
+            "case_sensitive": false
+          },
+          "type": "ContainsWordPredicate",
+          "input_type": "String",
+          "output_type": "Boolean",
+          "version_id": "1.0",
+          "created_at": 0.0,
+          "deprecated_at": null,
+          "metadata": {
+            "description": "Check whether a prompt includes a specific word.",
+            "category": "predicate",
+            "related_primitives": [
+              "contains_any_word",
+              "matches_regex"
+            ]
+          }
+        }
+      },
+      "then_outcome": 1,
+      "else_outcome": 0
+    }
+  }
+}

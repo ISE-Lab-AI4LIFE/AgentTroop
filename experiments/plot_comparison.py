@@ -12,11 +12,11 @@ import numpy as np
 
 OUTPUTS = Path(__file__).resolve().parent.parent / "outputs" / "campaign"
 
-# 3 campaigns of interest
 CAMPAIGNS = [
     ("llama31_5seeds_20260614_173710",  "5 seeds\n(old config)"),
     ("llama31_50seeds_20260614_183321", "50 seeds\n(old config)"),
     ("llama31_50seeds_v2_20260614_230116", "50 seeds v2\n(new config)"),
+    ("llama31_full_20260615_004702", "50 seeds full\n(new config)"),
 ]
 
 def load_report(cid):
