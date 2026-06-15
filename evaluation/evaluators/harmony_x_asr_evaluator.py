@@ -178,6 +178,8 @@ class HarmonyXASREvaluator:
           - Program discriminator blocks crafted prompts that the learned
             program predicts will be refused
           - Retry loop tries different techniques on REFUSE
+          - Fallback: if ALL techniques blocked by discriminator, try the
+            best-ranked technique without the discriminator
         """
         tried_techniques: List[str] = []
         failure_context: Optional[Dict[str, Any]] = None
@@ -257,6 +259,41 @@ class HarmonyXASREvaluator:
                 max_retries=max(1, len(tech_candidates)),
                 tried_techniques=tried_techniques,
             )
+
+        # All techniques exhausted or blocked — fallback if discriminator
+        # blocked everything without ever querying the victim
+        if program_blocked == len(tried_techniques) and tried_techniques:
+            logger.warning(
+                "[%d/%d] ⚠ DISCRIMINATOR BLOCKED ALL — fallback: trying "
+                "top technique without discriminator | goal=%r",
+                index + 1, total, prompt[:60],
+            )
+            top_tech = tried_techniques[0]
+            crafted, _ = self._craft_knowledge_aware_prompt(
+                prompt, technique=top_tech,
+                failure_context=failure_context,
+                exclude_techniques=[],
+            )
+            if crafted:
+                raw_response = self._query_raw(crafted)
+                if raw_response is not None:
+                    outcome = judge.judge(raw_response) if judge else 0
+                    if outcome == 0:
+                        logger.info(
+                            "[%d/%d] ✓ ACCEPT (fallback) | goal=%r | technique=%s",
+                            index + 1, total, prompt[:60], top_tech,
+                        )
+                        return {
+                            "index": index,
+                            "goal": prompt[:120],
+                            "crafted_prompt": crafted,
+                            "victim_response": raw_response,
+                            "outcome": 0,
+                            "label": "SUCCESS",
+                            "technique": top_tech,
+                            "attempts": len(tried_techniques) + 1,
+                            "program_blocked": program_blocked,
+                        }
 
         # All techniques exhausted or blocked
         logger.info(
@@ -485,18 +522,41 @@ class HarmonyXASREvaluator:
         keywords = self._extract_keywords(self._best_program)
         if not keywords:
             return crafted
-        # Avoid trigger keywords to maximise chance of program predicting ACCEPT
+        # Avoid trigger keywords to maximise chance of program predicting ACCEPT.
+        # Use case-insensitive removal since contains_word does .lower() matching.
         for kw in keywords:
-            if kw in crafted.lower():
-                crafted = crafted.replace(kw, "")
-                crafted = crafted.replace(kw.capitalize(), "")
+            if not kw:
+                continue
+            kw_lower = kw.lower()
+            kw_len = len(kw_lower)
+            if kw_len == 0:
+                continue
+            result = []
+            i = 0
+            while i < len(crafted):
+                if crafted[i:i + kw_len].lower() == kw_lower:
+                    i += kw_len
+                else:
+                    result.append(crafted[i])
+                    i += 1
+            crafted = "".join(result)
         return crafted
 
     @staticmethod
     def _extract_keywords(program: Program) -> List[str]:
-        kw = []
-        def _walk(node):
-            if hasattr(node, "primitive") and node.primitive:
+        kw: List[str] = []
+        def _walk(node: Any) -> None:
+            from core.program import (
+                ApplyTransformNode, AtomicNode, BinaryNode,
+                IfThenElseNode, NotNode, Program as ProgNode,
+                ThresholdNode,
+            )
+            # Program → unwrap to root
+            if isinstance(node, ProgNode):
+                _walk(node.root)
+                return
+            # Extract keyword params from atomic predicate nodes
+            if isinstance(node, AtomicNode) and node.primitive:
                 params = getattr(node.primitive, "parameters", {}) or {}
                 if params.get("word"):
                     kw.append(params["word"])
@@ -504,12 +564,20 @@ class HarmonyXASREvaluator:
                     kw.extend(params["words"])
                 if params.get("pattern"):
                     kw.append(params["pattern"])
-            for child in getattr(node, "children", []):
-                _walk(child)
-            for attr in ("condition", "then_branch", "else_branch"):
-                child = getattr(node, attr, None)
-                if child is not None:
-                    _walk(child)
+            # BinaryNode → left/right (covers AndNode, OrNode)
+            if isinstance(node, BinaryNode):
+                _walk(node.left)
+                _walk(node.right)
+            # NotNode → child
+            elif isinstance(node, NotNode):
+                _walk(node.child)
+            # ApplyTransformNode → inner
+            elif isinstance(node, ApplyTransformNode):
+                _walk(node.inner)
+            # IfThenElseNode → condition (outcomes are ints, not nodes)
+            elif isinstance(node, IfThenElseNode):
+                _walk(node.condition)
+            # ThresholdNode → no children to walk
         _walk(program)
         return list(set(kw))
 

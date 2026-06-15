@@ -493,6 +493,14 @@ class CognitiveAgent:
         "exploration_decay": True,
     }
 
+    MULTI_SIGNAL_DEFAULTS: Dict[str, Any] = {
+        "enabled": False,
+        "signals": ["outcome", "embedding", "length"],
+        "embedding_model": "all-MiniLM-L6-v2",
+        "length_percentile": 95,
+        "embedding_percentile": 90,
+    }
+
     def __init__(
         self,
         episodic_memory: EpisodicMemory,
@@ -512,6 +520,7 @@ class CognitiveAgent:
         llm_retries: int = 2,
         hypothesis_store: Optional[HypothesisStore] = None,
         anomaly_selection_config: Optional[Dict[str, Any]] = None,
+        multi_signal_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         if episodic_memory is None:
             raise TypeError("episodic_memory is required")
@@ -580,6 +589,14 @@ class CognitiveAgent:
         self._current_effective_percentile: float = float(
             self.anomaly_selection["percentile"]
         )
+
+        # Multi-signal anomaly detection config
+        raw_ms = multi_signal_config or {}
+        self.multi_signal: Dict[str, Any] = {
+            **self.MULTI_SIGNAL_DEFAULTS,
+            **{k: v for k, v in raw_ms.items() if v is not None},
+        }
+        self._embedding_model: Optional[Any] = None
 
         logger.info(
             "CognitiveAgent initialised (threshold=%s, base_prompts=%d, "
@@ -793,6 +810,152 @@ class CognitiveAgent:
                     anomaly_source=tx0.get("anomaly_source", ""),
                 ))
         return anoms
+
+    # ------------------------------------------------------------------
+    # Multi-signal anomaly helpers
+    # ------------------------------------------------------------------
+
+    def _get_embedding(self, text: str):
+        """Lazy-load embedding model and return normalized vector."""
+        if self._embedding_model is None and self.multi_signal["enabled"]:
+            try:
+                from sentence_transformers import SentenceTransformer
+                model_name = self.multi_signal["embedding_model"]
+                self._embedding_model = SentenceTransformer(model_name)
+            except Exception as exc:
+                logger.warning("Failed to load embedding model: %s", exc)
+                self._embedding_model = None
+        if self._embedding_model is None:
+            return None
+        try:
+            import numpy as np
+            emb = self._embedding_model.encode(text, normalize_embeddings=True)
+            return np.asarray(emb, dtype=np.float64)
+        except Exception as exc:
+            logger.warning("Embedding failed: %s", exc)
+            return None
+
+    def _detect_multi_signal_anomalies(
+        self,
+        campaign_id: Optional[str] = None,
+        experiment_id: Optional[str] = None,
+    ) -> List[Anomaly]:
+        """Detect anomalies using outcome, embedding, and length signals.
+
+        When outcome has no variance within a group, falls back to
+        embedding distance and response-length percentile signals.
+        """
+        if not self.multi_signal.get("enabled", False):
+            return self.detect_anomalies(campaign_id=campaign_id, experiment_id=experiment_id)
+
+        episode_filter = EpisodeFilter(
+            campaign_id=campaign_id, experiment_id=experiment_id,
+        )
+        episodes = self.episodic_memory.filter_episodes(episode_filter)
+        valid = [ep for ep in episodes if ep.outcome is not None]
+        if not valid:
+            return []
+
+        # Group by base prompt
+        groups: Dict[str, List[Any]] = {}
+        for ep in valid:
+            groups.setdefault(ep.intervention.prompt, []).append(ep)
+
+        anomalies: List[Anomaly] = []
+        signals = self.multi_signal.get("signals", ["outcome"])
+        outcome_enabled = "outcome" in signals
+        embedding_enabled = "embedding" in signals
+        length_enabled = "length" in signals
+
+        for base_prompt, group in groups.items():
+            if len(group) < 2:
+                continue
+
+            outcomes = [int(ep.outcome) for ep in group if ep.outcome is not None]
+            unique_outcomes = set(outcomes)
+
+            # Outcome-based anomalies (existing logic)
+            if outcome_enabled and len(unique_outcomes) > 1:
+                group_anoms = self._build_anomalies_from_group(base_prompt, group)
+                anomalies.extend(group_anoms)
+                continue
+
+            # ── Outcome has NO variance → use embedding + length ──
+            if not outcome_enabled or len(unique_outcomes) == 1:
+                # Collect response texts
+                raw_texts: List[str] = []
+                for ep in group:
+                    raw = getattr(ep, 'raw_response', None) or getattr(ep, 'final_prompt', '')
+                    if not raw:
+                        raw = ep.intervention.final_prompt if hasattr(ep, 'intervention') else ''
+                    raw_texts.append(raw)
+
+                if embedding_enabled:
+                    embs = [self._get_embedding(t) for t in raw_texts]
+                    embs = [e for e in embs if e is not None]
+                    if len(embs) >= 2:
+                        import numpy as np
+                        emb_matrix = np.stack(embs)
+                        centroid = emb_matrix.mean(axis=0)
+                        distances = np.linalg.norm(emb_matrix - centroid, axis=1)
+                        p = self.multi_signal.get("embedding_percentile", 90)
+                        threshold = float(np.percentile(distances, p))
+                        for i, ep in enumerate(group):
+                            if distances[i] > threshold:
+                                ref_idx = 0 if i != 0 else 1
+                                ref_ep = group[ref_idx]
+                                tx_list = ep.intervention.transforms or [] if hasattr(ep, 'intervention') else []
+                                tx0 = tx_list[0] if tx_list else {}
+                                anomalies.append(Anomaly(
+                                    base_prompt=base_prompt,
+                                    transform_names=[t.get("name", str(t)) for t in tx_list] or ["(embedding_anomaly)"],
+                                    outcome_original=outcomes[ref_idx] if ref_idx < len(outcomes) else 0,
+                                    outcome_transformed=outcomes[i] if i < len(outcomes) else 0,
+                                    difference=float(distances[i]),
+                                    episode_id_original=ref_ep.episode_id if hasattr(ref_ep, 'episode_id') else "",
+                                    episode_id_transformed=ep.episode_id if hasattr(ep, 'episode_id') else "",
+                                    transform_family=tx0.get("family", ""),
+                                    semantic_category=tx0.get("semantic_category", ""),
+                                    anomaly_source=tx0.get("anomaly_source", "embedding"),
+                                ))
+                                break
+
+                # If embedding didn't find anything OR is disabled, try length
+                if length_enabled and not any(a.base_prompt == base_prompt for a in anomalies):
+                    lengths = np.array([len(t) for t in raw_texts])
+                    if lengths.max() > lengths.min():
+                        p = self.multi_signal.get("length_percentile", 95)
+                        import numpy as _np
+                        threshold = float(_np.percentile(lengths, p))
+                        for i, ep in enumerate(group):
+                            if lengths[i] > threshold:
+                                ref_idx = 0 if i != 0 else 1
+                                ref_ep = group[ref_idx]
+                                tx_list = ep.intervention.transforms or [] if hasattr(ep, 'intervention') else []
+                                tx0 = tx_list[0] if tx_list else {}
+                                anomalies.append(Anomaly(
+                                    base_prompt=base_prompt,
+                                    transform_names=[t.get("name", str(t)) for t in tx_list] or ["(length_anomaly)"],
+                                    outcome_original=outcomes[ref_idx] if ref_idx < len(outcomes) else 0,
+                                    outcome_transformed=outcomes[i] if i < len(outcomes) else 0,
+                                    difference=float(lengths[i] - lengths.mean()) / max(float(lengths.std()), 1.0),
+                                    episode_id_original=ref_ep.episode_id if hasattr(ref_ep, 'episode_id') else "",
+                                    episode_id_transformed=ep.episode_id if hasattr(ep, 'episode_id') else "",
+                                    transform_family=tx0.get("family", ""),
+                                    semantic_category=tx0.get("semantic_category", ""),
+                                    anomaly_source=tx0.get("anomaly_source", "length"),
+                                ))
+                                break
+
+        logger.info(
+            "Multi-signal anomaly detection: %d anomalies from %d groups "
+            "(signals=%s, outcome_variance=%s)",
+            len(anomalies), len(groups),
+            self.multi_signal.get("signals", []),
+            any(len(set(int(ep.outcome) for ep in g if ep.outcome is not None)) > 1
+                for g in groups.values()),
+        )
+        return anomalies
 
     # ------------------------------------------------------------------
     # Public API — anomaly detection

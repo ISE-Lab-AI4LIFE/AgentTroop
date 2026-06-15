@@ -164,6 +164,7 @@ class StrategistAgent:
         version_space: Optional[VersionSpace] = None,
         sde_engine: Optional[Any] = None,
         semantic_enabled: Optional[bool] = None,
+        exclude_prompts: Optional[set] = None,
     ) -> None:
         # --- validate & clamp ---
         if intervention_budget < _MIN_BUDGET or intervention_budget > _MAX_BUDGET:
@@ -192,6 +193,7 @@ class StrategistAgent:
         self.allowed_transform_names = allowed_transform_names
         self.blocked_transform_names = set(blocked_transform_names or [])
         self.disable_efe = disable_efe
+        self._exclude_prompts: set = set(exclude_prompts) if exclude_prompts else set()
 
         # --- Version Space (single source of truth for belief) ---
         if version_space is not None:
@@ -1497,6 +1499,8 @@ class StrategistAgent:
 
         if base_prompts:
             for p in base_prompts:
+                if self._exclude_prompts and p in self._exclude_prompts:
+                    continue
                 if p not in seen:
                     seen.add(p)
                     result.append(p)
@@ -1506,6 +1510,8 @@ class StrategistAgent:
                 campaign_id, experiment_id,
             )
             for p in mem_prompts:
+                if self._exclude_prompts and p in self._exclude_prompts:
+                    continue
                 if p not in seen:
                     seen.add(p)
                     result.append(p)
@@ -2253,11 +2259,13 @@ class StrategistAgent:
         except Exception:
             return prompt
 
-    @staticmethod
-    def _default_base_prompts() -> List[str]:
+    def _default_base_prompts(self) -> List[str]:
         from prompt_loader import load_prompts
         try:
-            return load_prompts()
+            all_prompts = load_prompts()
+            if self._exclude_prompts:
+                return [p for p in all_prompts if p not in self._exclude_prompts]
+            return all_prompts
         except Exception:
             return []
 

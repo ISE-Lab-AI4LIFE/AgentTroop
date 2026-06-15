@@ -187,9 +187,65 @@ class MultiTierSeedStrategy:
         self._variant_sources: Dict[str, int] = {}
         self._total_variants = 0
 
+        # Track used transforms to avoid regeneration duplicates
+        self._used_transform_sigs: set = set()
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def generate_additional_variants(
+        self,
+        base_prompt: str,
+        tag: str = "",
+        existing_count: int = 0,
+        target_count: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Generate additional variants to reach *target_count* total.
+
+        Expands by sampling from unused transforms across all tiers.
+        Returns only the *new* (additional) variants, not existing ones.
+        """
+        result: List[Dict[str, Any]] = []
+        needed = target_count - existing_count
+        if needed <= 0:
+            return result
+
+        all_pool: List[Tuple[str, Dict[str, Any]]] = []
+        for tier_key in [Tier.TIER1_SEMANTIC, Tier.TIER2_STRUCTURAL, Tier.TIER3_ENCODING]:
+            for tx_def in ALL_TIERS.get(tier_key, []):
+                all_pool.append((tier_key, tx_def))
+
+        self._rng.shuffle(all_pool)
+
+        for tier_key, tx_def in all_pool:
+            if len(result) >= needed:
+                break
+            tx_sig = (base_prompt, tx_def["name"], str(tx_def.get("params", {})))
+            if tx_sig in self._used_transform_sigs:
+                continue
+            final = _apply_transform(base_prompt, tx_def)
+            if not final or final == base_prompt:
+                continue
+            self._used_transform_sigs.add(tx_sig)
+            meta = {
+                "name": tx_def["name"],
+                "parameters": tx_def.get("params", {}),
+                "family": tier_key,
+                "semantic_category": SEMANTIC_CATEGORIES.get(tier_key, "unknown"),
+                "anomaly_source": tx_def.get("source", "unknown"),
+            }
+            result.append({
+                "final": final,
+                "tag": tag,
+                "transform_meta": meta,
+            })
+            self._variant_counts[tier_key] = self._variant_counts.get(tier_key, 0) + 1
+            src = tx_def.get("source", "unknown")
+            self._variant_sources[src] = self._variant_sources.get(src, 0) + 1
+            self._total_variants += 1
+
+        return result
 
     def generate_variants(
         self,
@@ -237,9 +293,15 @@ class MultiTierSeedStrategy:
             sampled = self._rng.sample(pool, min(count, len(pool)))
 
             for tx_def in sampled:
+                tx_sig = (base_prompt, tx_def["name"], str(tx_def.get("params", {})))
+                if tx_sig in self._used_transform_sigs:
+                    continue
+
                 final = _apply_transform(base_prompt, tx_def)
                 if not final or final == base_prompt:
                     continue
+
+                self._used_transform_sigs.add(tx_sig)
 
                 meta = {
                     "name": tx_def["name"],

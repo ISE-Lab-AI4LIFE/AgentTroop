@@ -171,6 +171,7 @@ class Orchestrator:
         uncertainty_sampling_fallback: bool = True,
         # Safety net
         absolute_max_iterations: int = 200,
+        exclude_prompts: Optional[set] = None,
     ) -> None:
         self.cognitive = cognitive_agent
         self.strategist = strategist_agent
@@ -215,6 +216,9 @@ class Orchestrator:
 
         # Safety net
         self.absolute_max_iterations = max(1, int(absolute_max_iterations))
+
+        # Excluded prompts (test set — prevent data leakage)
+        self._exclude_prompts: set = set(exclude_prompts) if exclude_prompts else set()
         self._deep_dive_prompts: List[str] = []
         self._deep_dive_used: List[str] = []
 
@@ -492,8 +496,14 @@ class Orchestrator:
         """Load the full pool of available prompts for deep-dive exploration."""
         try:
             prompts = self.strategist._default_base_prompts()
-            self._deep_dive_prompts = list(prompts)
-            logger.info("Loaded %d deep-dive prompts", len(self._deep_dive_prompts))
+            self._deep_dive_prompts = [
+                p for p in prompts if p not in self._exclude_prompts
+            ]
+            n_excluded = len(prompts) - len(self._deep_dive_prompts)
+            logger.info(
+                "Loaded %d deep-dive prompts (%d excluded for test set)",
+                len(self._deep_dive_prompts), n_excluded,
+            )
         except Exception as exc:
             logger.warning("Failed to load deep-dive prompts: %s", exc)
             self._deep_dive_prompts = []

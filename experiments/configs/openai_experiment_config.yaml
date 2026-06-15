@@ -45,7 +45,6 @@ cognitive:
     max_interventions: 10
     history_window: 5
     exploration_decay: true
-  llm_model: "gemma"
 
 strategist:
   use_llm: true
@@ -63,7 +62,7 @@ researcher:
   enforce_cvc5_first: false
 
 victim:
-  model_name: "meta-llama/llama-3.2-3b-instruct"
+  model_name: "gpt-4o-mini"
   temperature: 0.0
   max_tokens: 150
 

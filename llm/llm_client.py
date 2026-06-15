@@ -25,6 +25,8 @@ class OpenAIClient:
         api_key: Optional[str] = None,
         model: str = "",
         timeout_ms: int = 180000,
+        max_retries: int = 3,
+        fallback_model: str = "",
     ):
         from openai import OpenAI
 
@@ -33,7 +35,14 @@ class OpenAIClient:
             raise RuntimeError("OPENAI_API_KEY environment variable is not set.")
         self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
         self.timeout_ms = timeout_ms
-        self._client = OpenAI(api_key=self.api_key)
+        self.max_retries = max_retries
+        self.fallback_model = fallback_model or os.environ.get(
+            "OPENAI_FALLBACK_MODEL", ""
+        )
+        self._client = OpenAI(
+            api_key=self.api_key,
+            max_retries=max_retries,
+        )
 
     def generate(
         self,
@@ -46,26 +55,45 @@ class OpenAIClient:
     ) -> str:
         """Send a prompt and return model response text.
 
-        Returns empty string on failure so the pipeline can continue.
+        Retries with SDK built-in backoff. Falls back to ``fallback_model``
+        on failure. Returns empty string as last resort so the pipeline can
+        continue.
         """
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        model_name = model or self.model
-        try:
-            response = self._client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                timeout=self.timeout_ms / 1000,
-            )
-            return response.choices[0].message.content or ""
-        except Exception as e:
-            logger.warning("OpenAI API error (model=%s): %s", model_name, e)
-            return ""
+        models_to_try = [model or self.model]
+        if self.fallback_model and self.fallback_model != models_to_try[0]:
+            models_to_try.append(self.fallback_model)
+
+        last_error: Optional[str] = None
+        for attempt_model in models_to_try:
+            try:
+                response = self._client.chat.completions.create(
+                    model=attempt_model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout=self.timeout_ms / 1000,
+                )
+                content = response.choices[0].message.content
+                if content is not None:
+                    return content
+                last_error = f"model {attempt_model} returned null content"
+                logger.warning("OpenAI: %s", last_error)
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(
+                    "OpenAI API error (model=%s): %s", attempt_model, e,
+                )
+
+        logger.error(
+            "OpenAI all models exhausted: %s. "
+            "Pipeline will continue without LLM signal.", last_error,
+        )
+        return ""
 
 
 class OpenRouterClient:

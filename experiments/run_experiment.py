@@ -367,6 +367,10 @@ def run_experiment(config: dict, backend: str = "ollama",
     llm = get_default_client(backend=agentic_backend)
 
     cog_cfg = config["cognitive"]
+    seed_gen_cfg = config.get("seed_generation", {})
+    adaptive_exp = seed_gen_cfg.get("adaptive_expansion", False)
+    multi_signal_cfg = cog_cfg.get("multi_signal") if cog_cfg.get("adaptive_threshold", False) else None
+
     cognitive = CognitiveAgent(
         episodic_memory=episodic,
         ontology_memory=ontology,
@@ -374,7 +378,137 @@ def run_experiment(config: dict, backend: str = "ollama",
         llm_backend=agentic_backend,
         anomaly_threshold=cog_cfg["anomaly_threshold"],
         anomaly_selection_config=cog_cfg.get("anomaly_selection"),
+        multi_signal_config=multi_signal_cfg,
     )
+
+    # ── Adaptive expansion (forced variation when no anomalies) ──
+    if adaptive_exp:
+        from seed_strategy import MultiTierSeedStrategy
+        from knowledge.episodic import InterventionRecord, Episode, EpisodeFilter
+
+        max_expansion_rounds = config.get("seed_generation", {}).get(
+            "max_expansion_rounds", 5
+        )
+        exp_factor = config.get("seed_generation", {}).get(
+            "expansion_factor", 2
+        )
+        # Count current seed variants per base prompt
+        all_eps = episodic.filter_episodes(
+            EpisodeFilter(campaign_id=campaign_id, experiment_id=experiment_id)
+        )
+        eps_by_prompt: Dict[str, List[Any]] = {}
+        for ep in all_eps:
+            if hasattr(ep, 'intervention') and ep.intervention.prompt:
+                eps_by_prompt.setdefault(ep.intervention.prompt, []).append(ep)
+
+        base_variants_per_prompt = max(
+            (len(v) for v in eps_by_prompt.values()), default=15
+        )
+
+        exp_strategy = MultiTierSeedStrategy(seed=99)
+        expanded_any = False
+        for round_idx in range(max_expansion_rounds):
+            # Detect anomalies from current episodes
+            anoms = cognitive.detect_anomalies(
+                campaign_id=campaign_id, experiment_id=experiment_id
+            )
+            if anoms:
+                n_pairwise = sum(1 for a in anoms if a.anomaly_source not in ("embedding", "length"))
+                logger.info(
+                    "Adaptive expansion round %d/%d: found %d anomalies "
+                    "(pairwise=%d, multi-signal=%d) — stopping expansion",
+                    round_idx + 1, max_expansion_rounds,
+                    len(anoms), n_pairwise, len(anoms) - n_pairwise,
+                )
+                break
+
+            if not eps_by_prompt:
+                logger.info("No episodes to expand — stopping expansion")
+                break
+
+            # Expand: double variants per prompt
+            target = base_variants_per_prompt * (exp_factor ** (round_idx + 1))
+            new_eps: List[Episode] = []
+            now = time.time()
+            idx_offset = len(all_eps)
+
+            for base_prompt, existing in eps_by_prompt.items():
+                existing_count = len(existing)
+                extra = exp_strategy.generate_additional_variants(
+                    base_prompt=base_prompt,
+                    tag="harmful" if "harm" in base_prompt.lower() else "benign",
+                    existing_count=existing_count,
+                    target_count=target,
+                )
+                if not extra:
+                    continue
+
+                # Tag source prompt for grouping
+                source_tag = "harmful"
+                for ep in existing:
+                    tx = ep.intervention.transforms or [] if hasattr(ep, 'intervention') else []
+                    source_tag = tx[0].get("source_tag", "harmful") if tx and isinstance(tx[0], dict) else "harmful"
+                    break
+
+                for j, v in enumerate(extra):
+                    outcome = victim.respond(v["final"])
+                    new_ep = Episode(
+                        episode_id=f"seed_expand_{round_idx}_{idx_offset + j}",
+                        intervention=InterventionRecord(
+                            intervention_id=f"seed_expand_{round_idx}_{idx_offset + j}",
+                            prompt=base_prompt,
+                            transforms=[v["transform_meta"]] if v["transform_meta"].get("name") else [],
+                            final_prompt=v["final"],
+                            strategy_name="seed_expand",
+                            agent_name="adaptive_expansion",
+                            timestamp=now + j * 0.001,
+                        ),
+                        victim_name=victim.name,
+                        campaign_id=campaign_id,
+                        experiment_id=experiment_id,
+                        outcome=outcome,
+                    )
+                    new_eps.append(new_ep)
+
+            if not new_eps:
+                logger.info(
+                    "Adaptive expansion round %d: no new variants generated — "
+                    "exhausted transform pool", round_idx + 1,
+                )
+                break
+
+            # Store new episodes in episodic memory
+            for ep in new_eps:
+                episodic.save_episode(ep)
+                all_eps.append(ep)
+                eps_by_prompt.setdefault(ep.intervention.prompt, []).append(ep)
+
+            expanded_any = True
+            logger.info(
+                "Adaptive expansion round %d/%d: added %d episodes "
+                "(target=%d variants/group, total=%d)",
+                round_idx + 1, max_expansion_rounds,
+                len(new_eps), target, len(all_eps),
+            )
+
+        if not expanded_any:
+            logger.info(
+                "No adaptive expansion needed (%d anomalies from initial seed)",
+                len(cognitive.detect_anomalies(
+                    campaign_id=campaign_id, experiment_id=experiment_id
+                )),
+            )
+
+    # ── Pre-compute test prompts (prevent data leakage) ──
+    from prompt_loader import load_prompts as _load_pt
+    test_prompts: set = set()
+    try:
+        for _seed in (555, 777, 999):
+            test_prompts.update(_load_pt(csv_path=harmful_csv, n=50, seed=_seed))
+            test_prompts.update(_load_pt(csv_path=BENIGN_CSV, n=50, seed=_seed))
+        logger.info("Pre-computed %d test prompts for exclusion (leakage prevention)", len(test_prompts))
+    except Exception as exc:
+        logger.warning("Failed to pre-compute test prompts: %s", exc)
 
     strat_cfg = config["strategist"]
     tx_cfg = config.get("transforms", {})
@@ -387,6 +521,7 @@ def run_experiment(config: dict, backend: str = "ollama",
         max_chain_depth=strat_cfg.get("max_chain_depth", 2),
         allowed_transform_names=tx_cfg.get("enabled"),
         blocked_transform_names=tx_cfg.get("disabled"),
+        exclude_prompts=test_prompts,
     )
 
     # ── Red Team Agent (LLM prompt refiner — pure refinement, no technique) ──
@@ -483,6 +618,7 @@ def run_experiment(config: dict, backend: str = "ollama",
         min_interventions_per_iteration=cfg.get("min_interventions_per_iteration", 3),
         uncertainty_sampling_fallback=cfg.get("uncertainty_sampling_fallback", True),
         absolute_max_iterations=cfg.get("absolute_max_iterations", 200),
+        exclude_prompts=test_prompts,
     )
 
     # ── Run ──
@@ -749,7 +885,7 @@ def _run_evaluation(
     # ASR: Attack Success Rate (baseline — raw prompts)
     try:
         asr_eval = BaselineASREvaluator(victim=victim, judge=judge, csv_path=csv_path)
-        asr_result = asr_eval.evaluate(num_prompts=30)
+        asr_result = asr_eval.evaluate(num_prompts=200)
         report["asr"] = asr_result
         logger.info("ASR (baseline): %.4f (%d/%d accepted)",
                     asr_result["asr"],
@@ -766,7 +902,7 @@ def _run_evaluation(
             red_team_agent=red_team, num_variants=1,
             knowledge_dir=knowledge_dir,
         )
-        harmonyx_asr_result = harmonyx_asr_eval.evaluate(num_prompts=30)
+        harmonyx_asr_result = harmonyx_asr_eval.evaluate(num_prompts=200)
         report["harmonyx_asr"] = harmonyx_asr_result
         easr = harmonyx_asr_result.get("easr", harmonyx_asr_result["asr"])
         logger.info("HarmonyX ASR: asr=%.4f easr=%.4f (%d/%d) program_blocked=%d",
@@ -861,8 +997,8 @@ def main() -> None:
         help="Path to config YAML (default: configs/<backend>_experiment_config.yaml)",
     )
     parser.add_argument(
-        "--num-seeds", type=int, default=30,
-        help="Number of seed prompts to load (default: 30, use --full for all)",
+        "--num-seeds", type=int, default=100,
+        help="Number of seed prompts to load (default: 100, use --full for all)",
     )
     parser.add_argument(
         "--full", action="store_true",
