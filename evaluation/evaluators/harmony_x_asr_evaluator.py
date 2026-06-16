@@ -95,14 +95,17 @@ class HarmonyXASREvaluator:
     def evaluate(
         self,
         prompts: Optional[List[str]] = None,
-        num_prompts: int = 30,
+        num_prompts: int = 200,
+        num_variants: int = 5,
         judge: Optional[Judge] = None,
         max_retries: int = 0,
     ) -> Dict[str, Any]:
         if prompts is None:
             from evaluation.utils.test_generator import TestGenerator
             generator = TestGenerator(self._csv_path)
-            prompts, num_originals, base_prompts = generator.generate_jailbreak_prompts(num_prompts)
+            prompts, num_originals, base_prompts = generator.generate_jailbreak_prompts(
+                num_prompts, variants_per_prompt=num_variants,
+            )
         else:
             num_originals = 0
             base_prompts = [""] * len(prompts)

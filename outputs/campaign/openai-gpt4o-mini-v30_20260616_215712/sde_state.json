@@ -1,0 +1,254 @@
+{
+  "_round": 0,
+  "_converged": false,
+  "history": [
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 1,
+      "mean_uncertainty": 0.1999,
+      "is_converged": false,
+      "best_theta": 0.4002,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 2,
+      "mean_uncertainty": 0.178,
+      "is_converged": false,
+      "best_theta": 0.3336,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 3,
+      "mean_uncertainty": 0.1595,
+      "is_converged": false,
+      "best_theta": 0.286,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 4,
+      "mean_uncertainty": 0.1441,
+      "is_converged": false,
+      "best_theta": 0.2504,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 5,
+      "mean_uncertainty": 0.1312,
+      "is_converged": false,
+      "best_theta": 0.2227,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 6,
+      "mean_uncertainty": 0.1203,
+      "is_converged": false,
+      "best_theta": 0.2005,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 7,
+      "mean_uncertainty": 0.1111,
+      "is_converged": false,
+      "best_theta": 0.1824,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 8,
+      "mean_uncertainty": 0.103,
+      "is_converged": false,
+      "best_theta": 0.1673,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 9,
+      "mean_uncertainty": 0.1126,
+      "is_converged": false,
+      "best_theta": 0.2308,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 10,
+      "mean_uncertainty": 0.1059,
+      "is_converged": false,
+      "best_theta": 0.2143,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 11,
+      "mean_uncertainty": 0.1106,
+      "is_converged": false,
+      "best_theta": 0.2667,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 12,
+      "mean_uncertainty": 0.1124,
+      "is_converged": false,
+      "best_theta": 0.3125,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 13,
+      "mean_uncertainty": 0.1074,
+      "is_converged": false,
+      "best_theta": 0.2941,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 14,
+      "mean_uncertainty": 0.1081,
+      "is_converged": false,
+      "best_theta": 0.3333,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 15,
+      "mean_uncertainty": 0.1039,
+      "is_converged": false,
+      "best_theta": 0.3158,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    }
+  ],
+  "boundary_estimators": {
+    "instruction_score": {
+      "observations": [
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ]
+      ],
+      "direction": "positive",
+      "num_observations": 15
+    },
+    "harmfulness_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    },
+    "procedurality_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    },
+    "jailbreak_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    }
+  }
+}

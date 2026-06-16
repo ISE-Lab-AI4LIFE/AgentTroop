@@ -243,7 +243,9 @@ def seed_episodic_memory(
 def run_experiment(config: dict, backend: str = "ollama",
                    campaign_prefix: Optional[str] = None,
                    prior_campaign_id: Optional[str] = None,
-                   agentic_backend: str = "openai") -> Dict[str, Any]:
+                   agentic_backend: str = "openai",
+                   num_asr_str: str = "40",
+                   num_variants: int = 5) -> Dict[str, Any]:
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     cfg = config["orchestrator"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -685,6 +687,8 @@ def run_experiment(config: dict, backend: str = "ollama",
             red_team=red_team,
             knowledge_dir=campaign_state_dir,
             agentic_backend=agentic_backend,
+            num_asr_str=num_asr_str,
+            num_variants=num_variants,
         )
     except Exception as e:
         logger.warning("Evaluation failed (non-fatal): %s", e)
@@ -784,6 +788,8 @@ def _run_evaluation(
     red_team: Optional[Any] = None,
     knowledge_dir: Optional[str] = None,
     agentic_backend: str = "openai",
+    num_asr_str: str = "40",
+    num_variants: int = 5,
 ) -> None:
     from evaluation.judges import LLMJudge, RuleBasedJudge
     from evaluation.evaluators import (
@@ -883,9 +889,18 @@ def _run_evaluation(
         report["rq1"] = {"error": str(e)}
 
     # ASR: Attack Success Rate (baseline — raw prompts)
+    # Resolve num_asr once for both baseline and harmony evaluations
+    if num_asr_str == "full" and csv_path:
+        from evaluation.utils.test_generator import TestGenerator
+        tg = TestGenerator(csv_path)
+        num_asr = len(tg._prompts)
+    else:
+        num_asr = int(num_asr_str)
+    total_variants = num_asr * num_variants
+
     try:
         asr_eval = BaselineASREvaluator(victim=victim, judge=judge, csv_path=csv_path)
-        asr_result = asr_eval.evaluate(num_prompts=200)
+        asr_result = asr_eval.evaluate(num_prompts=total_variants)
         report["asr"] = asr_result
         logger.info("ASR (baseline): %.4f (%d/%d accepted)",
                     asr_result["asr"],
@@ -902,7 +917,9 @@ def _run_evaluation(
             red_team_agent=red_team, num_variants=1,
             knowledge_dir=knowledge_dir,
         )
-        harmonyx_asr_result = harmonyx_asr_eval.evaluate(num_prompts=200)
+        harmonyx_asr_result = harmonyx_asr_eval.evaluate(
+            num_prompts=total_variants, num_variants=num_variants,
+        )
         report["harmonyx_asr"] = harmonyx_asr_result
         easr = harmonyx_asr_result.get("easr", harmonyx_asr_result["asr"])
         logger.info("HarmonyX ASR: asr=%.4f easr=%.4f (%d/%d) program_blocked=%d",
@@ -1024,6 +1041,15 @@ def main() -> None:
         "--model-name", type=str, default=None,
         help="Override victim.model_name in config",
     )
+    parser.add_argument(
+        "--num-asr", type=str, default="40",
+        help="Number of original prompts for ASR evaluation "
+             "(default: 40, use 'full' for all prompts in CSV)",
+    )
+    parser.add_argument(
+        "--num-variants", type=int, default=5,
+        help="Number of variants per original prompt in ASR evaluation (default: 5)",
+    )
     args = parser.parse_args()
 
     config_path = args.config or str(EXP_DIR / "configs" / f"{args.backend}_experiment_config.yaml")
@@ -1056,7 +1082,9 @@ def main() -> None:
     result = run_experiment(config, backend=args.backend,
                             campaign_prefix=args.campaign_prefix,
                             prior_campaign_id=args.prior_campaign,
-                            agentic_backend=agentic_backend)
+                            agentic_backend=agentic_backend,
+                            num_asr_str=args.num_asr,
+                            num_variants=args.num_variants,)
 
     title = args.campaign_prefix or f"HARMONY-X — {model_name} experiment"
     print_report(result, title=title)

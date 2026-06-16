@@ -1,0 +1,50 @@
+{
+  "id": "evo_bd69127a",
+  "name": "evo_bd69127a",
+  "version": 6,
+  "confidence": 0.82,
+  "provenance": [
+    "openai-gpt4o-mini-v30_20260616_215712"
+  ],
+  "created_at": 1781622865.822033,
+  "updated_at": 1781623544.103324,
+  "metadata": {
+    "status": "verified"
+  },
+  "program": {
+    "id": "evo_bd69127a",
+    "version_id": "1.0",
+    "created_at": 1781623545.229055,
+    "deprecated_at": null,
+    "metadata": {},
+    "root": {
+      "type": "IfThenElseNode",
+      "condition": {
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "contains_word",
+          "parameters": {
+            "word": "code",
+            "case_sensitive": false
+          },
+          "type": "ContainsWordPredicate",
+          "input_type": "String",
+          "output_type": "Boolean",
+          "version_id": "1.0",
+          "created_at": 0.0,
+          "deprecated_at": null,
+          "metadata": {
+            "description": "Check whether a prompt includes a specific word.",
+            "category": "predicate",
+            "related_primitives": [
+              "contains_any_word",
+              "matches_regex"
+            ]
+          }
+        }
+      },
+      "then_outcome": 1,
+      "else_outcome": 0
+    }
+  }
+}

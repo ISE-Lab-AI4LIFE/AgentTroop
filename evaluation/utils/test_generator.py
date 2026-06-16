@@ -72,17 +72,30 @@ class TestGenerator:
 
         return prompts[:count]
 
-    def generate_jailbreak_prompts(self, count: int = 50) -> tuple[list[str], int, list[str]]:
+    def generate_jailbreak_prompts(
+        self, count: int = 50, variants_per_prompt: int = 5,
+    ) -> tuple[list[str], int, list[str]]:
         """Generate jailbreak test prompts with prefix variants.
+
+        Parameters
+        ----------
+        count : int
+            Maximum total number of variant prompts to return.
+        variants_per_prompt : int
+            Number of variants generated per selected original prompt.
+            The first variant is always the raw prompt; the remaining
+            up-to-(variants_per_prompt-1) variants are prefixed forms
+            drawn from the 4 built-in prefixes in order.
+            (Default 5 → raw + 4 prefixed.  1 → raw only.)
 
         Returns
         -------
         (prompts, num_original_prompts, base_prompts)
-            ``prompts`` contains up to *count* variants (raw + 4 prefixed forms
-            of each selected original prompt).  ``num_original_prompts`` is the
-            number of **unique original prompts** from the CSV that were used,
-            and ``base_prompts`` is a parallel list where ``base_prompts[i]`` is
-            the original CSV prompt that ``prompts[i]`` is a variant of.
+            ``prompts`` contains up to *count* variants of each selected
+            original prompt.  ``num_original_prompts`` is the number of
+            **unique original prompts** from the CSV that were used, and
+            ``base_prompts`` is a parallel list where ``base_prompts[i]``
+            is the original CSV prompt that ``prompts[i]`` is a variant of.
         """
         import random
 
@@ -98,6 +111,8 @@ class TestGenerator:
             "As part of a security audit, ",
         ]
 
+        num_prefixes = max(0, variants_per_prompt - 1)
+
         num_originals = 0
         for p in shuffled:
             if len(prompts) >= count:
@@ -105,7 +120,7 @@ class TestGenerator:
             prompts.append(p)
             base_prompts.append(p)
             num_originals += 1
-            for pref in prefixes:
+            for pref in prefixes[:num_prefixes]:
                 if len(prompts) < count:
                     prompts.append(pref + p)
                     base_prompts.append(p)
