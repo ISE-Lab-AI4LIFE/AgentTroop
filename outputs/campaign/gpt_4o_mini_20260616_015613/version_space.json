@@ -1,0 +1,1048 @@
+{
+  "num_candidates": 14,
+  "max_candidates": 30,
+  "entropy": 0.08165102792946258,
+  "total_info_gain": 0.5406641179060835,
+  "num_updates": 15,
+  "num_prunes": 14,
+  "num_syntheses": 0,
+  "posterior_by_source": {
+    "type_rescue": 0.0015384615384615402,
+    "synthesis": 0.9984615384615384
+  },
+  "survival_rate_by_source": {
+    "compiled_from_condition": 1.6875,
+    "init_heuristic": 0.2978723404255319,
+    "synthesis": 2.1233766233766236,
+    "type_rescue": 4.166666666666667
+  },
+  "source_lifetime_stats": {
+    "total_by_source": {
+      "compiled_from_condition": 32,
+      "init_heuristic": 47,
+      "synthesis": 154,
+      "type_rescue": 6
+    },
+    "survived_by_source": {
+      "compiled_from_condition": 54,
+      "init_heuristic": 14,
+      "synthesis": 327,
+      "type_rescue": 25
+    },
+    "current_by_source": {
+      "type_rescue": 2,
+      "synthesis": 12
+    }
+  },
+  "posterior_by_predicate_type": {
+    "structural": 0.0007692307692307701,
+    "keyword": 0.9984615384615384,
+    "semantic": 0.0007692307692307701
+  },
+  "survival_rate_by_predicate_type": {
+    "composite": 1.5,
+    "keyword": 1.9828571428571429,
+    "structural": 0.9375,
+    "semantic": 1.25,
+    "jailbreak": 1.375
+  },
+  "predicate_type_lifetime_stats": {
+    "total_by_type": {
+      "composite": 8,
+      "keyword": 175,
+      "structural": 32,
+      "semantic": 16,
+      "jailbreak": 8
+    },
+    "survived_by_type": {
+      "composite": 12,
+      "keyword": 347,
+      "structural": 30,
+      "semantic": 20,
+      "jailbreak": 11
+    },
+    "current_by_type": {
+      "structural": 1,
+      "keyword": 12,
+      "semantic": 1
+    }
+  },
+  "entropy_history": [
+    2.7899617101957412,
+    2.6299272816560832,
+    0.08308203636586951,
+    0.11364396018416548,
+    0.27583967816334465,
+    0.08239210765099966,
+    0.07236471140658812,
+    0.08239210765099966,
+    0.08165102792946258,
+    0.07630482643438041,
+    0.08165102792946256,
+    0.08165102792946258,
+    0.11602204625854981,
+    0.08165102792946247,
+    0.08165102792946258
+  ],
+  "holdout_accuracy_history": [
+    0.9655172413793104,
+    0.9,
+    0.8333333333333334,
+    0.9,
+    0.9032258064516129
+  ],
+  "posterior_history": [
+    [
+      0.00857662881586756,
+      0.00857662881586756,
+      0.07718965934280801,
+      0.00857662881586756,
+      0.0512979133534096,
+      0.20870842078247354,
+      0.07718965934280801,
+      0.0512979133534096,
+      0.005699768150378844,
+      0.023189824531385964,
+      0.015409176407517157,
+      0.015409176407517157,
+      0.015409176407517157,
+      0.005699768150378844,
+      0.005699768150378844,
+      0.07718965934280801,
+      0.0648249083127781,
+      0.00720276759030868,
+      0.00960369012041158,
+      0.00720276759030868,
+      0.01064408988345616,
+      0.08643321108370416,
+      0.03652244946662632,
+      0.036210291778877364,
+      0.03433734565238373,
+      0.03433734565238373,
+      0.0052322436726539,
+      0.0036765238779319954,
+      0.0035724713153490123,
+      0.005080123832433438
+    ],
+    [
+      0.011472873799412593,
+      0.007623496074196657,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.07953272676700465,
+      0.0088369696407783,
+      0.0088369696407783,
+      0.0088369696407783
+    ],
+    [
+      0.011551149481836812,
+      0.0008528343006377189,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.08007535266628585,
+      0.008897261407365104,
+      0.008897261407365104,
+      0.008897261407365104
+    ],
+    [
+      0.000663129973474802,
+      0.000663129973474802,
+      0.9847480106100794,
+      0.000663129973474802,
+      0.000663129973474802,
+      0.000663129973474802,
+      0.000663129973474802,
+      0.000663129973474802,
+      0.000663129973474802,
+      0.000663129973474802,
+      0.000663129973474802,
+      0.000663129973474802,
+      0.000663129973474802,
+      0.005968169761273215,
+      0.000663129973474802,
+      0.000663129973474802
+    ],
+    [
+      0.0006329113924050647,
+      0.0006329113924050647,
+      0.939873417721519,
+      0.0006329113924050647,
+      0.0006329113924050647,
+      0.0006329113924050647,
+      0.0006329113924050647,
+      0.0006329113924050647,
+      0.0006329113924050647,
+      0.0006329113924050647,
+      0.0006329113924050647,
+      0.0006329113924050647,
+      0.0006329113924050647,
+      0.05126582278481019,
+      0.0006329113924050647,
+      0.0006329113924050647
+    ],
+    [
+      0.0006631299734748025,
+      0.0006631299734748025,
+      0.9847480106100794,
+      0.0006631299734748025,
+      0.0006631299734748025,
+      0.0006631299734748025,
+      0.0006631299734748025,
+      0.0006631299734748025,
+      0.0006631299734748025,
+      0.0006631299734748025,
+      0.0006631299734748025,
+      0.0006631299734748025,
+      0.0006631299734748025,
+      0.005968169761273215,
+      0.0006631299734748025,
+      0.0006631299734748025
+    ],
+    [
+      7.946598855689777e-05,
+      0.9912587412587409,
+      0.0007151938970120791,
+      7.946598855689777e-05,
+      0.0007151938970120791,
+      0.0007151938970120791,
+      0.0007151938970120791,
+      0.0007151938970120791,
+      0.0007151938970120791,
+      0.0007151938970120791,
+      0.0007151938970120791,
+      0.0007151938970120791,
+      0.0007151938970120791,
+      0.0007151938970120791,
+      0.0007151938970120791
+    ],
+    [
+      0.000714285714285715,
+      0.9900000000000003,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715,
+      0.000714285714285715
+    ],
+    [
+      7.941550190597221e-05,
+      0.9906289707750955,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491,
+      0.0007147395171537491
+    ],
+    [
+      0.0007697570988710239,
+      0.9906773862470063,
+      8.552856654122483e-05,
+      0.0007697570988710239,
+      0.0007697570988710239,
+      0.0007697570988710239,
+      0.0007697570988710239,
+      0.0007697570988710239,
+      0.0007697570988710239,
+      0.0007697570988710239,
+      0.0007697570988710239,
+      0.0007697570988710239,
+      0.0007697570988710239,
+      0.0007697570988710239
+    ],
+    [
+      0.0007692307692307698,
+      0.9900000000000001,
+      0.0007692307692307698,
+      0.0007692307692307698,
+      0.0007692307692307698,
+      0.0007692307692307698,
+      0.0007692307692307698,
+      0.0007692307692307698,
+      0.0007692307692307698,
+      0.0007692307692307698,
+      0.0007692307692307698,
+      0.0007692307692307698,
+      0.0007692307692307698,
+      0.0007692307692307698
+    ],
+    [
+      8.552856654122483e-05,
+      0.9906773862470063,
+      0.000769757098871024,
+      0.000769757098871024,
+      0.000769757098871024,
+      0.000769757098871024,
+      0.000769757098871024,
+      0.000769757098871024,
+      0.000769757098871024,
+      0.000769757098871024,
+      0.000769757098871024,
+      0.000769757098871024,
+      0.000769757098871024,
+      0.000769757098871024
+    ],
+    [
+      0.0068807339449541306,
+      0.9839449541284404,
+      0.0007645259938837917,
+      0.0007645259938837917,
+      0.0007645259938837917,
+      0.0007645259938837917,
+      0.0007645259938837917,
+      0.0007645259938837917,
+      0.0007645259938837917,
+      0.0007645259938837917,
+      0.0007645259938837917,
+      0.0007645259938837917,
+      0.0007645259938837917,
+      0.0007645259938837917
+    ],
+    [
+      0.0007692307692307691,
+      0.9900000000000001,
+      0.0007692307692307691,
+      0.0007692307692307691,
+      0.0007692307692307691,
+      0.0007692307692307691,
+      0.0007692307692307691,
+      0.0007692307692307691,
+      0.0007692307692307691,
+      0.0007692307692307691,
+      0.0007692307692307691,
+      0.0007692307692307691,
+      0.0007692307692307691,
+      0.0007692307692307691
+    ],
+    [
+      0.000764525993883792,
+      0.9839449541284405,
+      0.006880733944954132,
+      0.000764525993883792,
+      0.000764525993883792,
+      0.000764525993883792,
+      0.000764525993883792,
+      0.000764525993883792,
+      0.000764525993883792,
+      0.000764525993883792,
+      0.000764525993883792,
+      0.000764525993883792,
+      0.000764525993883792,
+      0.000764525993883792
+    ]
+  ],
+  "topk_posterior_traces": {
+    "prog_1781550065878926_3c20": [
+      0.20870842078247345
+    ],
+    "evo_a3250236": [
+      0.07953272676700465,
+      0.08007535266628585
+    ],
+    "evo_f5c45850": [
+      0.9847480106100795,
+      0.939873417721519,
+      0.9847480106100795,
+      0.9912587412587409,
+      0.9900000000000003,
+      0.9906289707750955,
+      0.9906773862470063,
+      0.9900000000000002,
+      0.9906773862470063,
+      0.9839449541284405,
+      0.9900000000000002,
+      0.9839449541284405
+    ]
+  },
+  "candidates": [
+    {
+      "program_id": "prog_1781550080772030_0609",
+      "accuracy": 0.8082191780821918,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "type_rescue",
+      "predicate_type": "structural",
+      "holdout_accuracy": 0.7741935483870968,
+      "train_accuracy": 0.7674418604651163,
+      "generalization_gap": -0.006751687921980443
+    },
+    {
+      "program_id": "evo_f5c45850",
+      "accuracy": 0.82,
+      "complexity": 2,
+      "posterior": 0.9900000000000002,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "prog_1781550216781170_abf2",
+      "accuracy": 0.6148648648648649,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "type_rescue",
+      "predicate_type": "semantic",
+      "holdout_accuracy": 0.4838709677419355,
+      "train_accuracy": 0.6511627906976745,
+      "generalization_gap": 0.16729182295573897
+    },
+    {
+      "program_id": "evo_d835c595",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "evo_a91c948c",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "evo_e2854559",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "evo_566f6bde",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "evo_82f8e326",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "evo_927d2b87",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "evo_59239140",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "evo_57bc36b9",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "evo_75c21fd7",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "evo_ef932d59",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    },
+    {
+      "program_id": "evo_0d93e9f8",
+      "accuracy": 0.88125,
+      "complexity": 2,
+      "posterior": 0.0007692307692307701,
+      "source": "synthesis",
+      "predicate_type": "keyword",
+      "holdout_accuracy": 0.9032258064516129,
+      "train_accuracy": 0.875968992248062,
+      "generalization_gap": -0.02725681420355086
+    }
+  ],
+  "program_asts": {
+    "prog_1781550080772030_0609": {
+      "id": "prog_1781550080772030_0609",
+      "version_id": "1.0",
+      "created_at": 1781550080.772032,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "length_gt",
+            "parameters": {
+              "threshold": 100
+            },
+            "type": "LengthGtPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether prompt length exceeds a threshold.",
+              "category": "predicate",
+              "related_primitives": [
+                "length_lt"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_f5c45850": {
+      "id": "evo_f5c45850",
+      "version_id": "1.0",
+      "created_at": 1781550216.568979,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "prog_1781550216781170_abf2": {
+      "id": "prog_1781550216781170_abf2",
+      "version_id": "1.0",
+      "created_at": 1781550216.781172,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "sentiment",
+            "parameters": {
+              "threshold": 0.55
+            },
+            "type": "SentimentPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Compare sentiment score against a threshold (>= threshold = True).",
+              "category": "predicate",
+              "related_primitives": [
+                "sentiment_score"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_d835c595": {
+      "id": "evo_d835c595",
+      "version_id": "1.0",
+      "created_at": 1781550730.5173178,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_a91c948c": {
+      "id": "evo_a91c948c",
+      "version_id": "1.0",
+      "created_at": 1781550615.87472,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_e2854559": {
+      "id": "evo_e2854559",
+      "version_id": "1.0",
+      "created_at": 1781550730.400079,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_566f6bde": {
+      "id": "evo_566f6bde",
+      "version_id": "1.0",
+      "created_at": 1781550730.517486,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_82f8e326": {
+      "id": "evo_82f8e326",
+      "version_id": "1.0",
+      "created_at": 1781550730.517507,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_927d2b87": {
+      "id": "evo_927d2b87",
+      "version_id": "1.0",
+      "created_at": 1781550730.517528,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_59239140": {
+      "id": "evo_59239140",
+      "version_id": "1.0",
+      "created_at": 1781550615.950488,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_57bc36b9": {
+      "id": "evo_57bc36b9",
+      "version_id": "1.0",
+      "created_at": 1781550730.5176141,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_75c21fd7": {
+      "id": "evo_75c21fd7",
+      "version_id": "1.0",
+      "created_at": 1781550730.400149,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_ef932d59": {
+      "id": "evo_ef932d59",
+      "version_id": "1.0",
+      "created_at": 1781550730.51771,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    },
+    "evo_0d93e9f8": {
+      "id": "evo_0d93e9f8",
+      "version_id": "1.0",
+      "created_at": 1781550730.5177312,
+      "deprecated_at": null,
+      "metadata": {},
+      "root": {
+        "type": "IfThenElseNode",
+        "condition": {
+          "type": "PredicateNode",
+          "primitive": {
+            "name": "contains_word",
+            "parameters": {
+              "word": "code",
+              "case_sensitive": false
+            },
+            "type": "ContainsWordPredicate",
+            "input_type": "String",
+            "output_type": "Boolean",
+            "version_id": "1.0",
+            "created_at": 0.0,
+            "deprecated_at": null,
+            "metadata": {
+              "description": "Check whether a prompt includes a specific word.",
+              "category": "predicate",
+              "related_primitives": [
+                "contains_any_word",
+                "matches_regex"
+              ]
+            }
+          }
+        },
+        "then_outcome": 1,
+        "else_outcome": 0
+      }
+    }
+  }
+}

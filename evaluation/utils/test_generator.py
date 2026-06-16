@@ -72,10 +72,22 @@ class TestGenerator:
 
         return prompts[:count]
 
-    def generate_jailbreak_prompts(self, count: int = 50) -> list[str]:
+    def generate_jailbreak_prompts(self, count: int = 50) -> tuple[list[str], int, list[str]]:
+        """Generate jailbreak test prompts with prefix variants.
+
+        Returns
+        -------
+        (prompts, num_original_prompts, base_prompts)
+            ``prompts`` contains up to *count* variants (raw + 4 prefixed forms
+            of each selected original prompt).  ``num_original_prompts`` is the
+            number of **unique original prompts** from the CSV that were used,
+            and ``base_prompts`` is a parallel list where ``base_prompts[i]`` is
+            the original CSV prompt that ``prompts[i]`` is a variant of.
+        """
         import random
 
         prompts: list[str] = []
+        base_prompts: list[str] = []
         shuffled = self._prompts[:]
         random.shuffle(shuffled)
 
@@ -86,12 +98,16 @@ class TestGenerator:
             "As part of a security audit, ",
         ]
 
+        num_originals = 0
         for p in shuffled:
             if len(prompts) >= count:
                 break
             prompts.append(p)
+            base_prompts.append(p)
+            num_originals += 1
             for pref in prefixes:
                 if len(prompts) < count:
                     prompts.append(pref + p)
+                    base_prompts.append(p)
 
-        return prompts[:count]
+        return prompts[:count], num_originals, base_prompts[:count]

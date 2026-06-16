@@ -50,6 +50,8 @@ _FAILURE_PATTERNS = [
 _SUSPENSION_THRESHOLD = 5
 
 
+
+
 class HarmonyXASREvaluator:
     """Unified ASR evaluator using ALL learned campaign knowledge.
 
@@ -100,8 +102,10 @@ class HarmonyXASREvaluator:
         if prompts is None:
             from evaluation.utils.test_generator import TestGenerator
             generator = TestGenerator(self._csv_path)
-            raw_prompts = generator.generate_jailbreak_prompts(num_prompts)
-            prompts = [p for p in raw_prompts]
+            prompts, num_originals, base_prompts = generator.generate_jailbreak_prompts(num_prompts)
+        else:
+            num_originals = 0
+            base_prompts = [""] * len(prompts)
 
         if not prompts:
             return {"asr": 0.0, "total": 0, "successes": 0, "failures": 0, "rq": "HarmonyXASR"}
@@ -119,43 +123,72 @@ class HarmonyXASREvaluator:
             {k: f"{v:.3f}" for k, v in self._pre_eval_asr.items()},
         )
 
-        # Prioritise by VS disagreement
+        # Prioritise by VS disagreement (reorder prompts + base_prompts in lockstep)
         ordered = self._prioritise_by_disagreement(prompts)
+        order_map = {p: b for p, b in zip(prompts, base_prompts)}
+        ordered_bases = [order_map[p] for p in ordered]
         results: List[Dict[str, Any]] = []
 
-        for idx, prompt in enumerate(ordered):
-            entry = self._attempt_prompt(
-                prompt=prompt,
-                index=idx,
-                total=len(ordered),
-                judge=j,
-                active_techniques=active_techniques,
-            )
-            program_blocked_count += entry.get("program_blocked", 0)
-            results.append(entry)
+        # Group variants by their original base prompt so ASR is measured
+        # per unique seed prompt, not per variant. Each group starts
+        # with a clean technique-suspension slate so earlier groups
+        # don't permanently starve later ones.
+        groups: Dict[str, List[Tuple[str, str]]] = {}
+        for p, b in zip(ordered, ordered_bases):
+            groups.setdefault(b, []).append((p, b))
 
-        successes = sum(1 for r in results if r["outcome"] == 0)
-        denied = sum(1 for r in results if r["outcome"] == 1)
-        n_attempted = successes + denied
+        unique_successes = 0
+        unique_total = num_originals if num_originals > 0 else len(groups)
+        flat_idx = 0
 
-        asr = successes / len(prompts) if prompts else 0.0
-        easr = successes / n_attempted if n_attempted > 0 else 0.0
+        for base, variants in groups.items():
+            # Reset class-level suspension before each new original prompt
+            self.__class__._FAILURE_AGGREGATOR.clear()
+
+            group_outcomes: List[int] = []
+            for variant, _ in variants:
+                entry = self._attempt_prompt(
+                    prompt=variant,
+                    index=flat_idx,
+                    total=len(ordered),
+                    judge=j,
+                    active_techniques=active_techniques,
+                )
+                program_blocked_count += entry.get("program_blocked", 0)
+                results.append(entry)
+                group_outcomes.append(entry["outcome"])
+                flat_idx += 1
+
+            if any(o == 0 for o in group_outcomes):
+                unique_successes += 1
+
+        variant_successes = sum(1 for r in results if r["outcome"] == 0)
+        variant_denied = sum(1 for r in results if r["outcome"] == 1)
+        n_attempted = variant_successes + variant_denied
+
+        # Primary ASR is per unique original prompt, not per variant
+        asr = unique_successes / unique_total if unique_total > 0 else 0.0
+        # EASR (effective per-variant) kept for backward compatibility
+        easr = variant_successes / n_attempted if n_attempted > 0 else 0.0
 
         logger.info(
-            "HarmonyXASR: asr=%.4f (%d/%d) easr=%.4f (%d/%d) "
-            "program_blocked=%d attempted=%d",
-            asr, successes, len(prompts),
-            easr, successes, n_attempted,
-            program_blocked_count, n_attempted,
+            "HarmonyXASR: asr=%.4f (%d/%d unique) "
+            "easr=%.4f (%d/%d variants) "
+            "program_blocked=%d",
+            asr, unique_successes, unique_total,
+            easr, variant_successes, n_attempted,
+            program_blocked_count,
         )
 
         return {
             "asr": asr,
             "easr": easr,
+            "unique_total": unique_total,
+            "unique_successes": unique_successes,
             "total": len(prompts),
             "attempted": n_attempted,
-            "successes": successes,
-            "failures": denied,
+            "successes": variant_successes,
+            "failures": variant_denied,
             "program_blocked": program_blocked_count,
             "details": results,
             "rq": "HarmonyXASR",
@@ -182,6 +215,8 @@ class HarmonyXASREvaluator:
             best-ranked technique without the discriminator
         """
         tried_techniques: List[str] = []
+        last_raw_response: Optional[str] = None
+        last_crafted: str = ""
         failure_context: Optional[Dict[str, Any]] = None
         program_blocked = 0
 
@@ -222,6 +257,8 @@ class HarmonyXASREvaluator:
             raw_response = self._query_raw(crafted)
             if raw_response is None:
                 continue
+            last_raw_response = raw_response
+            last_crafted = crafted
             outcome = judge.judge(raw_response) if judge else 0
 
             if technique_name:
@@ -234,7 +271,7 @@ class HarmonyXASREvaluator:
                 )
                 return {
                     "index": index,
-                    "goal": prompt[:120],
+                    "goal": prompt,
                     "crafted_prompt": crafted,
                     "victim_response": raw_response,
                     "outcome": 0,
@@ -277,6 +314,8 @@ class HarmonyXASREvaluator:
             if crafted:
                 raw_response = self._query_raw(crafted)
                 if raw_response is not None:
+                    last_raw_response = raw_response
+                    last_crafted = crafted
                     outcome = judge.judge(raw_response) if judge else 0
                     if outcome == 0:
                         logger.info(
@@ -285,7 +324,7 @@ class HarmonyXASREvaluator:
                         )
                         return {
                             "index": index,
-                            "goal": prompt[:120],
+                            "goal": prompt,
                             "crafted_prompt": crafted,
                             "victim_response": raw_response,
                             "outcome": 0,
@@ -303,9 +342,9 @@ class HarmonyXASREvaluator:
         )
         return {
             "index": index,
-            "goal": prompt[:120],
-            "crafted_prompt": "",
-            "victim_response": "",
+            "goal": prompt,
+            "crafted_prompt": last_crafted,
+            "victim_response": last_raw_response or "",
             "outcome": 1,
             "label": "REFUSE",
             "technique": tried_techniques[-1] if tried_techniques else "",

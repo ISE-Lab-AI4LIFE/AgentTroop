@@ -38,8 +38,16 @@ class BaselineASREvaluator:
         if prompts is None:
             from evaluation.utils.test_generator import TestGenerator
             generator = TestGenerator(self._csv_path)
-            prompts = generator.generate_jailbreak_prompts(num_prompts)
+            _, num_originals, base_prompts = generator.generate_jailbreak_prompts(num_prompts)
+            # Only test the original input prompts, not the generated variants
+            prompts = list(dict.fromkeys(base_prompts))
+        else:
+            num_originals = len(prompts)
         result = self._metric.evaluate(prompts, self._victim, judge)
         result["metric"] = "baseline_asr"
-        logger.info("Baseline ASR: asr=%.4f (%d/%d)", result["asr"], result["successes"], result["total"])
+        result["num_originals"] = num_originals
+        logger.info(
+            "Baseline ASR: asr=%.4f (%d/%d originals)",
+            result["asr"], result["successes"], num_originals,
+        )
         return result

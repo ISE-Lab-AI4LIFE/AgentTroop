@@ -266,8 +266,8 @@ def load_test_prompts(csv_path: str, num_prompts: int) -> List[str]:
     """Load test prompts from CSV."""
     from evaluation.utils.test_generator import TestGenerator
     generator = TestGenerator(csv_path)
-    raw = generator.generate_jailbreak_prompts(num_prompts)
-    return list(raw)
+    prompts, _, _ = generator.generate_jailbreak_prompts(num_prompts)
+    return list(prompts)
 
 
 def evaluate_victim(
