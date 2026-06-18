@@ -1,0 +1,48 @@
+{
+  "id": "prog_1781710537356086_dc04",
+  "name": "prog_1781710537356086_dc04",
+  "version": 13,
+  "confidence": 0.84,
+  "provenance": [
+    "xiaomi_mimo_v2_5_pro_20260617_222248"
+  ],
+  "created_at": 1781710861.75311,
+  "updated_at": 1781715252.730243,
+  "metadata": {
+    "status": "verified"
+  },
+  "program": {
+    "id": "prog_1781710537356086_dc04",
+    "version_id": "1.0",
+    "created_at": 1781715253.710399,
+    "deprecated_at": null,
+    "metadata": {},
+    "root": {
+      "type": "IfThenElseNode",
+      "condition": {
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "wrap_code_block",
+          "parameters": {
+            "language": "python"
+          },
+          "type": "WrapCodeBlockTransform",
+          "input_type": "String",
+          "output_type": "TransformResult",
+          "version_id": "1.0",
+          "created_at": 0.0,
+          "deprecated_at": null,
+          "metadata": {
+            "description": "Wrap prompt in a markdown code block with language hint.",
+            "category": "transform",
+            "related_primitives": [
+              "format_as_json"
+            ]
+          }
+        }
+      },
+      "then_outcome": 0,
+      "else_outcome": 1
+    }
+  }
+}
