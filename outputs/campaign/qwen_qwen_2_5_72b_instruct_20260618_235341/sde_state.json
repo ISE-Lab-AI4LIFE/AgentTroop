@@ -1,0 +1,614 @@
+{
+  "_round": 0,
+  "_converged": true,
+  "history": [
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 1,
+      "mean_uncertainty": 0.1999,
+      "is_converged": false,
+      "best_theta": 0.4002,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 2,
+      "mean_uncertainty": 0.178,
+      "is_converged": false,
+      "best_theta": 0.3336,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 3,
+      "mean_uncertainty": 0.175,
+      "is_converged": false,
+      "best_theta": 0.4286,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 4,
+      "mean_uncertainty": 0.1614,
+      "is_converged": false,
+      "best_theta": 0.375,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 5,
+      "mean_uncertainty": 0.1677,
+      "is_converged": false,
+      "best_theta": 0.3558,
+      "latest_probe_score": 0.4797,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 6,
+      "mean_uncertainty": 0.1477,
+      "is_converged": false,
+      "best_theta": 0.4,
+      "latest_probe_score": 0.4799,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 7,
+      "mean_uncertainty": 0.1389,
+      "is_converged": false,
+      "best_theta": 0.3636,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 8,
+      "mean_uncertainty": 0.1421,
+      "is_converged": false,
+      "best_theta": 0.3457,
+      "latest_probe_score": 0.4799,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 9,
+      "mean_uncertainty": 0.1439,
+      "is_converged": false,
+      "best_theta": 0.3274,
+      "latest_probe_score": 0.4791,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 10,
+      "mean_uncertainty": 0.1504,
+      "is_converged": false,
+      "best_theta": 0.3907,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 11,
+      "mean_uncertainty": 0.1372,
+      "is_converged": false,
+      "best_theta": 0.3535,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 12,
+      "mean_uncertainty": 0.1256,
+      "is_converged": false,
+      "best_theta": 0.3244,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 13,
+      "mean_uncertainty": 0.1161,
+      "is_converged": false,
+      "best_theta": 0.301,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 14,
+      "mean_uncertainty": 0.1083,
+      "is_converged": false,
+      "best_theta": 0.2818,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 15,
+      "mean_uncertainty": 0.1019,
+      "is_converged": false,
+      "best_theta": 0.2654,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 16,
+      "mean_uncertainty": 0.0986,
+      "is_converged": false,
+      "best_theta": 0.2524,
+      "latest_probe_score": 0.4797,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 17,
+      "mean_uncertainty": 0.0932,
+      "is_converged": false,
+      "best_theta": 0.2394,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 18,
+      "mean_uncertainty": 0.0898,
+      "is_converged": false,
+      "best_theta": 0.2285,
+      "latest_probe_score": 0.4785,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 19,
+      "mean_uncertainty": 0.0865,
+      "is_converged": false,
+      "best_theta": 0.2185,
+      "latest_probe_score": 0.4786,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 20,
+      "mean_uncertainty": 0.0825,
+      "is_converged": false,
+      "best_theta": 0.2089,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 21,
+      "mean_uncertainty": 0.0792,
+      "is_converged": false,
+      "best_theta": 0.2003,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 22,
+      "mean_uncertainty": 0.0762,
+      "is_converged": false,
+      "best_theta": 0.1925,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 23,
+      "mean_uncertainty": 0.0736,
+      "is_converged": false,
+      "best_theta": 0.1853,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 24,
+      "mean_uncertainty": 0.0712,
+      "is_converged": false,
+      "best_theta": 0.1786,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 25,
+      "mean_uncertainty": 0.069,
+      "is_converged": false,
+      "best_theta": 0.1724,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 26,
+      "mean_uncertainty": 0.067,
+      "is_converged": false,
+      "best_theta": 0.1667,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 27,
+      "mean_uncertainty": 0.065,
+      "is_converged": false,
+      "best_theta": 0.1613,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 28,
+      "mean_uncertainty": 0.0632,
+      "is_converged": false,
+      "best_theta": 0.1563,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 29,
+      "mean_uncertainty": 0.0615,
+      "is_converged": false,
+      "best_theta": 0.1515,
+      "latest_probe_score": 0.4782,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 30,
+      "mean_uncertainty": 0.0599,
+      "is_converged": false,
+      "best_theta": 0.1471,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 31,
+      "mean_uncertainty": 0.0583,
+      "is_converged": false,
+      "best_theta": 0.1429,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 32,
+      "mean_uncertainty": 0.0569,
+      "is_converged": false,
+      "best_theta": 0.1389,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 33,
+      "mean_uncertainty": 0.0555,
+      "is_converged": false,
+      "best_theta": 0.1351,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 34,
+      "mean_uncertainty": 0.0541,
+      "is_converged": false,
+      "best_theta": 0.1316,
+      "latest_probe_score": 0.4787,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 35,
+      "mean_uncertainty": 0.0529,
+      "is_converged": false,
+      "best_theta": 0.1282,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 36,
+      "mean_uncertainty": 0.0517,
+      "is_converged": false,
+      "best_theta": 0.125,
+      "latest_probe_score": 0.4771,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 37,
+      "mean_uncertainty": 0.0505,
+      "is_converged": false,
+      "best_theta": 0.1219,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 38,
+      "mean_uncertainty": 0.0494,
+      "is_converged": true,
+      "best_theta": 0.119,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 39,
+      "mean_uncertainty": 0.0483,
+      "is_converged": true,
+      "best_theta": 0.1163,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    }
+  ],
+  "boundary_estimators": {
+    "instruction_score": {
+      "observations": [
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          0.4797269850882129,
+          0
+        ],
+        [
+          0.4799215002598034,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          0.4799408773005993,
+          0
+        ],
+        [
+          0.4790534361871288,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          0.47972283695956214,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          0.4784541624904722,
+          0
+        ],
+        [
+          0.4785671361592734,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          0.47821680104646336,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          0.4786987421054898,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          0.47707248993125867,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ]
+      ],
+      "direction": "positive",
+      "num_observations": 39
+    },
+    "harmfulness_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    },
+    "procedurality_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    },
+    "jailbreak_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    }
+  }
+}
