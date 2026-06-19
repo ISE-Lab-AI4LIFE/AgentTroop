@@ -245,7 +245,8 @@ def run_experiment(config: dict, backend: str = "ollama",
                    prior_campaign_id: Optional[str] = None,
                    agentic_backend: str = "openai",
                    num_asr_str: str = "40",
-                   num_variants: int = 5) -> Dict[str, Any]:
+                   num_variants: int = 5,
+                   max_techniques: int = 0) -> Dict[str, Any]:
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     cfg = config["orchestrator"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -689,6 +690,7 @@ def run_experiment(config: dict, backend: str = "ollama",
             agentic_backend=agentic_backend,
             num_asr_str=num_asr_str,
             num_variants=num_variants,
+            max_techniques=max_techniques,
         )
     except Exception as e:
         logger.warning("Evaluation failed (non-fatal): %s", e)
@@ -790,6 +792,7 @@ def _run_evaluation(
     agentic_backend: str = "openai",
     num_asr_str: str = "40",
     num_variants: int = 5,
+    max_techniques: int = 0,
 ) -> None:
     from evaluation.judges import LLMJudge, RuleBasedJudge
     from evaluation.evaluators import (
@@ -916,6 +919,7 @@ def _run_evaluation(
             victim=victim, judge=judge, csv_path=csv_path,
             red_team_agent=red_team, num_variants=1,
             knowledge_dir=knowledge_dir,
+            max_techniques=max_techniques,
         )
         harmonyx_asr_result = harmonyx_asr_eval.evaluate(
             num_prompts=total_variants, num_variants=num_variants,
@@ -1050,6 +1054,10 @@ def main() -> None:
         "--num-variants", type=int, default=5,
         help="Number of variants per original prompt in ASR evaluation (default: 5)",
     )
+    parser.add_argument(
+        "--max-techniques", type=int, default=0,
+        help="Limit number of jailbreak techniques used (0=all, default: 0)",
+    )
     args = parser.parse_args()
 
     config_path = args.config or str(EXP_DIR / "configs" / f"{args.backend}_experiment_config.yaml")
@@ -1076,6 +1084,7 @@ def main() -> None:
     logger.info("Config: %s", config_path)
     logger.info("Backend: %s", args.backend)
     logger.info("Agentic backend: %s", agentic_backend)
+    logger.info("Max techniques: %d", args.max_techniques)
     logger.info("Log:    %s", os.path.abspath(log_file))
     logger.info("")
 
@@ -1084,7 +1093,8 @@ def main() -> None:
                             prior_campaign_id=args.prior_campaign,
                             agentic_backend=agentic_backend,
                             num_asr_str=args.num_asr,
-                            num_variants=args.num_variants,)
+                            num_variants=args.num_variants,
+                            max_techniques=args.max_techniques,)
 
     title = args.campaign_prefix or f"HARMONY-X — {model_name} experiment"
     print_report(result, title=title)

@@ -13,7 +13,7 @@
     "campaign_id": "xiaomi_mimo_v2_5_pro_20260617_222248",
     "total_episodes": 110,
     "interventions_to_threshold": 110,
-    "best_accuracy": 0.65,
+    "best_accuracy": 0.85,
     "threshold": 0.85,
     "reached": false,
     "val_set_size": 100,

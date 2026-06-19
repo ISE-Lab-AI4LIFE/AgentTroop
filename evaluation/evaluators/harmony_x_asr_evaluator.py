@@ -73,6 +73,7 @@ class HarmonyXASREvaluator:
         red_team_agent: Any = None,
         num_variants: int = 1,
         knowledge_dir: Optional[str] = None,
+        max_techniques: int = 0,
     ) -> None:
         self._victim = victim
         self._metric = AttackSuccessRateMetric(judge)
@@ -81,6 +82,7 @@ class HarmonyXASREvaluator:
         self._num_variants = num_variants
         self._used_techniques: List[str] = []
         self._knowledge_dir = knowledge_dir
+        self._max_techniques = max_techniques
 
         # Lazy-loaded knowledge
         self._knowledge: Dict[str, Any] = {}
@@ -424,13 +426,16 @@ class HarmonyXASREvaluator:
         """Measure each technique's raw ASR on a prompt subset for UCB bandit."""
         j = judge or self._metric._judge
         results: Dict[str, List[int]] = defaultdict(list)
-        total_per_tech = max(5, num_queries // max(1, len(TECHNIQUE_LIBRARY)))
+        tech_list = sorted(TECHNIQUE_LIBRARY.keys())
+        if self._max_techniques > 0:
+            tech_list = tech_list[:self._max_techniques]
+        total_per_tech = max(5, num_queries // max(1, len(tech_list)))
 
         test_prompts = prompts[:num_queries]
         if not test_prompts:
             return {}
 
-        for tech_name in TECHNIQUE_LIBRARY:
+        for tech_name in tech_list:
             count = 0
             for prompt in test_prompts:
                 if count >= total_per_tech:
@@ -682,7 +687,10 @@ class HarmonyXASREvaluator:
 
     def _get_active_techniques(self) -> List[str]:
         suspended = self._get_suspended_techniques()
-        active = [t for t in TECHNIQUE_LIBRARY if t not in suspended]
+        all_techs = sorted(TECHNIQUE_LIBRARY.keys())
+        active = [t for t in all_techs if t not in suspended]
+        if self._max_techniques > 0:
+            active = active[:self._max_techniques]
         if "hex_injection" not in active:
             active.append("hex_injection")
         return active
