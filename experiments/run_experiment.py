@@ -246,7 +246,9 @@ def run_experiment(config: dict, backend: str = "ollama",
                    agentic_backend: str = "openai",
                    num_asr_str: str = "40",
                    num_variants: int = 5,
-                   max_techniques: int = 0) -> Dict[str, Any]:
+                   max_techniques: int = 0,
+                   judge_backend: Optional[str] = None,
+                   judge_model: Optional[str] = None) -> Dict[str, Any]:
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     cfg = config["orchestrator"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -368,6 +370,16 @@ def run_experiment(config: dict, backend: str = "ollama",
     from synthesis import get_synthesizer
 
     llm = get_default_client(backend=agentic_backend)
+
+    # Separate judge LLM client (reuses llm if not overridden)
+    if judge_backend or judge_model:
+        jb = judge_backend or agentic_backend
+        judge_llm = get_default_client(backend=jb)
+        if judge_model:
+            judge_llm.model = judge_model
+        logger.info("Judge LLM: backend=%s model=%s", jb, judge_llm.model)
+    else:
+        judge_llm = llm
 
     cog_cfg = config["cognitive"]
     seed_gen_cfg = config.get("seed_generation", {})
@@ -691,6 +703,7 @@ def run_experiment(config: dict, backend: str = "ollama",
             num_asr_str=num_asr_str,
             num_variants=num_variants,
             max_techniques=max_techniques,
+            judge_llm=judge_llm,
         )
     except Exception as e:
         logger.warning("Evaluation failed (non-fatal): %s", e)
@@ -793,6 +806,7 @@ def _run_evaluation(
     num_asr_str: str = "40",
     num_variants: int = 5,
     max_techniques: int = 0,
+    judge_llm: Optional[Any] = None,
 ) -> None:
     from evaluation.judges import LLMJudge, RuleBasedJudge
     from evaluation.evaluators import (
@@ -804,7 +818,7 @@ def _run_evaluation(
     )
     from prompt_loader import load_prompts
 
-    judge = LLMJudge(llm_client=llm, llm_backend=agentic_backend, fallback_judge=RuleBasedJudge())
+    judge = LLMJudge(llm_client=judge_llm or llm, llm_backend=agentic_backend, fallback_judge=RuleBasedJudge())
     campaign_out = OUTPUTS_DIR / campaign_id
     eval_dir = campaign_out / "evaluation"
     eval_dir.mkdir(parents=True, exist_ok=True)
@@ -1058,6 +1072,14 @@ def main() -> None:
         "--max-techniques", type=int, default=0,
         help="Limit number of jailbreak techniques used (0=all, default: 0)",
     )
+    parser.add_argument(
+        "--judge-backend", choices=["openai", "openrouter"], default=None,
+        help="Backend for the judge LLM (default: same as --agentic-backend)",
+    )
+    parser.add_argument(
+        "--judge-model", type=str, default=None,
+        help="Model name for the judge LLM (default: backend default, e.g. gpt-4o-mini)",
+    )
     args = parser.parse_args()
 
     config_path = args.config or str(EXP_DIR / "configs" / f"{args.backend}_experiment_config.yaml")
@@ -1085,6 +1107,8 @@ def main() -> None:
     logger.info("Backend: %s", args.backend)
     logger.info("Agentic backend: %s", agentic_backend)
     logger.info("Max techniques: %d", args.max_techniques)
+    logger.info("Judge backend: %s", args.judge_backend or agentic_backend)
+    logger.info("Judge model:   %s", args.judge_model or "(default)")
     logger.info("Log:    %s", os.path.abspath(log_file))
     logger.info("")
 
@@ -1094,7 +1118,9 @@ def main() -> None:
                             agentic_backend=agentic_backend,
                             num_asr_str=args.num_asr,
                             num_variants=args.num_variants,
-                            max_techniques=args.max_techniques,)
+                            max_techniques=args.max_techniques,
+                            judge_backend=args.judge_backend,
+                            judge_model=args.judge_model,)
 
     title = args.campaign_prefix or f"HARMONY-X — {model_name} experiment"
     print_report(result, title=title)
