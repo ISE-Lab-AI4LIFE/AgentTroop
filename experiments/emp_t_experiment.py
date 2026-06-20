@@ -53,7 +53,7 @@ LOCAL_MODELS = [
 
 SERVER_MODELS = [
     "codellama:7b",
-    "codellama:13b",
+    "codellama:34b",
 ]
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
