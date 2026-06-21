@@ -1,0 +1,114 @@
+# Zero-shot baseline: single DAN template, no learning, no program
+# Evaluates: what ASR does a naive DAN attack achieve?
+use_async: false
+
+orchestrator:
+  max_iterations: 1
+  max_interventions: 0
+  accuracy_threshold: 0.0
+  error_tolerance: 1.0
+  synthesis_interval: 100
+  force_exploration_interval: 100
+  entropy_convergence_threshold: 1.0
+  keep_top_k: 1
+  new_candidate_weight: 0.0
+  early_stopping_fitness: 1.0
+  early_stopping_iterations: 100
+  min_interventions_per_iteration: 0
+  uncertainty_sampling_fallback: false
+  absolute_max_iterations: 1
+  convergence:
+    validation_accuracy_threshold: 1.0
+    min_improvement: 0.0
+    min_iterations_for_convergence: 100
+    entropy_threshold: 1.0
+  force_exploration:
+    enabled: false
+    consecutive_iterations_without_intervention: 100
+    num_forced_prompts: 0
+
+seed_generation:
+  adaptive_expansion: false
+  max_expansion_rounds: 0
+  expansion_factor: 1
+
+cognitive:
+  enabled: false
+  anomaly_threshold: 1.0
+  adaptive_threshold: false
+  multi_signal:
+    enabled: false
+    signals: []
+    embedding_percentile: 100
+    length_percentile: 100
+  anomaly_selection:
+    method: "percentile"
+    percentile: 100
+    min_interventions: 100
+    max_interventions: 100
+    history_window: 1
+    exploration_decay: false
+  llm_model: "gemma"
+
+strategist:
+  enabled: false
+  use_llm: false
+  max_chain_depth: 1
+  max_candidates_heuristic: 1
+  max_candidates_llm: 1
+  num_trials: 0
+
+researcher:
+  max_depth: 1
+  beam_width: 1
+  error_tolerance: 1.0
+  top_k_candidates: 1
+  use_cvc5: false
+  enforce_cvc5_first: false
+
+victim:
+  model_name: "meta-llama/llama-3.2-3b-instruct"
+  temperature: 0.0
+  max_tokens: 150
+
+red_team:
+  enabled: false
+  strategies: []
+  refinement_rounds: 0
+
+synthesis:
+  mode: "none"
+  evolutionary:
+    population_size: 1
+    generations: 1
+    mutation_rate: 0.0
+    crossover_rate: 0.0
+  neural:
+    embedding_model: "all-MiniLM-L6-v2"
+    bandit_algorithm: "none"
+  fitness_guided:
+    max_depth: 1
+    beam_width: 1
+  error_tolerance: 1.0
+
+surrogate:
+  enabled: false
+  model: "none"
+  feature_type: "none"
+  min_accuracy: 0.0
+
+causal_graph:
+  min_samples_per_group: 100
+  use_bayesian: false
+
+transforms:
+  disabled: ["*"]
+
+evaluation:
+  program_discriminator:
+    enabled: false
+  technique_selection:
+    mode: "random"
+  num_variants: 1
+  # Use only DAN template, no retry
+  fixed_technique: "dan_11_0"

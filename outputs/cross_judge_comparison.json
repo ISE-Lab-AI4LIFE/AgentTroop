@@ -1,0 +1,44 @@
+{
+  "campaign_a": {
+    "campaign": "outputs/campaign/meta_llama_llama_3_1_8b_instruct_20260615_195404",
+    "judge_model": "deepseek/deepseek-v3.2",
+    "asr": {
+      "original": 0.9333,
+      "re_judged": 0.8978,
+      "diff": -0.0355
+    },
+    "easr": {
+      "original": 0.9333,
+      "re_judged": 0.9046,
+      "diff": -0.0287
+    },
+    "mr": {
+      "original": 0.8929,
+      "re_judged": 0.9241,
+      "diff": 0.0312
+    },
+    "unique_total": 0,
+    "total_entries": 30
+  },
+  "campaign_b": {
+    "campaign": "outputs/campaign/meta_llama_llama_3_1_8b_instruct_20260620_224133",
+    "judge_model": "gpt-4o-mini",
+    "asr": {
+      "original": 0.8750,
+      "re_judged": 0.8421,
+      "diff": -0.0329
+    },
+    "easr": {
+      "original": 0.6750,
+      "re_judged": 0.7018,
+      "diff": 0.0268
+    },
+    "mr": {
+      "original": 0.8963,
+      "re_judged": 0.8687,
+      "diff": -0.0276
+    },
+    "unique_total": 40,
+    "total_entries": 200
+  }
+}

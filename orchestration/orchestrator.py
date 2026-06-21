@@ -172,6 +172,8 @@ class Orchestrator:
         # Safety net
         absolute_max_iterations: int = 200,
         exclude_prompts: Optional[set] = None,
+        # Ablation toggles
+        surrogate_enabled: bool = True,
     ) -> None:
         self.cognitive = cognitive_agent
         self.strategist = strategist_agent
@@ -266,7 +268,7 @@ class Orchestrator:
 
         # Surrogate Policy Model — trained on all episodes to provide signal
         # when victim outcome is uniform (≈100% REFUSE or ≈100% ACCEPT)
-        self.surrogate = SurrogatePolicyModel()
+        self.surrogate = SurrogatePolicyModel() if surrogate_enabled else None
         self._surrogate_training_stats: List[Dict[str, Any]] = []
         self._consecutive_synthesis_failures = 0
         self._diversity_preservation = True
@@ -2236,24 +2238,25 @@ class Orchestrator:
             )
 
             # ── Train Surrogate Policy Model on all episodes ──
-            episodes = self._fetch_episodes()
-            if len(episodes) >= 3:
-                stats = self.surrogate.train(episodes)
-                self._surrogate_training_stats.append({
-                    "iteration": self.iteration,
-                    "n_episodes": stats.n_episodes,
-                    "train_accuracy": stats.train_accuracy,
-                    "n_refuse": stats.n_refuse,
-                    "n_accept": stats.n_accept,
-                    "duration_ms": stats.duration_ms,
-                })
-                # Log surrogate-predicted outcome for this intervention
-                spred = self.surrogate.predict(prompt)
-                logger.info(
-                    "Surrogate: predicted=%d (conf=%.3f, unc=%.3f) vs actual=%d",
-                    spred.predicted_outcome, spred.confidence,
-                    spred.uncertainty, outcome,
-                )
+            if self.surrogate is not None:
+                episodes = self._fetch_episodes()
+                if len(episodes) >= 3:
+                    stats = self.surrogate.train(episodes)
+                    self._surrogate_training_stats.append({
+                        "iteration": self.iteration,
+                        "n_episodes": stats.n_episodes,
+                        "train_accuracy": stats.train_accuracy,
+                        "n_refuse": stats.n_refuse,
+                        "n_accept": stats.n_accept,
+                        "duration_ms": stats.duration_ms,
+                    })
+                    # Log surrogate-predicted outcome for this intervention
+                    spred = self.surrogate.predict(prompt)
+                    logger.info(
+                        "Surrogate: predicted=%d (conf=%.3f, unc=%.3f) vs actual=%d",
+                        spred.predicted_outcome, spred.confidence,
+                        spred.uncertainty, outcome,
+                    )
 
             # ── Generate counterfactual pairs for uniform-outcome cases ──
             if episodes and len(set(o for _, o in episodes)) == 1:
@@ -2438,7 +2441,7 @@ class Orchestrator:
 
         # If surrogate has been trained, use it to add EIG-prioritized
         # holdout evaluation — evaluate prompts with highest disagreement first
-        if hasattr(self, "surrogate") and self.surrogate._is_trained:
+        if self.surrogate is not None and self.surrogate._is_trained:
             vs = self.version_space
             if vs.num_candidates >= 2:
                 exec_preds = {

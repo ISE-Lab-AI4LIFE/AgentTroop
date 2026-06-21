@@ -33,6 +33,10 @@ logger = logging.getLogger(__name__)
 # ── Configuration ──────────────────────────────────────────────────────────
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+from dotenv import load_dotenv
+load_dotenv(PROJECT_ROOT / ".env")
+
 DEFAULT_INPUT_CSV = str(PROJECT_ROOT / "prompt.csv")
 DEFAULT_OUTPUT_CSV = str(PROJECT_ROOT / "outputs" / "emp_t_results.csv")
 
@@ -54,6 +58,10 @@ LOCAL_MODELS = [
 SERVER_MODELS = [
     "codellama:7b",
     "codellama:34b",
+]
+
+OPENAI_MODELS = [
+    "gpt-4o-mini",
 ]
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -201,6 +209,40 @@ def call_ollama(model: str, prompt: str) -> dict[str, Any]:
     return {"status": "error: max retries exceeded", "response": ""}
 
 
+# ── OpenAI caller ────────────────────────────────────────────────────────────
+
+
+def call_openai(model: str, prompt: str) -> dict[str, Any]:
+    from openai import OpenAI
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return {"status": "error: OPENAI_API_KEY not set", "response": ""}
+    client = OpenAI(api_key=api_key)
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1024,
+                temperature=0.0,
+                timeout=REQUEST_TIMEOUT,
+            )
+            content = resp.choices[0].message.content
+            return {"status": "success", "response": content or ""}
+        except Exception as e:
+            if attempt < MAX_RETRIES:
+                wait = RETRY_DELAY * attempt
+                logger.warning("OpenAI error (model=%s, attempt=%d/%d): %s — retrying in %ds", model, attempt, MAX_RETRIES, e, wait)
+                time.sleep(wait)
+            else:
+                logger.error("OpenAI failed (model=%s): %s", model, e)
+                return {"status": f"error: {e}", "response": ""}
+
+    return {"status": "error: max retries exceeded", "response": ""}
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 
@@ -215,6 +257,10 @@ def run_experiment(
         api_key = load_api_key()
         caller = lambda model, prompt: call_openrouter(api_key, model, prompt)
         logger.info("Mode: local — evaluating %d models via OpenRouter", len(models))
+    elif where == "openai":
+        models = OPENAI_MODELS
+        caller = call_openai
+        logger.info("Mode: openai — evaluating %d models via OpenAI", len(models))
     elif where == "server":
         models = SERVER_MODELS
         caller = call_ollama
@@ -222,7 +268,7 @@ def run_experiment(
         for model in models:
             ollama_pull(model)
     else:
-        raise ValueError(f"Unknown --where value: {where!r} (expected 'local' or 'server')")
+        raise ValueError(f"Unknown --where value: {where!r} (expected 'local', 'server', or 'openai')")
 
     prompts = load_prompts(input_csv)
     if max_prompts > 0:
@@ -277,8 +323,8 @@ def main() -> None:
         help="Path for results CSV (default: %(default)s)",
     )
     parser.add_argument(
-        "--where", choices=["local", "server"], default="local",
-        help="'local' = 6 models via OpenRouter, 'server' = codellama via Ollama (default: %(default)s)",
+        "--where", choices=["local", "server", "openai"], default="local",
+        help="'local' = 6 models via OpenRouter, 'server' = codellama via Ollama, 'openai' = gpt-4o-mini via OpenAI (default: %(default)s)",
     )
     parser.add_argument(
         "--max-prompts", type=int, default=0,

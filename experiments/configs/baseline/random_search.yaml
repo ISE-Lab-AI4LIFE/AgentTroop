@@ -1,0 +1,112 @@
+# Random search baseline: random technique selection, no bandit, no discriminator
+# Evaluates: does the full pipeline outperform naive brute-force iteration?
+use_async: true
+
+orchestrator:
+  max_iterations: 20
+  max_interventions: 100
+  accuracy_threshold: 0.80
+  error_tolerance: 0.05
+  synthesis_interval: 5
+  force_exploration_interval: 5
+  entropy_convergence_threshold: 0.1
+  keep_top_k: 5
+  new_candidate_weight: 0.15
+  early_stopping_fitness: 0.95
+  early_stopping_iterations: 10
+  min_interventions_per_iteration: 1
+  uncertainty_sampling_fallback: false
+  absolute_max_iterations: 40
+  convergence:
+    validation_accuracy_threshold: 0.80
+    min_improvement: 0.02
+    min_iterations_for_convergence: 5
+    entropy_threshold: 0.1
+  force_exploration:
+    enabled: false
+    consecutive_iterations_without_intervention: 10
+    num_forced_prompts: 1
+
+seed_generation:
+  adaptive_expansion: false
+  max_expansion_rounds: 1
+  expansion_factor: 1
+
+cognitive:
+  enabled: false
+  anomaly_threshold: 0.15
+  adaptive_threshold: false
+  multi_signal:
+    enabled: false
+    signals: ["outcome"]
+    embedding_percentile: 90
+    length_percentile: 95
+  anomaly_selection:
+    method: "percentile"
+    percentile: 85
+    min_interventions: 3
+    max_interventions: 10
+    history_window: 5
+    exploration_decay: false
+  llm_model: "gemma"
+
+strategist:
+  enabled: false
+  use_llm: false
+  max_chain_depth: 1
+  max_candidates_heuristic: 10
+  max_candidates_llm: 5
+  num_trials: 1
+
+researcher:
+  max_depth: 8
+  beam_width: 300
+  error_tolerance: 0.05
+  top_k_candidates: 15
+  use_cvc5: false
+  enforce_cvc5_first: false
+
+victim:
+  model_name: "meta-llama/llama-3.2-3b-instruct"
+  temperature: 0.0
+  max_tokens: 150
+
+red_team:
+  enabled: false
+  strategies: []
+  refinement_rounds: 0
+
+synthesis:
+  mode: "evolutionary"
+  evolutionary:
+    population_size: 30
+    generations: 10
+    mutation_rate: 0.25
+    crossover_rate: 0.75
+  neural:
+    embedding_model: "all-MiniLM-L6-v2"
+    bandit_algorithm: "ucb"
+  fitness_guided:
+    max_depth: 8
+    beam_width: 300
+  error_tolerance: 0.05
+
+surrogate:
+  enabled: false
+  model: "none"
+  feature_type: "none"
+  min_accuracy: 0.0
+
+causal_graph:
+  min_samples_per_group: 100
+  use_bayesian: false
+
+transforms:
+  disabled: []
+
+evaluation:
+  program_discriminator:
+    enabled: false
+  technique_selection:
+    mode: "random"
+  num_variants: 3

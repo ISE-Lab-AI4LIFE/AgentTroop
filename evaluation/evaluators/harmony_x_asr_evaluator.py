@@ -74,6 +74,8 @@ class HarmonyXASREvaluator:
         num_variants: int = 1,
         knowledge_dir: Optional[str] = None,
         max_techniques: int = 0,
+        program_discriminator_enabled: bool = True,
+        technique_selection_mode: str = "ucb",
     ) -> None:
         self._victim = victim
         self._metric = AttackSuccessRateMetric(judge)
@@ -83,6 +85,8 @@ class HarmonyXASREvaluator:
         self._used_techniques: List[str] = []
         self._knowledge_dir = knowledge_dir
         self._max_techniques = max_techniques
+        self._program_discriminator_enabled = program_discriminator_enabled
+        self._technique_selection_mode = technique_selection_mode
 
         # Lazy-loaded knowledge
         self._knowledge: Dict[str, Any] = {}
@@ -248,15 +252,16 @@ class HarmonyXASREvaluator:
             tried_techniques.append(technique_name)
             exclude.append(technique_name)
 
-            # ── Step 2: Program discriminator ──
-            pred = self._program_discriminator_predict(crafted)
-            if pred == 1:
-                program_blocked += 1
-                logger.info(
-                    "[%d/%d] BLOCKED by program | goal=%r | technique=%s",
-                    index + 1, total, prompt[:60], technique_name,
-                )
-                continue
+            # ── Step 2: Program discriminator (unless disabled) ──
+            if self._program_discriminator_enabled:
+                pred = self._program_discriminator_predict(crafted)
+                if pred == 1:
+                    program_blocked += 1
+                    logger.info(
+                        "[%d/%d] BLOCKED by program | goal=%r | technique=%s",
+                        index + 1, total, prompt[:60], technique_name,
+                    )
+                    continue
 
             # ── Step 3: Query victim ──
             raw_response = self._query_raw(crafted)
@@ -304,7 +309,8 @@ class HarmonyXASREvaluator:
 
         # All techniques exhausted or blocked — fallback if discriminator
         # blocked everything without ever querying the victim
-        if program_blocked == len(tried_techniques) and tried_techniques:
+        # (only applies when discriminator is enabled)
+        if self._program_discriminator_enabled and program_blocked == len(tried_techniques) and tried_techniques:
             logger.warning(
                 "[%d/%d] ⚠ DISCRIMINATOR BLOCKED ALL — fallback: trying "
                 "top technique without discriminator | goal=%r",
@@ -631,11 +637,18 @@ class HarmonyXASREvaluator:
     # ── Technique ranking ──────────────────────────────────────────────────────
 
     def _build_technique_rank(self, active_techniques: List[str]) -> List[str]:
-        """Rank techniques by UCB score: ASR + exploration bonus.
+        """Rank techniques by selection mode.
 
-        Uses pre-eval ASR as the primary signal and adds uncertainty bonus
-        for techniques with few pre-eval samples.
+        - ``"ucb"`` (default): ASR + exploration bonus
+        - ``"random"``: shuffled order (same suspension logic)
         """
+        if self._technique_selection_mode == "random":
+            import random as _random
+            shuffled = list(active_techniques)
+            _random.shuffle(shuffled)
+            return shuffled
+
+        # Default UCB
         if not self._pre_eval_asr:
             return active_techniques
         scored = []
