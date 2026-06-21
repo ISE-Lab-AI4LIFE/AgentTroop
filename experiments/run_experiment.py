@@ -248,11 +248,7 @@ def run_experiment(config: dict, backend: str = "ollama",
                    num_variants: int = 5,
                    max_techniques: int = 0,
                    judge_backend: Optional[str] = None,
-                   judge_model: Optional[str] = None,
-                   # Ablation toggles (overrides config)
-                   program_discriminator_enabled: Optional[bool] = None,
-                   technique_selection_mode: Optional[str] = None,
-                   ) -> Dict[str, Any]:
+                   judge_model: Optional[str] = None) -> Dict[str, Any]:
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     cfg = config["orchestrator"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -545,17 +541,12 @@ def run_experiment(config: dict, backend: str = "ollama",
 
     # ── Red Team Agent (LLM prompt refiner — pure refinement, no technique) ──
     rt_cfg = config.get("red_team", {})
-    red_team_enabled = rt_cfg.get("enabled", True)
-    if red_team_enabled:
-        red_team = RedTeamAgent(
-            llm_client=llm,
-            llm_backend=agentic_backend,
-            refinement_rounds=rt_cfg.get("refinement_rounds", 3),
-        )
-        logger.info("Red Team Agent created (refine=%d rounds)", red_team.refinement_rounds)
-    else:
-        red_team = None
-        logger.info("Red Team Agent DISABLED (ablation)")
+    red_team = RedTeamAgent(
+        llm_client=llm,
+        llm_backend=agentic_backend,
+        refinement_rounds=rt_cfg.get("refinement_rounds", 3),
+    )
+    logger.info("Red Team Agent created (refine=%d rounds)", red_team.refinement_rounds)
 
     # ── SDE engine (semantic discovery + rescoring) ──
     from sde.engine import SemanticDiscoveryEngine
@@ -643,7 +634,6 @@ def run_experiment(config: dict, backend: str = "ollama",
         uncertainty_sampling_fallback=cfg.get("uncertainty_sampling_fallback", True),
         absolute_max_iterations=cfg.get("absolute_max_iterations", 200),
         exclude_prompts=test_prompts,
-        surrogate_enabled=config.get("surrogate", {}).get("enabled", True),
     )
 
     # ── Run ──
@@ -694,19 +684,6 @@ def run_experiment(config: dict, backend: str = "ollama",
     # ── Save outputs ──
     _save_outputs(result, defense, scientific, episodic, campaign_id, experiment_id)
 
-    # ── Resolve evaluation ablation toggles ──
-    eval_cfg = config.get("evaluation", {})
-    eff_prog_disc = (
-        program_discriminator_enabled
-        if program_discriminator_enabled is not None
-        else eval_cfg.get("program_discriminator", {}).get("enabled", True)
-    )
-    eff_tech_sel = (
-        technique_selection_mode
-        if technique_selection_mode is not None
-        else eval_cfg.get("technique_selection", {}).get("mode", "ucb")
-    )
-
     # ── Evaluation (RQ0, RQ1, ASR, Harmony ASR) ──
     try:
         _run_evaluation(
@@ -727,8 +704,6 @@ def run_experiment(config: dict, backend: str = "ollama",
             num_variants=num_variants,
             max_techniques=max_techniques,
             judge_llm=judge_llm,
-            program_discriminator_enabled=eff_prog_disc,
-            technique_selection_mode=eff_tech_sel,
         )
     except Exception as e:
         logger.warning("Evaluation failed (non-fatal): %s", e)
@@ -832,9 +807,6 @@ def _run_evaluation(
     num_variants: int = 5,
     max_techniques: int = 0,
     judge_llm: Optional[Any] = None,
-    # Ablation toggles
-    program_discriminator_enabled: Optional[bool] = None,
-    technique_selection_mode: Optional[str] = None,
 ) -> None:
     from evaluation.judges import LLMJudge, RuleBasedJudge
     from evaluation.evaluators import (
@@ -962,8 +934,6 @@ def _run_evaluation(
             red_team_agent=red_team, num_variants=1,
             knowledge_dir=knowledge_dir,
             max_techniques=max_techniques,
-            program_discriminator_enabled=program_discriminator_enabled,
-            technique_selection_mode=technique_selection_mode,
         )
         harmonyx_asr_result = harmonyx_asr_eval.evaluate(
             num_prompts=total_variants, num_variants=num_variants,
