@@ -1,0 +1,46 @@
+{
+  "id": "prog_1782065473484845_35de",
+  "name": "prog_1782065473484845_35de",
+  "version": 4,
+  "confidence": 0.84,
+  "provenance": [
+    "meta_llama_llama_3_1_8b_instruct_20260622_003449"
+  ],
+  "created_at": 1782066010.3670368,
+  "updated_at": 1782066518.7377112,
+  "metadata": {
+    "status": "verified"
+  },
+  "program": {
+    "id": "prog_1782065473484845_35de",
+    "version_id": "1.0",
+    "created_at": 1782066520.370259,
+    "deprecated_at": null,
+    "metadata": {},
+    "root": {
+      "type": "IfThenElseNode",
+      "condition": {
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "has_number",
+          "parameters": {},
+          "type": "HasNumberPredicate",
+          "input_type": "String",
+          "output_type": "Boolean",
+          "version_id": "1.0",
+          "created_at": 0.0,
+          "deprecated_at": null,
+          "metadata": {
+            "description": "Check whether prompt contains any digit (0-9).",
+            "category": "predicate",
+            "related_primitives": [
+              "has_special_char"
+            ]
+          }
+        }
+      },
+      "then_outcome": 1,
+      "else_outcome": 0
+    }
+  }
+}

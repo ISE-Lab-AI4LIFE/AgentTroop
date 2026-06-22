@@ -1,0 +1,48 @@
+{
+  "id": "evo_1d30933c",
+  "name": "evo_1d30933c",
+  "version": 1,
+  "confidence": 0.86,
+  "provenance": [
+    "meta_llama_llama_3_1_8b_instruct_20260622_182958"
+  ],
+  "created_at": 1782133385.522291,
+  "updated_at": 1782133385.522291,
+  "metadata": {
+    "status": "verified"
+  },
+  "program": {
+    "id": "evo_1d30933c",
+    "version_id": "1.0",
+    "created_at": 1782133386.403832,
+    "deprecated_at": null,
+    "metadata": {},
+    "root": {
+      "type": "IfThenElseNode",
+      "condition": {
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "length_gt",
+          "parameters": {
+            "threshold": 200
+          },
+          "type": "LengthGtPredicate",
+          "input_type": "String",
+          "output_type": "Boolean",
+          "version_id": "1.0",
+          "created_at": 0.0,
+          "deprecated_at": null,
+          "metadata": {
+            "description": "Check whether prompt length exceeds a threshold.",
+            "category": "predicate",
+            "related_primitives": [
+              "length_lt"
+            ]
+          }
+        }
+      },
+      "then_outcome": 1,
+      "else_outcome": 0
+    }
+  }
+}
