@@ -1,0 +1,19 @@
+{
+  "judge_model": "gpt-4o-mini",
+  "per_model": [
+    {
+      "model": "gpt-4o-mini",
+      "total_prompts": 473,
+      "asr": 0.3235,
+      "successes": 153,
+      "refusals": 320,
+      "mr": 0.9608,
+      "serious": 147,
+      "judge_model": "gpt-4o-mini"
+    }
+  ],
+  "summary": {
+    "models_evaluated": 1,
+    "total_prompts": 473
+  }
+}

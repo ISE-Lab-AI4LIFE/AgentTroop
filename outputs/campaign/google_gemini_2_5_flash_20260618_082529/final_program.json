@@ -1,0 +1,50 @@
+{
+  "id": "evo_4a2fadc6",
+  "name": "evo_4a2fadc6",
+  "version": 4,
+  "confidence": 0.82,
+  "provenance": [
+    "google_gemini_2_5_flash_20260618_082529"
+  ],
+  "created_at": 1781748517.1146839,
+  "updated_at": 1781748978.071101,
+  "metadata": {
+    "status": "verified"
+  },
+  "program": {
+    "id": "evo_4a2fadc6",
+    "version_id": "1.0",
+    "created_at": 1781748978.966491,
+    "deprecated_at": null,
+    "metadata": {},
+    "root": {
+      "type": "IfThenElseNode",
+      "condition": {
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "contains_word",
+          "parameters": {
+            "word": "python",
+            "case_sensitive": false
+          },
+          "type": "ContainsWordPredicate",
+          "input_type": "String",
+          "output_type": "Boolean",
+          "version_id": "1.0",
+          "created_at": 0.0,
+          "deprecated_at": null,
+          "metadata": {
+            "description": "Check whether a prompt includes a specific word.",
+            "category": "predicate",
+            "related_primitives": [
+              "contains_any_word",
+              "matches_regex"
+            ]
+          }
+        }
+      },
+      "then_outcome": 1,
+      "else_outcome": 0
+    }
+  }
+}
