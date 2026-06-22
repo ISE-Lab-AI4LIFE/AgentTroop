@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Type
@@ -91,9 +92,12 @@ class DefenseProgramStore:
     def _get_driver(self) -> Any:
         if self._driver is None:
             try:
-                self._driver = GraphDatabase.driver(
-                    self.uri, auth=basic_auth(self.user, self.password)
-                )
+                if os.environ.get("HX_NEO4J_AUTH_DISABLED", "0") == "1":
+                    self._driver = GraphDatabase.driver(self.uri)
+                else:
+                    self._driver = GraphDatabase.driver(
+                        self.uri, auth=basic_auth(self.user, self.password)
+                    )
             except ServiceUnavailable as exc:
                 raise ConnectionError(
                     f"Cannot connect to Neo4j at {self.uri}: {exc}"

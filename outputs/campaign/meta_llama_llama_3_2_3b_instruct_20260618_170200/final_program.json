@@ -1,0 +1,47 @@
+{
+  "id": "prog_1781795549359582_0020",
+  "name": "prog_1781795549359582_0020",
+  "version": 6,
+  "confidence": 0.86,
+  "provenance": [
+    "meta_llama_llama_3_2_3b_instruct_20260618_170200"
+  ],
+  "created_at": 1781795627.3501768,
+  "updated_at": 1781796011.2773998,
+  "metadata": {
+    "status": "verified"
+  },
+  "program": {
+    "id": "prog_1781795549359582_0020",
+    "version_id": "1.0",
+    "created_at": 1781796011.9017322,
+    "deprecated_at": null,
+    "metadata": {},
+    "root": {
+      "type": "IfThenElseNode",
+      "condition": {
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "to_imperative",
+          "parameters": {},
+          "type": "ToImperativeTransform",
+          "input_type": "String",
+          "output_type": "TransformResult",
+          "version_id": "1.0",
+          "created_at": 0.0,
+          "deprecated_at": null,
+          "metadata": {
+            "description": "Convert prompt from declarative/interrogative to imperative form.",
+            "category": "transform",
+            "related_primitives": [
+              "to_interrogative",
+              "add_prefix"
+            ]
+          }
+        }
+      },
+      "then_outcome": 0,
+      "else_outcome": 1
+    }
+  }
+}
