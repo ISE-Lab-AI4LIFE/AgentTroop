@@ -521,6 +521,7 @@ class CognitiveAgent:
         hypothesis_store: Optional[HypothesisStore] = None,
         anomaly_selection_config: Optional[Dict[str, Any]] = None,
         multi_signal_config: Optional[Dict[str, Any]] = None,
+        ablation_mode: bool = False,
     ) -> None:
         if episodic_memory is None:
             raise TypeError("episodic_memory is required")
@@ -539,6 +540,7 @@ class CognitiveAgent:
         self.llm_timeout = llm_timeout
         self.llm_retries = max(0, llm_retries)
         self.hypothesis_store = hypothesis_store or HypothesisStore()
+        self._ablation_mode = ablation_mode
 
         # Primitive catalog cache
         self._cached_primitives: Any = None
@@ -991,6 +993,10 @@ class CognitiveAgent:
         list of Anomaly
             Detected anomalies (empty list if none found or no episodes).
         """
+        if self._ablation_mode:
+            logger.info("Ablation mode: skipping anomaly detection")
+            return []
+
         episode_filter = EpisodeFilter(
             campaign_id=campaign_id,
             experiment_id=experiment_id,
@@ -1221,6 +1227,10 @@ class CognitiveAgent:
         list of Hypothesis
             Generated hypotheses with estimated confidence.
         """
+        if self._ablation_mode:
+            logger.info("Ablation mode: skipping LLM, generating fallback hypotheses only")
+            return self._fallback_hypotheses(anomalies or [])
+
         if not anomalies:
             logger.info("No anomalies to generate hypotheses from")
             return []

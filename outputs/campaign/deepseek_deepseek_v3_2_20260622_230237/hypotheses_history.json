@@ -1,0 +1,8 @@
+{
+  "total_iterations": 42,
+  "total_interventions": 42,
+  "best_accuracy": 0.88,
+  "best_program_id": "evo_7a68f06d",
+  "success": true,
+  "error": null
+}

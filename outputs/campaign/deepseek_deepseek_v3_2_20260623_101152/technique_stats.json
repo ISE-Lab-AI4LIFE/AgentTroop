@@ -1,0 +1,22 @@
+{
+  "hex_injection": {
+    "total": 23,
+    "successes": 18,
+    "by_category": {
+      "code_generation": {
+        "total": 23,
+        "successes": 18
+      }
+    }
+  },
+  "dan": {
+    "total": 19,
+    "successes": 14,
+    "by_category": {
+      "code_generation": {
+        "total": 19,
+        "successes": 14
+      }
+    }
+  }
+}
