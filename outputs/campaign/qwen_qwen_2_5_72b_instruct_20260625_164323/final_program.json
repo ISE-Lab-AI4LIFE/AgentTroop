@@ -1,0 +1,44 @@
+{
+  "id": "prog_1782395089602102_c590",
+  "name": "prog_1782395089602102_c590",
+  "version": 2,
+  "confidence": 0.82,
+  "provenance": [
+    "qwen_qwen_2_5_72b_instruct_20260625_164323"
+  ],
+  "created_at": 1782400155.8386781,
+  "updated_at": 1782400937.75089,
+  "metadata": {
+    "status": "verified"
+  },
+  "program": {
+    "id": "prog_1782395089602102_c590",
+    "version_id": "1.0",
+    "created_at": 1782401253.8056052,
+    "deprecated_at": null,
+    "metadata": {},
+    "root": {
+      "type": "IfThenElseNode",
+      "condition": {
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "has_emoji",
+          "parameters": {},
+          "type": "HasEmojiPredicate",
+          "input_type": "String",
+          "output_type": "Boolean",
+          "version_id": "1.0",
+          "created_at": 0.0,
+          "deprecated_at": null,
+          "metadata": {
+            "description": "Check whether prompt contains emoji characters.",
+            "category": "predicate",
+            "related_primitives": []
+          }
+        }
+      },
+      "then_outcome": 1,
+      "else_outcome": 0
+    }
+  }
+}

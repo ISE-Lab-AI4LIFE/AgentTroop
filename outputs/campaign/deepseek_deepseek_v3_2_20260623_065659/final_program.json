@@ -1,0 +1,49 @@
+{
+  "id": "prog_1782174073729551_cc14",
+  "name": "prog_1782174073729551_cc14",
+  "version": 1,
+  "confidence": 1.0,
+  "provenance": [
+    "deepseek_deepseek_v3_2_20260623_065659"
+  ],
+  "created_at": 1782174902.453542,
+  "updated_at": 1782174902.453542,
+  "metadata": {
+    "status": "verified"
+  },
+  "program": {
+    "id": "prog_1782174073729551_cc14",
+    "version_id": "1.0",
+    "created_at": 1782175621.254486,
+    "deprecated_at": null,
+    "metadata": {},
+    "root": {
+      "type": "IfThenElseNode",
+      "condition": {
+        "type": "PredicateNode",
+        "primitive": {
+          "name": "add_ignore_filter_token",
+          "parameters": {
+            "token": "[IGNORE_FILTER]"
+          },
+          "type": "AddIgnoreFilterTokenTransform",
+          "input_type": "String",
+          "output_type": "TransformResult",
+          "version_id": "1.0",
+          "created_at": 0.0,
+          "deprecated_at": null,
+          "metadata": {
+            "description": "Prepend a sentinel token (e.g. [IGNORE_FILTER]) to test whether a keyword filter component exists.",
+            "category": "transform",
+            "related_primitives": [
+              "add_prefix",
+              "add_suffix"
+            ]
+          }
+        }
+      },
+      "then_outcome": 0,
+      "else_outcome": 1
+    }
+  }
+}

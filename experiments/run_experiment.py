@@ -248,7 +248,9 @@ def run_experiment(config: dict, backend: str = "ollama",
                    num_variants: int = 5,
                    max_techniques: int = 0,
                    judge_backend: Optional[str] = None,
-                   judge_model: Optional[str] = None) -> Dict[str, Any]:
+                   judge_model: Optional[str] = None,
+                   ablation_strategist: bool = False,
+                   ablation_cognitive: bool = False) -> Dict[str, Any]:
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     cfg = config["orchestrator"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -394,6 +396,7 @@ def run_experiment(config: dict, backend: str = "ollama",
         anomaly_threshold=cog_cfg["anomaly_threshold"],
         anomaly_selection_config=cog_cfg.get("anomaly_selection"),
         multi_signal_config=multi_signal_cfg,
+        ablation_mode=ablation_cognitive,
     )
 
     # ── Adaptive expansion (forced variation when no anomalies) ──
@@ -537,6 +540,7 @@ def run_experiment(config: dict, backend: str = "ollama",
         allowed_transform_names=tx_cfg.get("enabled"),
         blocked_transform_names=tx_cfg.get("disabled"),
         exclude_prompts=test_prompts,
+        ablation_mode=ablation_strategist,
     )
 
     # ── Red Team Agent (LLM prompt refiner — pure refinement, no technique) ──
@@ -1080,6 +1084,14 @@ def main() -> None:
         "--judge-model", type=str, default=None,
         help="Model name for the judge LLM (default: backend default, e.g. gpt-4o-mini)",
     )
+    parser.add_argument(
+        "--ablation-strategist", action="store_true",
+        help="Disable Strategist Agent reasoning (random baseline)",
+    )
+    parser.add_argument(
+        "--ablation-cognitive", action="store_true",
+        help="Disable Cognitive Agent (fallback hypotheses only, no LLM)",
+    )
     args = parser.parse_args()
 
     config_path = args.config or str(EXP_DIR / "configs" / f"{args.backend}_experiment_config.yaml")
@@ -1109,6 +1121,8 @@ def main() -> None:
     logger.info("Max techniques: %d", args.max_techniques)
     logger.info("Judge backend: %s", args.judge_backend or agentic_backend)
     logger.info("Judge model:   %s", args.judge_model or "(default)")
+    logger.info("Strategist ablation: %s", args.ablation_strategist)
+    logger.info("Cognitive ablation:  %s", args.ablation_cognitive)
     logger.info("Log:    %s", os.path.abspath(log_file))
     logger.info("")
 
@@ -1120,7 +1134,9 @@ def main() -> None:
                             num_variants=args.num_variants,
                             max_techniques=args.max_techniques,
                             judge_backend=args.judge_backend,
-                            judge_model=args.judge_model,)
+                            judge_model=args.judge_model,
+                            ablation_strategist=args.ablation_strategist,
+                            ablation_cognitive=args.ablation_cognitive,)
 
     title = args.campaign_prefix or f"HARMONY-X — {model_name} experiment"
     print_report(result, title=title)

@@ -136,7 +136,14 @@ class StrategistAgent:
     intervention selection (Section 2.4 of harmony_v5v.md).  The belief
     state from BayesianBeliefUpdater drives all hypothesis pair decisions.
 
-    Use ``disable_efe=True`` for ablation studies only.
+    Parameters
+    ----------
+    ablation_mode : bool
+        When True, all reasoning is replaced with random baselines:
+        random hypothesis pairs, identity interventions, random techniques.
+        Version Space, EFE, LLM, and semantic assistance are all bypassed.
+        Schema and interface are unchanged so the pipeline runs identically.
+        Default is False (full reasoning).
     """
 
     def __init__(
@@ -165,7 +172,10 @@ class StrategistAgent:
         sde_engine: Optional[Any] = None,
         semantic_enabled: Optional[bool] = None,
         exclude_prompts: Optional[set] = None,
+        ablation_mode: bool = False,
     ) -> None:
+        self._ablation_mode = ablation_mode
+
         # --- validate & clamp ---
         if intervention_budget < _MIN_BUDGET or intervention_budget > _MAX_BUDGET:
             logger.warning(
@@ -192,7 +202,7 @@ class StrategistAgent:
         self.ontology_memory = ontology_memory
         self.allowed_transform_names = allowed_transform_names
         self.blocked_transform_names = set(blocked_transform_names or [])
-        self.disable_efe = disable_efe
+        self.disable_efe = disable_efe or ablation_mode
         self._exclude_prompts: set = set(exclude_prompts) if exclude_prompts else set()
 
         # --- Version Space (single source of truth for belief) ---
@@ -225,15 +235,18 @@ class StrategistAgent:
         self._prompt_visit_count: Dict[str, int] = {}
         self._used_prompt_transform: Dict[str, set] = {}
 
-        if efe_calculator is None and not disable_efe:
-            from inference.efe import ExpectedFreeEnergy
-            self.efe_calculator = ExpectedFreeEnergy(
-                version_space=self._version_space,
-                pragmatic_weight=0.1,
-            )
-            logger.info("StrategistAgent: auto-created EFE calculator")
+        if not ablation_mode:
+            if efe_calculator is None and not disable_efe:
+                from inference.efe import ExpectedFreeEnergy
+                self.efe_calculator = ExpectedFreeEnergy(
+                    version_space=self._version_space,
+                    pragmatic_weight=0.1,
+                )
+                logger.info("StrategistAgent: auto-created EFE calculator")
+            else:
+                self.efe_calculator = efe_calculator
         else:
-            self.efe_calculator = efe_calculator
+            self.efe_calculator = None
 
         # --- SDE integration (optional, additive) ---
         self.sde_engine = sde_engine
@@ -242,7 +255,9 @@ class StrategistAgent:
         # Safety gate: when semantic_enabled is False, ALL semantic code paths
         # are skipped even if sde_engine is connected.  Defaults to True when
         # an engine is present, else False (pre-SDE compatible behavior).
-        if semantic_enabled is None:
+        if ablation_mode:
+            self._semantic_enabled = False
+        elif semantic_enabled is None:
             self._semantic_enabled = sde_engine is not None
         else:
             self._semantic_enabled = bool(semantic_enabled)
@@ -253,11 +268,12 @@ class StrategistAgent:
         self._semantic_selection_change: int = 0
 
         logger.info(
-            "StrategistAgent: version_space=%s efe=%s sde=%s semantic=%s",
+            "StrategistAgent: version_space=%s efe=%s sde=%s semantic=%s ablation=%s",
             self._version_space is not None,
             self.efe_calculator is not None,
             sde_engine is not None,
             self._semantic_enabled,
+            self._ablation_mode,
         )
 
         self._cached_primitives: Any = None
@@ -331,6 +347,18 @@ class StrategistAgent:
         if not hypotheses:
             logger.warning("select_hypothesis_pair: no hypotheses provided")
             return None, None
+
+        # ── Ablation mode: random pair ──
+        if self._ablation_mode:
+            if len(hypotheses) < 2:
+                h = hypotheses[0]
+                null = _NullHypothesis()
+                logger.info("ABLATION: paired single hypothesis with null (h=%s)", getattr(h, "id", "?"))
+                return h, null
+            h1, h2 = random.sample(hypotheses, 2)
+            logger.info("ABLATION: Selected random pair (h1=%s, h2=%s)",
+                        getattr(h1, "id", "?"), getattr(h2, "id", "?"))
+            return h1, h2
 
         if len(hypotheses) < 2:
             logger.info("select_hypothesis_pair: only 1 hypothesis available, "
@@ -685,6 +713,24 @@ class StrategistAgent:
         else:
             prompts = self._resolve_base_prompts(base_prompts, campaign_id, experiment_id)
         transforms = self._get_transforms()
+
+        # ── Ablation mode: random prompt + identity intervention ──
+        if self._ablation_mode:
+            if not prompts:
+                prompts = self._default_base_prompts()
+            if prompts:
+                bp = random.choice(prompts)
+            else:
+                bp = "Default harmless prompt"
+            intv = Intervention(base_prompt=bp, transforms=[])
+            intv.metadata["selection_score"] = 0.0
+            intv.metadata["selection_mode"] = "ABLATION_RANDOM"
+            intv.metadata["num_candidates"] = 0
+            logger.info(
+                "ABLATION: Identity intervention on random prompt (length=%d)",
+                len(bp),
+            )
+            return intv
 
         candidates: List[Tuple[float, Intervention]] = []
 
@@ -1516,6 +1562,7 @@ class StrategistAgent:
                     seen.add(p)
                     result.append(p)
 
+        core: List[str] = []
         if not result:
             result = self._default_base_prompts()
         else:
@@ -2281,6 +2328,8 @@ class StrategistAgent:
         Delegates to ``core.jailbreak.select_technique()`` using the
         Strategist's version space for structural defense context.
 
+        In ablation mode, picks a random technique from the library.
+
         Args:
             goal: The harmful request to jailbreak for.
             used_techniques: Techniques already used in this session
@@ -2289,6 +2338,15 @@ class StrategistAgent:
         Returns:
             A technique name string from ``core.jailbreak.TECHNIQUE_LIBRARY``.
         """
+        if self._ablation_mode:
+            from core.jailbreak import TECHNIQUE_LIBRARY
+            available = [t for t in TECHNIQUE_LIBRARY
+                         if t not in (used_techniques or [])]
+            if not available:
+                available = list(TECHNIQUE_LIBRARY)
+            chosen = random.choice(available)
+            logger.info("ABLATION: Random technique selected: %s", chosen)
+            return chosen
         vs = getattr(self, "_version_space", None)
         return core_select_technique(goal, version_space=vs, used_techniques=used_techniques)
 
@@ -2314,6 +2372,8 @@ class StrategistAgent:
     ) -> Dict[str, float]:
         """Record EFE log for an executed intervention.
 
+        In ablation mode, returns zeros immediately.
+
         Returns a dict with keys: ``epistemic_value``, ``pragmatic_value``,
         ``efe_score`` for experiment tracking.
 
@@ -2327,6 +2387,8 @@ class StrategistAgent:
             "pragmatic_value": 0.0,
             "efe_score": 0.0,
         }
+        if self._ablation_mode:
+            return record
         if self.disable_efe or self.efe_calculator is None:
             return record
 
