@@ -1,0 +1,569 @@
+{
+  "_round": 0,
+  "_converged": false,
+  "history": [
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 1,
+      "mean_uncertainty": 0.1999,
+      "is_converged": false,
+      "best_theta": 0.4002,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 2,
+      "mean_uncertainty": 0.178,
+      "is_converged": false,
+      "best_theta": 0.3336,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 3,
+      "mean_uncertainty": 0.175,
+      "is_converged": false,
+      "best_theta": 0.4286,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 4,
+      "mean_uncertainty": 0.1614,
+      "is_converged": false,
+      "best_theta": 0.375,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 5,
+      "mean_uncertainty": 0.1491,
+      "is_converged": false,
+      "best_theta": 0.3333,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 6,
+      "mean_uncertainty": 0.1382,
+      "is_converged": false,
+      "best_theta": 0.3,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 7,
+      "mean_uncertainty": 0.1389,
+      "is_converged": false,
+      "best_theta": 0.3636,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 8,
+      "mean_uncertainty": 0.1367,
+      "is_converged": false,
+      "best_theta": 0.4167,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 9,
+      "mean_uncertainty": 0.13,
+      "is_converged": false,
+      "best_theta": 0.3846,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 10,
+      "mean_uncertainty": 0.1278,
+      "is_converged": false,
+      "best_theta": 0.4286,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 11,
+      "mean_uncertainty": 0.1247,
+      "is_converged": false,
+      "best_theta": 0.4667,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 12,
+      "mean_uncertainty": 0.1213,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 13,
+      "mean_uncertainty": 0.1176,
+      "is_converged": false,
+      "best_theta": 0.5294,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 14,
+      "mean_uncertainty": 0.114,
+      "is_converged": false,
+      "best_theta": 0.5556,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 15,
+      "mean_uncertainty": 0.1116,
+      "is_converged": false,
+      "best_theta": 0.5263,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 16,
+      "mean_uncertainty": 0.1091,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 17,
+      "mean_uncertainty": 0.1065,
+      "is_converged": false,
+      "best_theta": 0.4762,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 18,
+      "mean_uncertainty": 0.1038,
+      "is_converged": false,
+      "best_theta": 0.4545,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 19,
+      "mean_uncertainty": 0.1096,
+      "is_converged": false,
+      "best_theta": 0.4486,
+      "latest_probe_score": 0.4793,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 20,
+      "mean_uncertainty": 0.1058,
+      "is_converged": false,
+      "best_theta": 0.4268,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 21,
+      "mean_uncertainty": 0.1051,
+      "is_converged": false,
+      "best_theta": 0.453,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 22,
+      "mean_uncertainty": 0.1039,
+      "is_converged": false,
+      "best_theta": 0.4774,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 23,
+      "mean_uncertainty": 0.1022,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 24,
+      "mean_uncertainty": 0.1,
+      "is_converged": false,
+      "best_theta": 0.4791,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 25,
+      "mean_uncertainty": 0.0985,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 26,
+      "mean_uncertainty": 0.0898,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 0.4793,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 27,
+      "mean_uncertainty": 0.0883,
+      "is_converged": false,
+      "best_theta": 0.5161,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 28,
+      "mean_uncertainty": 0.087,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 29,
+      "mean_uncertainty": 0.0857,
+      "is_converged": false,
+      "best_theta": 0.4848,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 30,
+      "mean_uncertainty": 0.0845,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 31,
+      "mean_uncertainty": 0.0893,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 0.4799,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 32,
+      "mean_uncertainty": 0.0879,
+      "is_converged": false,
+      "best_theta": 0.516,
+      "latest_probe_score": 1,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 33,
+      "mean_uncertainty": 0.0868,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 34,
+      "mean_uncertainty": 0.0801,
+      "is_converged": false,
+      "best_theta": 0.5,
+      "latest_probe_score": 0.4799,
+      "latest_outcome": 1
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 35,
+      "mean_uncertainty": 0.079,
+      "is_converged": false,
+      "best_theta": 0.4872,
+      "latest_probe_score": 1,
+      "latest_outcome": 0
+    },
+    {
+      "round": 0,
+      "mode": "init",
+      "active_primitive": null,
+      "num_observations": 36,
+      "mean_uncertainty": 0.0733,
+      "is_converged": false,
+      "best_theta": 0.489,
+      "latest_probe_score": 0.48,
+      "latest_outcome": 1
+    }
+  ],
+  "boundary_estimators": {
+    "instruction_score": {
+      "observations": [
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          0.479307565982688,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          0.47927174492402813,
+          1
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          0.4799368471304898,
+          0
+        ],
+        [
+          1.0,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          0.4799353757442824,
+          1
+        ],
+        [
+          1.0,
+          0
+        ],
+        [
+          0.47995044351880756,
+          1
+        ]
+      ],
+      "direction": "positive",
+      "num_observations": 36
+    },
+    "harmfulness_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    },
+    "procedurality_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    },
+    "jailbreak_score": {
+      "observations": [],
+      "direction": "positive",
+      "num_observations": 0
+    }
+  }
+}
