@@ -209,6 +209,40 @@ def call_ollama(model: str, prompt: str) -> dict[str, Any]:
     return {"status": "error: max retries exceeded", "response": ""}
 
 
+# ── Replicate caller ──────────────────────────────────────────────────────────
+
+
+def call_replicate(model_version: str, prompt: str) -> dict[str, Any]:
+    """Call a model via Replicate API with retry loop (~1 min total)."""
+    import replicate
+    last_error: Optional[str] = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            input = {
+                "message": prompt,
+                "temperature": 0.01,
+                "max_new_tokens": 1024,
+                "top_k": 50,
+                "top_p": 0.9,
+                "min_new_tokens": -1,
+                "debug": False,
+            }
+            output = []
+            for event in replicate.stream(model_version, input=input):
+                output.append(event.data)
+            return {"status": "success", "response": "".join(output)}
+        except Exception as e:
+            if attempt < MAX_RETRIES:
+                wait = 20
+                logger.warning("Replicate error (model=%s, attempt=%d/%d): %s — retrying in %ds", model_version, attempt, MAX_RETRIES, e, wait)
+                time.sleep(wait)
+                last_error = str(e)
+            else:
+                logger.error("Replicate error (model=%s) — all %d attempts failed: %s", model_version, MAX_RETRIES, e)
+                return {"status": f"error: {e}", "response": ""}
+    return {"status": f"error: {last_error}", "response": ""}
+
+
 # ── OpenAI caller ────────────────────────────────────────────────────────────
 
 
@@ -226,7 +260,7 @@ def call_openai(model: str, prompt: str) -> dict[str, Any]:
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1024,
-                temperature=0.0,
+                temperature=0.01,
                 timeout=REQUEST_TIMEOUT,
             )
             content = resp.choices[0].message.content
@@ -251,8 +285,19 @@ def run_experiment(
     output_csv: str = DEFAULT_OUTPUT_CSV,
     where: str = "local",
     max_prompts: int = 0,
+    custom_model: Optional[str] = None,
 ) -> None:
-    if where == "local":
+    if where == "replicate":
+        model = custom_model or "meta/meta-llama-3-8b-instruct"
+        models = [model]
+        caller = call_replicate
+        logger.info("Mode: replicate — evaluating '%s' via Replicate", model)
+    elif custom_model is not None:
+        models = [custom_model]
+        api_key = load_api_key()
+        caller = lambda model, prompt: call_openrouter(api_key, model, prompt)
+        logger.info("Mode: custom — evaluating single model '%s' via OpenRouter", custom_model)
+    elif where == "local":
         models = LOCAL_MODELS
         api_key = load_api_key()
         caller = lambda model, prompt: call_openrouter(api_key, model, prompt)
@@ -268,7 +313,7 @@ def run_experiment(
         for model in models:
             ollama_pull(model)
     else:
-        raise ValueError(f"Unknown --where value: {where!r} (expected 'local', 'server', or 'openai')")
+        raise ValueError(f"Unknown --where value: {where!r} (expected 'local', 'server', 'openai', or 'replicate')")
 
     prompts = load_prompts(input_csv)
     if max_prompts > 0:
@@ -304,6 +349,7 @@ def run_experiment(
                     "timestamp": ts,
                 })
                 csvfile.flush()
+            time.sleep(2.0)
 
     logger.info("Done — results saved to %s", output_csv)
 
@@ -323,8 +369,12 @@ def main() -> None:
         help="Path for results CSV (default: %(default)s)",
     )
     parser.add_argument(
-        "--where", choices=["local", "server", "openai"], default="local",
-        help="'local' = 6 models via OpenRouter, 'server' = codellama via Ollama, 'openai' = gpt-4o-mini via OpenAI (default: %(default)s)",
+        "--where", choices=["local", "server", "openai", "replicate"], default="local",
+        help="'local' = 6 models via OpenRouter, 'server' = codellama via Ollama, 'openai' = gpt-4o-mini via OpenAI, 'replicate' = single model via Replicate API (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--model", type=str, default=None,
+        help="Override model name (e.g. 'qwen/qwen3-coder-flash'). Overrides --where model list.",
     )
     parser.add_argument(
         "--max-prompts", type=int, default=0,
@@ -335,8 +385,9 @@ def main() -> None:
     run_experiment(
         input_csv=args.input_csv,
         output_csv=args.output_csv,
-        where=args.where,
+        where=args.where if args.model is None or args.where == "replicate" else "custom",
         max_prompts=args.max_prompts,
+        custom_model=args.model,
     )
 
 
