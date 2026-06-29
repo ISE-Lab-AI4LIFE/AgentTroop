@@ -334,6 +334,13 @@ def run_experiment(config: dict, backend: str = "ollama",
             max_tokens=victim_cfg["max_tokens"],
             client=client,
         )
+    elif backend == "replicate":
+        from victim.replicate import ReplicateVictim
+        victim = ReplicateVictim(
+            model_version=victim_cfg.get("model_version", victim_cfg.get("model_name", "")),
+            temperature=victim_cfg["temperature"],
+            max_tokens=victim_cfg["max_tokens"],
+        )
     logger.info("Victim: %s (via %s)", victim.model_name, backend)
     logger.info("Victim metadata: %s", victim.get_metadata())
 
@@ -1048,7 +1055,7 @@ def main() -> None:
         help="Prior campaign ID for RQ2 transfer speed evaluation",
     )
     parser.add_argument(
-        "--backend", choices=["openrouter", "ollama", "openai"], default="ollama",
+        "--backend", choices=["openrouter", "ollama", "openai", "replicate"], default="ollama",
         help="Backend to use for the victim LLM (default: ollama)",
     )
     parser.add_argument(
