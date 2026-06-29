@@ -1,6 +1,6 @@
 # AgentTroop
 
-**Response-Aware Multi-Agent Attacks for Eliciting Malicious Code** *(formerly HARMONY-X)*
+**Response-Aware Multi-Agent Attacks for Eliciting Malicious Code** 
 
 AgentTroop is a **response-aware multi-agent framework** for conducting adaptive adversarial attacks against code-generating LLMs. Rather than treating each interaction as an isolated attempt, AgentTroop continuously learns from victim responses, maintains explicit hypotheses about the target's defensive behavior, and refines future attack strategies accordingly.
 
