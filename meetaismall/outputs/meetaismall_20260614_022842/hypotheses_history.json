@@ -1,8 +1,0 @@
-{
-  "total_iterations": 0,
-  "total_interventions": 0,
-  "best_accuracy": 0.0,
-  "best_program_id": null,
-  "success": false,
-  "error": "No hypotheses generated from anomalies"
-}
