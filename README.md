@@ -1,227 +1,141 @@
-# HARMONY-X
+# AgentTroop
 
-Automated safety layer reverse-engineering for LLMs.
+**Response-Aware Multi-Agent Attacks for Eliciting Malicious Code** *(formerly HARMONY-X)*
 
-## Structure
+AgentTroop is a **response-aware multi-agent framework** for conducting adaptive adversarial attacks against code-generating LLMs. Rather than treating each interaction as an isolated attempt, AgentTroop continuously learns from victim responses, maintains explicit hypotheses about the target's defensive behavior, and refines future attack strategies accordingly.
+
+## How It Works
+
+AgentTroop maintains a **Bayesian Version Space** $\mathcal{V}$ containing candidate defense programs $\{d_i\}$, each representing a possible explanation of the victim's response. A belief distribution is maintained over these candidates and continuously updated through Bayesian inference:
+
+$$P(d_i | e_t) = \frac{P(e_t | d_i) P(d_i)}{\sum_{d_j \in \mathcal{D}} P(e_t | d_j) P(d_j)}$$
+
+At each iteration, the framework designs a **probing prompt** (intervention) to discriminate among alternative defense programs, executes it against the victim, and updates beliefs. Interventions are selected via **Expected Free Energy (EFE)** minimization to maximize information gain about the victim's decision boundary:
+
+$$G(I) = \underbrace{\mathbb{E}_{o \sim P(o|I)} \left[ D_{KL}[b_{t+1} \| b_t] \right]}_{\text{epistemic value}}$$
+
+## Architecture
+
+AgentTroop uses 5 LLM-based agents coordinated through the shared Version Space:
 
 ```
-HARMONY-X/
-├── victim/                          Victim implementations
-│   ├── openrouter/victim.py         OpenRouter API victim
-│   └── ollama/victim.py             Local Ollama victim
-├── experiments/                     Experiment runner code
-│   ├── run_experiment.py            Unified entry point
-│   ├── run_exp.sh                   Shell runner (services + experiment)
-│   ├── Makefile                     Build targets
-│   ├── setup.sh                     Fresh-server setup
-│   ├── configs/
-│   │   ├── openrouter_experiment_config.yaml
-│   │   └── ollama_experiment_config.yaml
-│   └── run_guided_asr.py, run_adversarial_asr.py, ...
-├── outputs/campaign/                Experiment outputs (.db, .json)
-├── data/                            Shared data files
-│   └── benign_prompts.csv
-├── adapters/                        Base classes & victim factory
-│   ├── base_victim.py
-│   └── victim_factory.py
-├── agents/                          RL agents
-├── core/                            Core pipeline
-├── evaluation/                      Evaluators (RQ0, RQ1, RQ2, ASR)
-├── llm/                             LLM client (OpenRouter)
-├── knowledge/                       Knowledge stores
-├── orchestration/                   Orchestrator
-├── pyproject.toml                   Project config (uv)
-└── .env                             Environment variables
+┌──────────────────────────────────────────────────┐
+│                 Orchestrator Agent                │
+│  Schedules agents, maintains Version Space,       │
+│  Bayesian belief update, convergence check        │
+└──────┬──────────┬──────────┬──────────┬──────────┘
+       │          │          │          │
+       ▼          ▼          ▼          ▼
+┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+│Cognitive │ │Strategist│ │Researcher│ │Red Team  │
+│ Agent    │ │ Agent    │ │ Agent    │ │ Agent    │
+├──────────┤ ├──────────┤ ├──────────┤ ├──────────┤
+│Detect    │ │Identify  │ │Synthesize│ │Generate  │
+│behavioral│ │competing │ │refined   │ │executable│
+│incon-    │ │defense   │ │defense   │ │probing   │
+│sistencies│ │programs  │ │programs  │ │prompts   │
+│→ generate│ │→ formulate│ │→ inject  │ │via       │
+│hypotheses│ │inter-    │ │into V    │ │jailbreak │
+│& programs│ │ventions  │ │          │ │techniques│
+└──────────┘ └──────────┘ └──────────┘ └──────────┘
 ```
 
-## Quick Start (fresh server)
+| Agent | Role |
+|-------|------|
+| **Orchestrator** | Collects interaction traces, schedules agents, maintains Version Space $\mathcal{V}$, performs Bayesian belief updates, detects convergence |
+| **Cognitive Agent** | Analyzes interaction traces, identifies behavioral inconsistencies (semantically similar prompts with different refusal rationales), generates defense hypotheses |
+| **Strategist Agent** | Identifies competing defense programs via posterior belief, performs symbolic analysis to find distinguishing conditions, formulates intervention objectives |
+| **Red Team Agent** | Generates executable probing prompts using jailbreak transformations, semantic reframing, role-playing, and prompt engineering |
+| **Researcher Agent** | Periodically consolidates interaction evidence, synthesizes refined defense programs, injects new candidates into Version Space |
+
+## Core Loop
+
+```
+Interaction → Behavioral Analysis → Hypothesis Generation → 
+Version Space Update → Competing Program Selection → 
+Intervention Design (EFE) → Probing → Belief Update → Convergence?
+```
+
+## Key Components
+
+| Module | Purpose |
+|--------|---------|
+| `core/primitive.py` | 92 primitives: 27 Predicates, 38 Transforms, 27 Classifiers for building defense programs |
+| `core/program.py` | AST-based defense program representation (IfThenElse, And, Or, Not, Threshold) |
+| `core/executor.py` | ProgramExecutor — evaluates defense programs against prompts |
+| `inference/version_space.py` | Bayesian Version Space: top-K candidate programs, posterior beliefs, entropy, information gain |
+| `inference/efe.py` | Expected Free Energy computation for intervention selection |
+| `agents/cognitive.py` | Behavioral inconsistency detection and hypothesis generation |
+| `agents/strategist.py` | Disagreement-driven intervention design and execution |
+| `agents/researcher.py` | Defense program synthesis and verification |
+| `agents/red_team.py` | Jailbreak-aware probing prompt generation |
+| `orchestration/orchestrator.py` | 6-phase loop coordination, belief management, convergence detection |
+| `synthesis/` | Multi-strategy synthesis: evolutionary (genetic programming), neural-guided, fitness-guided, CVC5 SMT |
+| `sde/` | Semantic Discovery Engine — continuous-score boundary estimation for classifier primitives |
+| `evaluation/` | Evaluators for RQ1 (ASR, MR), RQ2 (FA, PBA, NI), RQ3 (ablation) |
+
+## Evaluation Metrics
+
+| Metric | Description |
+|--------|-------------|
+| **Attack Success Rate (ASR)** | % of harmful prompts that bypass safey mechanisms |
+| **Malicious Rate (MR)** | % of successful jailbreak responses containing actionable malicious code |
+| **Final Accuracy (FA)** | Synthesized program agreement with victim on unseen prompts |
+| **Peak Balanced Accuracy (PBA)** | Best balanced accuracy on harmful + benign validation set |
+| **Number of Interventions (NI)** | Interventions required to reach PBA |
+
+## Quick Start
 
 ```bash
-# 1. Clone
-git clone <repo> && cd HARMONY-X
-
-# 2. One-command setup — installs uv, Python deps, Redis, Neo4j, Ollama, .env
-bash experiments/setup.sh
-
-# 3. Run experiment
-make -C experiments run BACKEND=ollama
-```
-
-## Setup Details
-
-### Prerequisites
-
-- macOS (Linux support: manual service installation)
-- Python 3.10+
-
-### Single-command setup
-
-```bash
-bash experiments/setup.sh
-```
-
-This runs:
-1. Homebrew + Python 3.11+ (if missing)
-2. UV package manager (if missing)
-3. Redis (install & start)
-4. Neo4j (install & start)
-5. `.env` template creation
-6. `uv sync` — creates `.venv`, installs all dependencies
-
-### Manual setup (if you prefer step-by-step)
-
-```bash
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
 # Install dependencies
 uv sync
 
 # Start services
 brew services start redis
-brew services start neo4j     # or: neo4j start
+brew services start neo4j
 
-# Create .env
-cat > .env << EOF
-OPENROUTER_API_KEY=sk-your-key-here
-HX_REDIS_URL=redis://localhost:6379/0
-HX_NEO4J_URI=bolt://localhost:7687
-HX_NEO4J_USER=neo4j
-HX_NEO4J_PASSWORD=password
-HARMFUL_CSV=prompt.csv
-EOF
-```
+# Set up environment
+cp .env.template .env   # edit OPENROUTER_API_KEY
 
-## Running Experiments
-
-### Via Makefile (recommended)
-
-```bash
-# Ollama victim (local, e.g. llama3.1:8b, codellama:7b, meetai-small)
+# Run against a victim (Ollama)
 make -C experiments run BACKEND=ollama
 
-# OpenRouter victim (API, e.g. meta-llama/llama-3.2-3b-instruct)
+# Run against a victim (OpenRouter)
 make -C experiments run BACKEND=openrouter MODEL_NAME="meta-llama/llama-3.2-3b-instruct"
-
-# Custom seed count
-make -C experiments run BACKEND=ollama  # edit NUM_SEEDS in run_exp.sh or pass --num-seeds
-
-# Custom config
-make -C experiments run BACKEND=openrouter  # edit CONFIG_FILE in run_exp.sh or pass --config
 ```
 
-### Via uv run (no Makefile)
-
-```bash
-# Ollama
-uv run experiments/run_experiment.py --backend ollama
-
-# OpenRouter
-uv run experiments/run_experiment.py \
-    --backend openrouter \
-    --model-name "meta-llama/llama-3.2-3b-instruct"
-
-# With custom seed count
-uv run experiments/run_experiment.py --backend ollama --num-seeds 100
-
-# With prior campaign for RQ2 transfer evaluation
-uv run experiments/run_experiment.py --backend ollama --prior-campaign <campaign_id>
-```
-
-### Via shell script (with service management)
-
-```bash
-# Full pipeline with Redis/Neo4j checks
-bash experiments/run_exp.sh --backend ollama
-
-# With custom config
-bash experiments/run_exp.sh \
-    --backend openrouter \
-    --model-name "meta-llama/llama-3.2-3b-instruct" \
-    --num-seeds 50
-```
-
-## Adding a New Victim Model
-
-### Ollama (local)
-
-1. Pull the model: `ollama pull <model_name>`
-2. Run with the new model name:
-
-```bash
-uv run experiments/run_experiment.py \
-    --backend ollama \
-    --model-name "<model_name>"
-```
-
-The config default in `experiments/configs/ollama_experiment_config.yaml` will be used.
-To persist the model name as default, edit `ollama_experiment_config.yaml`:
-
-```yaml
-victim:
-  ollama_url: "http://localhost:11434"
-  model_name: "<model_name>"    # change here
-  temperature: 0.0
-  max_tokens: 150
-```
-
-### OpenRouter (API)
-
-1. Set `OPENROUTER_API_KEY` in `.env`
-2. Run with the new model name:
-
-```bash
-uv run experiments/run_experiment.py \
-    --backend openrouter \
-    --model-name "<openrouter-model-slug>"
-```
-
-To persist, edit `experiments/configs/openrouter_experiment_config.yaml`:
-
-```yaml
-victim:
-  model_name: "<openrouter-model-slug>"   # change here
-  temperature: 0.0
-  max_tokens: 150
-```
-
-**No new directory needed** — just supply `--model-name`.
-
-## Outputs
-
-All experiment results go to `outputs/campaign/<campaign_id>/`:
+## Output Structure
 
 ```
 outputs/campaign/<campaign_id>/
-├── <campaign_id>_episodic.db         Episodic memory database
-├── final_program.json                 Best learned defense program
-├── final_theory.json                  Learned theories
-├── interventions_history.json         All intervention attempts
-├── hypotheses_history.json            Experiment summary
-├── sde_evidence.json                  Semantic discovery evidence
+├── <campaign_id>_episodic.db       # All interaction traces (prompt, response, outcome)
+├── final_program.json               # Best discovered defense program
+├── final_theory.json                # Abstracted safety theory
+├── interventions_history.json       # All probing attempts
+├── sde_evidence.json                # Semantic boundary evidence
 └── evaluation/
-    └── evaluation_report.json         RQ0, RQ1, RQ2, ASR results
+    └── evaluation_report.json       # ASR, MR, FA, PBA, NI results
 ```
 
-## Evaluation Reports
+## Research Contributions
 
-After each experiment, an evaluation report is saved to `outputs/campaign/<campaign_id>/evaluation/evaluation_report.json` containing:
+1. **Novel approach**: Response-aware multi-agent framework combining coordinated agent reasoning, Bayesian hypothesis maintenance, and hypothesis-guided intervention generation
+2. **Empirical evaluation**: Comprehensive evaluation against proprietary and open-source LLMs (GPT-4o-mini, Gemini-2.5-Flash, Phi-4, LLaMA-3.1-8B, DeepSeek-V3.2, Qwen2.5-72B, CodeLlama, MiMo-2.5-Pro) using the RMCBench benchmark
+3. **Open science**: Full replication package with code and data
 
-| Metric | Description |
-|--------|-------------|
-| **ASR** | Baseline attack success rate on raw harmful prompts |
-| **Harmony ASR** | ASR through Red Team Agent refinement pipeline |
-| **Adversarial ASR** | ASR using the learned program to craft prompts |
-| **RQ0** | Program accuracy on held-out test set |
-| **RQ1** | Intervention efficiency (program prediction accuracy) |
-| **RQ2** | Transfer speed vs. prior campaign |
+## Supported Victims
 
-## Troubleshooting
+- **Ollama** (local): llama3.1:8b, codellama:7b/13b/34b, phi4, qwen, deepseek, meetai-small
+- **OpenRouter** (API): 50+ models via unified API
+- **Toy victims** (testing): KeywordFilter, LengthFilter, RegexVictim, ThresholdVictim, etc.
 
-| Symptom | Likely Cause | Fix |
-|---------|-------------|-----|
-| `OPENROUTER_API_KEY not set` | Missing `.env` | `cp .env.template .env` and add key |
-| `Neo4j connection refused` | Neo4j not running | `brew services start neo4j` |
-| `Redis connection refused` | Redis not running | `brew services start redis` |
-| `ollama: command not found` | Ollama not installed | `brew install ollama` or run `setup.sh` |
-| ASR = 0, all REFUSE | Invalid model name / API key | Check `OPENROUTER_API_KEY` and `--model-name` |
+## BibTeX
+
+```bibtex
+@article{agenttroop2026,
+  title={The Wolf Pack: Response-Aware Multi-Agent Attacks for Eliciting Malicious Code},
+  author={Anonymous Authors},
+  year={2026},
+  journal={arXiv preprint}
+}
+```
