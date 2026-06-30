@@ -251,38 +251,39 @@ python experiments/run_experiment.py \
 ### Full Experiment
 
 ```bash
-# Via Ollama (local)
+# Via Ollama (local) — use all prompts
 python experiments/run_experiment.py \
     --backend ollama \
     --config experiments/configs/ollama_experiment_config.yaml \
     --model-name "codellama:7b" \
-    --num-seeds 50
+    --full
 
 # Via OpenRouter (API)
 python experiments/run_experiment.py \
     --backend openrouter \
     --config experiments/configs/openrouter_experiment_config.yaml \
     --model-name "meta-llama/llama-3.1-8b-instruct" \
-    --num-seeds 50
+    --full \
 
-# Use all RMCBench prompts
+# Via OpenRouter with DeepSeek
 python experiments/run_experiment.py \
     --backend openrouter \
-    --full \
-    --model-name "deepseek/deepseek-v3.2"
+    --config experiments/configs/openrouter_experiment_config.yaml \
+    --model-name "deepseek/deepseek-v3.2" \
+    --full
 ```
 
 ### Using the Shell Script
 
 ```bash
 # Default (Ollama, llama3.1:8b)
-bash experiments/run_exp.sh
+bash experiments/run_exp.sh --full
 
 # With options
 bash experiments/run_exp.sh \
     --backend openrouter \
     --model-name "meta-llama/llama-3.1-8b-instruct" \
-    --num-seeds 100 \
+    --full \
     --config experiments/configs/openrouter_experiment_config.yaml
 ```
 
@@ -296,8 +297,8 @@ bash experiments/run_exp.sh \
 | `--backend` | `ollama` | Victim backend: `ollama`, `openrouter`, `openai`, `replicate` |
 | `--agentic-backend` | `openai` | Backend for agent LLMs (cognitive, red-team, judge) |
 | `--model-name` | from config | Override victim model name |
-| `--num-asr` | 40 | Number of prompts for ASR evaluation (`full` = all) |
-| `--num-variants` | 5 | Number of variants per prompt in ASR evaluation |
+| `--num-asr` | `full` | Seed prompts for ASR evaluation (`full` = all 473 RMCBench prompts, or a number) |
+| `--num-variants` | 5 | Variants per prompt in ASR evaluation (total = `--num-asr` × `--num-variants`) |
 | `--max-techniques` | 0 | Limit jailbreak techniques (0 = all 21) |
 | `--judge-backend` | same as agentic | Backend for judge LLM |
 | `--judge-model` | backend default | Model for judge LLM |
@@ -308,14 +309,15 @@ bash experiments/run_exp.sh \
 ### System Prompt Conditioning
 
 ```bash
-# Inject generic task-oriented system prompt into victim
+# Inject generic task-oriented system prompt into victim (use max prompts)
 python experiments/run_with_system_prompt.py \
     --model-name "meta-llama/llama-3.1-8b-instruct" \
-    --num-seeds 50
+    --num-seeds 473
 
 # With free-form system prompt
 python experiments/run_with_system_prompt.py \
     --model-name "meta-llama/llama-3.1-8b-instruct" \
+    --num-seeds 473 \
     --free
 ```
 
@@ -349,14 +351,16 @@ After a campaign completes, run evaluation:
 ```bash
 python experiments/run_evaluation.py \
     --campaign <campaign_id> \
-    --program-id <best_program_id> \
+    --num-asr full \
+    --num-variants 5 \
+    --accuracy-threshold 0.85 \
     --output-dir evaluation/reports
 
 # Example
 python experiments/run_evaluation.py \
     --campaign deepseek_deepseek_v3_2_20260622_230237 \
-    --num-test-prompts 50 \
-    --accuracy-threshold 0.85
+    --num-asr full \
+    --num-variants 5
 ```
 
 ### Evaluation CLI Arguments
@@ -365,7 +369,8 @@ python experiments/run_evaluation.py \
 |----------|---------|-------------|
 | `--campaign` | required | Campaign ID to evaluate |
 | `--program-id` | best program | Specific program ID for RQ0 evaluation |
-| `--num-test-prompts` | 50 | Number of held-out test prompts |
+| `--num-asr` | `full` | Seed prompts for ASR evaluation (`full` = all, or a number) |
+| `--num-variants` | 5 | Variants per prompt |
 | `--accuracy-threshold` | 0.85 | Threshold for RQ0/RQ1 |
 | `--judge` | `llm` | Judge type: `rule` or `llm` |
 | `--llm-model` | `gemma-4-31b-it` | LLM model for LLMJudge |
