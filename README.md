@@ -391,9 +391,19 @@ outputs/campaign/<campaign_id>/
 
 ## Dataset
 
-The project uses **RMCBench** — a curated benchmark of 38,168 code-generation prompts across 11 malware categories (Viruses, Worms, Trojan horses, Spyware, Rootkits, Ransomware, Network attacks, Phishing, Adware, Vulnerability Exploitation, Others).
+The project uses **RMCBench** (Benchmarking Large Language Models' Resistance to Malicious Code) — the first benchmark specifically designed to measure LLM resistance to malicious code generation, published at IEEE/ACM ASE 2024. It contains **473 seed prompts** across two evaluation scenarios:
 
-Format: `prompt.csv` with columns `pid,category,task,level,description,level,prompt`.
+| Scenario | Description | Levels |
+|----------|-------------|--------|
+| **Text-to-Code** | Natural language descriptions requesting malicious code generation | Level 1: explicit keywords; Level 2: implicit (metaphorical) |
+| **Code-to-Code** | Code translation or completion of malicious code snippets | Code Translation, Code Completion |
+
+**Scope:**
+- **11 malware categories**: Viruses, Worms, Trojan horses, Spyware, Adware, Ransomware, Rootkits, Phishing, Vulnerability Exploitation, Network attacks, Others
+- **9 programming languages**: C, C++, C#, Go, Java, PHP, Python, HTML/JavaScript, Bash
+- **28.71%** average refusal rate across 11 popular LLMs, highlighting the challenge of safety alignment
+
+The full dataset (473 prompts × variants) has **38,168 rows** in `prompt.csv` (columns: `pid,category,task,level,description,level,prompt,malicious functionality,...,language,...,code to be completed,...`).
 
 Benign prompts for balanced accuracy evaluation: `data/benign_prompts.csv`.
 
