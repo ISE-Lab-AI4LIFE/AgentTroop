@@ -1,6 +1,6 @@
 # AgentTroop
 
-**Response-Aware Multi-Agent Attacks for Eliciting Malicious Code** 
+**Response-Aware Multi-Agent Attacks for Eliciting Malicious Code**
 
 AgentTroop is a **response-aware multi-agent framework** for conducting adaptive adversarial attacks against code-generating LLMs. Rather than treating each interaction as an isolated attempt, AgentTroop continuously learns from victim responses, maintains explicit hypotheses about the target's defensive behavior, and refines future attack strategies accordingly.
 
@@ -43,17 +43,21 @@ AgentTroop uses 5 LLM-based agents coordinated through the shared Version Space:
 | Agent | Role |
 |-------|------|
 | **Orchestrator** | Collects interaction traces, schedules agents, maintains Version Space $\mathcal{V}$, performs Bayesian belief updates, detects convergence |
-| **Cognitive Agent** | Analyzes interaction traces, identifies behavioral inconsistencies (semantically similar prompts with different refusal rationales), generates defense hypotheses |
+| **Cognitive Agent** | Analyzes interaction traces, identifies behavioral inconsistencies (same base prompt, different outcomes under transformation), generates defense hypotheses |
 | **Strategist Agent** | Identifies competing defense programs via posterior belief, performs symbolic analysis to find distinguishing conditions, formulates intervention objectives |
-| **Red Team Agent** | Generates executable probing prompts using jailbreak transformations, semantic reframing, role-playing, and prompt engineering |
-| **Researcher Agent** | Periodically consolidates interaction evidence, synthesizes refined defense programs, injects new candidates into Version Space |
+| **Researcher Agent** | Periodically consolidates interaction evidence (every $N$ interventions), performs evolutionary synthesis to generate new candidate programs, injects them into Version Space |
+| **Red Team Agent** | Refines probing prompts using jailbreak transformations (21 techniques via UCB bandit selection), semantic reframing, role-playing, and prompt engineering |
 
 ## Core Loop
 
 ```
-Interaction → Behavioral Analysis → Hypothesis Generation → 
-Version Space Update → Competing Program Selection → 
-Intervention Design (EFE) → Probing → Belief Update → Convergence?
+Seed Prompts → Behavioral Variants → Victim Probing →
+Anomaly Detection → Hypothesis Generation → Version Space Init →
+[Main Loop]
+  Competing Program Selection → Intervention Design (EFE) →
+  Red Team Refinement → Victim Probing → Outcome Classification →
+  Belief Update → Convergence Check (entropy & accuracy)
+  [Every N: Researcher Synthesis → Inject New Programs]
 ```
 
 ## Key Components
@@ -63,71 +67,349 @@ Intervention Design (EFE) → Probing → Belief Update → Convergence?
 | `core/primitive.py` | 92 primitives: 27 Predicates, 38 Transforms, 27 Classifiers for building defense programs |
 | `core/program.py` | AST-based defense program representation (IfThenElse, And, Or, Not, Threshold) |
 | `core/executor.py` | ProgramExecutor — evaluates defense programs against prompts |
+| `core/jailbreak.py` | 21 jailbreak techniques with templates (DAN, GCG, hex_injection, persona, etc.) and UCB1 bandit selection |
 | `inference/version_space.py` | Bayesian Version Space: top-K candidate programs, posterior beliefs, entropy, information gain |
 | `inference/efe.py` | Expected Free Energy computation for intervention selection |
-| `agents/cognitive.py` | Behavioral inconsistency detection and hypothesis generation |
-| `agents/strategist.py` | Disagreement-driven intervention design and execution |
-| `agents/researcher.py` | Defense program synthesis and verification |
-| `agents/red_team.py` | Jailbreak-aware probing prompt generation |
+| `inference/belief_updater.py` | Bayesian belief update with soft likelihood ($\varepsilon = 0.1$) |
+| `agents/cognitive.py` | Behavioral anomaly detection (group-by-base-prompt, entropy scoring, adaptive percentile) and hypothesis generation |
+| `agents/strategist.py` | Disagreement-driven intervention design (Δ scoring → EFE rescore → semantic rescore), program prediction, technique selection |
+| `agents/researcher.py` | Evolutionary synthesis (pop=100, gen=30, mut=0.2, cross=0.7) and program verification |
+| `agents/red_team.py` | Jailbreak-aware probing prompt refinement |
 | `orchestration/orchestrator.py` | 6-phase loop coordination, belief management, convergence detection |
-| `synthesis/` | Multi-strategy synthesis: evolutionary (genetic programming), neural-guided, fitness-guided, CVC5 SMT |
-| `sde/` | Semantic Discovery Engine — continuous-score boundary estimation for classifier primitives |
-| `evaluation/` | Evaluators for RQ1 (ASR, MR), RQ2 (FA, PBA, NI), RQ3 (ablation) |
+| `synthesis/` | Evolutionary synthesizer (genetic programming), verifier |
+| `evaluation/` | Evaluators for RQ0 (FA), RQ1 (PBA, NI), RQ2 (MR), RQ3 (ablation) |
 
 ## Evaluation Metrics
 
 | Metric | Description |
 |--------|-------------|
-| **Attack Success Rate (ASR)** | % of harmful prompts that bypass safey mechanisms |
+| **Attack Success Rate (ASR)** | % of harmful prompts that bypass safety mechanisms |
 | **Malicious Rate (MR)** | % of successful jailbreak responses containing actionable malicious code |
 | **Final Accuracy (FA)** | Synthesized program agreement with victim on unseen prompts |
 | **Peak Balanced Accuracy (PBA)** | Best balanced accuracy on harmful + benign validation set |
 | **Number of Interventions (NI)** | Interventions required to reach PBA |
 
-## Quick Start
+## Installation
+
+### Prerequisites
+
+- Python 3.10+
+- [UV](https://docs.astral.sh/uv/) (Python package manager)
+- Redis (for session memory)
+- Ollama (for local victims) or OpenRouter / OpenAI API key (for cloud victims)
+- Neo4j (optional, for scientific memory and causal graph)
+
+### Step 1: System Dependencies
 
 ```bash
-# Install dependencies
-uv sync
+# macOS
+brew install redis
+brew install neo4j    # optional
+brew install ollama   # for local victims
 
-# Start services
-brew services start redis
-brew services start neo4j
-
-# Set up environment
-cp .env.template .env   # edit OPENROUTER_API_KEY
-
-# Run against a victim (Ollama)
-make -C experiments run BACKEND=ollama
-
-# Run against a victim (OpenRouter)
-make -C experiments run BACKEND=openrouter MODEL_NAME="meta-llama/llama-3.2-3b-instruct"
+# Ubuntu/Debian
+sudo apt install redis-server
+# Download Neo4j from https://neo4j.com/download/
+# Install Ollama: curl -fsSL https://ollama.com/install.sh | sh
 ```
+
+### Step 2: Python Environment
+
+```bash
+# Install UV (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and setup
+git clone <repo-url> && cd HARMONY_X
+uv sync
+```
+
+Or use the automated setup script:
+```bash
+bash experiments/setup.sh
+```
+
+### Step 3: Environment Variables
+
+Copy `.env.template` to `.env` and fill in your API keys:
+
+```bash
+cp .env.template .env
+```
+
+Required variables in `.env`:
+
+| Variable | Required for | Description |
+|----------|-------------|-------------|
+| `OPENROUTER_API_KEY` | OpenRouter backend | API key from https://openrouter.ai/keys |
+| `OPENAI_API_KEY` | OpenAI backend / agentic LLM | API key from https://platform.openai.com/api-keys |
+| `REPLICATE_API_TOKEN` | Replicate backend | API token from https://replicate.com/account/api-tokens |
+
+Optional variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HX_REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
+| `HX_NEO4J_URI` | `bolt://localhost:7687` | Neo4j connection URI |
+| `HX_NEO4J_USER` | `neo4j` | Neo4j username |
+| `HX_NEO4J_PASSWORD` | `password` | Neo4j password |
+| `HARMFUL_CSV` | `prompt.csv` | Path to RMCBench harmful prompts CSV |
+
+### Step 4: Pull Victim Models (Ollama only)
+
+```bash
+ollama pull codellama:7b
+ollama pull llama3.1:8b
+ollama pull phi4
+ollama pull qwen
+ollama pull deepseek-r1:8b
+```
+
+### Step 5: Start Services
+
+```bash
+brew services start redis        # Redis (session memory)
+brew services start neo4j        # Neo4j (optional, scientific memory)
+ollama serve                     # Ollama (only if using local victims)
+```
+
+## Experiment Configuration
+
+Configuration is managed via YAML files in `configs/` and `experiments/configs/`:
+
+### Core Config Files
+
+| File | Purpose |
+|------|---------|
+| `configs/experiment_config.yaml` | Default experiment config |
+| `configs/config_quick_test.yaml` | Quick debug config (1 seed, 25 iterations, limited transforms) |
+| `configs/config_test_fix.yaml` | Fix validation config |
+| `experiments/configs/ollama_experiment_config.yaml` | Ollama backend config |
+| `experiments/configs/openrouter_experiment_config.yaml` | OpenRouter backend config |
+| `experiments/configs/openai_experiment_config.yaml` | OpenAI backend config |
+
+### Key Configuration Parameters
+
+```yaml
+# Orchestrator
+orchestrator:
+  max_iterations: 50              # Max main loop iterations
+  max_interventions: 500          # Max total interventions
+  synthesis_interval: 3           # Run Researcher every N interventions
+  entropy_convergence_threshold: 0.1  # Stop when H < threshold
+  accuracy_threshold: 0.85        # Stop when program accuracy >= threshold
+
+# Cognitive Agent
+cognitive:
+  anomaly_threshold: 0.15         # Minimum anomaly score
+  anomaly_selection:
+    method: "percentile"          # "percentile" or "threshold"
+    percentile: 85                # Top percentile for anomaly selection
+
+# Strategist Agent
+strategist:
+  max_chain_depth: 4              # Max transform chain depth
+  max_candidates_heuristic: 120   # Max heuristic candidates
+  num_trials: 4                   # Prediction trials for non-deterministic classifiers
+
+# Researcher / Synthesis
+synthesis:
+  mode: "evolutionary"
+  evolutionary:
+    population_size: 150          # GA population
+    generations: 50               # GA generations
+    mutation_rate: 0.25           # Mutation probability
+    crossover_rate: 0.75          # Crossover probability
+
+# Victim (Ollama)
+victim:
+  ollama_url: "http://localhost:11434"
+  model_name: "llama3.1:8b"
+  temperature: 0.0
+  max_tokens: 150
+
+# Victim (OpenRouter)
+victim:
+  model_name: "meta-llama/llama-3.2-3b-instruct"
+  temperature: 0.0
+  max_tokens: 150
+```
+
+## Running Experiments
+
+### Quick Test (Debug Mode)
+
+```bash
+# Toy victim (deterministic, no API calls)
+python experiments/run_experiment.py \
+    --config configs/config_quick_test.yaml \
+    --backend ollama \
+    --model-name "" \
+    --num-seeds 3
+```
+
+### Full Experiment
+
+```bash
+# Via Ollama (local)
+python experiments/run_experiment.py \
+    --backend ollama \
+    --config experiments/configs/ollama_experiment_config.yaml \
+    --model-name "codellama:7b" \
+    --num-seeds 50
+
+# Via OpenRouter (API)
+python experiments/run_experiment.py \
+    --backend openrouter \
+    --config experiments/configs/openrouter_experiment_config.yaml \
+    --model-name "meta-llama/llama-3.1-8b-instruct" \
+    --num-seeds 50
+
+# Use all RMCBench prompts
+python experiments/run_experiment.py \
+    --backend openrouter \
+    --full \
+    --model-name "deepseek/deepseek-v3.2"
+```
+
+### Using the Shell Script
+
+```bash
+# Default (Ollama, llama3.1:8b)
+bash experiments/run_exp.sh
+
+# With options
+bash experiments/run_exp.sh \
+    --backend openrouter \
+    --model-name "meta-llama/llama-3.1-8b-instruct" \
+    --num-seeds 100 \
+    --config experiments/configs/openrouter_experiment_config.yaml
+```
+
+### Experiment CLI Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--config` | `configs/<backend>_experiment_config.yaml` | Path to config YAML |
+| `--num-seeds` | 100 | Number of seed prompts for initial variants |
+| `--full` | False | Use ALL prompts from CSV (overrides --num-seeds) |
+| `--backend` | `ollama` | Victim backend: `ollama`, `openrouter`, `openai`, `replicate` |
+| `--agentic-backend` | `openai` | Backend for agent LLMs (cognitive, red-team, judge) |
+| `--model-name` | from config | Override victim model name |
+| `--num-asr` | 40 | Number of prompts for ASR evaluation (`full` = all) |
+| `--num-variants` | 5 | Number of variants per prompt in ASR evaluation |
+| `--max-techniques` | 0 | Limit jailbreak techniques (0 = all 21) |
+| `--judge-backend` | same as agentic | Backend for judge LLM |
+| `--judge-model` | backend default | Model for judge LLM |
+| `--prior-campaign` | None | Prior campaign ID for transfer evaluation (RQ3) |
+| `--ablation-strategist` | False | Disable Strategist (random probing baseline) |
+| `--ablation-cognitive` | False | Disable Cognitive LLM (fallback hypotheses only) |
+
+### System Prompt Conditioning
+
+```bash
+# Inject generic task-oriented system prompt into victim
+python experiments/run_with_system_prompt.py \
+    --model-name "meta-llama/llama-3.1-8b-instruct" \
+    --num-seeds 50
+
+# With free-form system prompt
+python experiments/run_with_system_prompt.py \
+    --model-name "meta-llama/llama-3.1-8b-instruct" \
+    --free
+```
+
+## Ablation Studies
+
+```bash
+# Run all ablations with toy victim
+python -m experiments.ablation.run_all
+
+# Run individual ablations
+python -m experiments.ablation.no_synthesis
+python -m experiments.ablation.random_probing
+python -m experiments.ablation.no_scientific_memory
+python -m experiments.ablation.no_llm
+```
+
+### Ablation Modes
+
+| Mode | Flag | What changes |
+|------|------|-------------|
+| **No Strategist** | `--ablation-strategist` | Random pair selection, identity-only interventions |
+| **No Cognitive LLM** | `--ablation-cognitive` | Keyword-only fallback hypotheses (no LLM) |
+| **No Synthesis** | `no_synthesis` wrapper | No evolutionary synthesis — VS only has compiled programs |
+| **No Scientific Memory** | `no_scientific_memory` wrapper | Disables Neo4j graph store |
+| **Random Probing** | `random_probing` wrapper | Random intervention design (no VS-driven selection) |
+
+## Evaluation
+
+After a campaign completes, run evaluation:
+
+```bash
+python experiments/run_evaluation.py \
+    --campaign <campaign_id> \
+    --program-id <best_program_id> \
+    --output-dir evaluation/reports
+
+# Example
+python experiments/run_evaluation.py \
+    --campaign deepseek_deepseek_v3_2_20260622_230237 \
+    --num-test-prompts 50 \
+    --accuracy-threshold 0.85
+```
+
+### Evaluation CLI Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--campaign` | required | Campaign ID to evaluate |
+| `--program-id` | best program | Specific program ID for RQ0 evaluation |
+| `--num-test-prompts` | 50 | Number of held-out test prompts |
+| `--accuracy-threshold` | 0.85 | Threshold for RQ0/RQ1 |
+| `--judge` | `llm` | Judge type: `rule` or `llm` |
+| `--llm-model` | `gemma-4-31b-it` | LLM model for LLMJudge |
+| `--baseline-campaign` | None | Prior campaign for RQ1 random probing comparison |
+| `--transfer-threshold` | 0.9 | Transfer accuracy threshold for RQ3 |
+| `--prompt-csv` | `prompt.csv` | Path to RMCBench harmful prompts |
 
 ## Output Structure
 
 ```
 outputs/campaign/<campaign_id>/
-├── <campaign_id>_episodic.db       # All interaction traces (prompt, response, outcome)
+├── <campaign_id>_episodic.db       # SQLite — all interaction traces
 ├── final_program.json               # Best discovered defense program
 ├── final_theory.json                # Abstracted safety theory
-├── interventions_history.json       # All probing attempts
+├── hypotheses_history.json          # Generated hypothesis summaries
+├── interventions_history.json       # All probing attempts (187+ episodes)
+├── version_space.json               # VS state: candidates, entropy, posterior history
 ├── sde_evidence.json                # Semantic boundary evidence
-└── evaluation/
-    └── evaluation_report.json       # ASR, MR, FA, PBA, NI results
+├── technique_stats.json             # UCB technique selection statistics
+├── evaluation/
+│   └── evaluation_report.json       # ASR, MR, FA, PBA, NI results
 ```
+
+## Dataset
+
+The project uses **RMCBench** — a curated benchmark of 38,168 code-generation prompts across 11 malware categories (Viruses, Worms, Trojan horses, Spyware, Rootkits, Ransomware, Network attacks, Phishing, Adware, Vulnerability Exploitation, Others).
+
+Format: `prompt.csv` with columns `pid,category,task,level,description,level,prompt`.
+
+Benign prompts for balanced accuracy evaluation: `data/benign_prompts.csv`.
+
+## Supported Victims
+
+- **Ollama** (local): codellama:7b/13b/34b, llama3.1:8b, phi4, qwen, deepseek-r1:8b, meetai-small
+- **OpenRouter** (API): 50+ models via unified API (GPT-4o, Claude, Gemini, DeepSeek, LLaMA, etc.)
+- **OpenAI** (API): GPT-4o-mini, GPT-4o
+- **Replicate** (API): Various open models
+- **Toy victims** (testing/diagnostic): KeywordFilter, LengthFilter, RegexVictim, ThresholdVictim
 
 ## Research Contributions
 
 1. **Novel approach**: Response-aware multi-agent framework combining coordinated agent reasoning, Bayesian hypothesis maintenance, and hypothesis-guided intervention generation
 2. **Empirical evaluation**: Comprehensive evaluation against proprietary and open-source LLMs (GPT-4o-mini, Gemini-2.5-Flash, Phi-4, LLaMA-3.1-8B, DeepSeek-V3.2, Qwen2.5-72B, CodeLlama, MiMo-2.5-Pro) using the RMCBench benchmark
 3. **Open science**: Full replication package with code and data
-
-## Supported Victims
-
-- **Ollama** (local): llama3.1:8b, codellama:7b/13b/34b, phi4, qwen, deepseek, meetai-small
-- **OpenRouter** (API): 50+ models via unified API
-- **Toy victims** (testing): KeywordFilter, LengthFilter, RegexVictim, ThresholdVictim, etc.
 
 ## BibTeX
 
