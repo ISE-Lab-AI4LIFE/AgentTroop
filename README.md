@@ -60,11 +60,113 @@ Anomaly Detection → Hypothesis Generation → Version Space Init →
   [Every N: Researcher Synthesis → Inject New Programs]
 ```
 
+## Defense Program DSL
+
+AgentTroop represents the victim model's hypothesized defense behavior as **programs** in a custom domain-specific language (DSL). These programs are executable ASTs that predict whether a given prompt will be REFUSEd (1) or ACCEPTed (0).
+
+### AST Structure
+
+```
+Program
+└── IfThenElseNode
+    ├── condition: Node           ← predicate/logic expression
+    ├── then_outcome: 1           ← REFUSE when condition is TRUE
+    └── else_outcome: 0           ← ACCEPT when condition is FALSE
+```
+
+**Atomic nodes** evaluate a single prompt feature:
+- `PredicateNode` — Boolean test (e.g., `contains_word("code")`, `length_gt(100)`, `starts_with("In a")`)
+- `ClassifierNode` — Scalar score with threshold (e.g., `toxicity > 0.8`, `sentiment < 0.3`)
+- `TransformNode` — Prompt transformation applied before predicate evaluation
+
+**Composite nodes** combine conditions:
+- `AndNode(left, right)` — True iff both children are True
+- `OrNode(left, right)` — True iff either child is True
+- `NotNode(child)` — Negation
+- `ThresholdNode(classifier, threshold)` — Threshold classifier by operator (`>`, `<`)
+
+### Example Programs
+
+```
+// Keyword-based: REFUSE if prompt contains "code"
+IfThenElseNode(
+  condition = PredicateNode(contains_word, word="code", case_sensitive=False),
+  then_outcome = 1,
+  else_outcome = 0
+)
+
+// Length-based: ACCEPT very short prompts
+IfThenElseNode(
+  condition = PredicateNode(length_lt, threshold=30),
+  then_outcome = 0,
+  else_outcome = 1
+)
+
+// Composite: REFUSE if prompt starts with an imperative verb AND asks for code
+IfThenElseNode(
+  condition = AndNode(
+    left = PredicateNode(starts_with_imperative),
+    right = PredicateNode(contains_any_word, words=["code", "script", "program"])
+  ),
+  then_outcome = 1,
+  else_outcome = 0
+)
+
+// Classifier threshold: REFUSE if toxicity score > 0.8
+IfThenElseNode(
+  condition = ThresholdNode(
+    classifier = ToxicityScoreClassifier,
+    threshold = 0.8,
+    operator = "gt"
+  ),
+  then_outcome = 1,
+  else_outcome = 0
+)
+```
+
+### Primitive Types
+
+The DSL is backed by a **unified primitive registry** (`core/primitive.py`) with 92 primitives in three categories:
+
+**Predicates (27)** — Boolean functions over prompt text:
+- **Lexical**: `contains_word(word)`, `contains_any_word(words)`, `starts_with(prefix)`, `ends_with(suffix)`, `matches_regex(pattern)`, `is_imperative()`, `is_grammatical_question()`
+- **Structural**: `length_gt(threshold)`, `length_lt(threshold)`, `char_count(op, threshold)`, `has_emoji()`, `contains_url()`, `contains_code_block()`
+- **Semantic**: `sentiment()`, `intent(type)`, `is_instruction_request()`, `is_repetitive()`
+- **Jailbreak signals**: `contains_encoding_wrapper()`, `matches_jailbreak_pattern()`, `contains_system_override()`, `contains_delimiter()`
+
+**Transforms (19)** — Prompt string transformations for intervention design:
+- **Semantic**: `to_lowercase()`, `to_uppercase()`, `to_interrogative()`, `to_imperative()`, `to_declarative()`, `random_case()`, `insert_synonyms()`
+- **Structural**: `add_prefix(prefix)`, `add_suffix(suffix)`, `remove_punctuation()`, `escape_quotes()`, `format_as_json()`, `wrap_code_block(language)`, `add_markdown()`
+- **Encoding**: `html_encode()`, `add_zero_width_chars()`, `pad_to_length(n)`, `add_ignore_filter_token(token)`, `add_role_play(role)`
+
+**Classifiers (27)** — Continuous scoring functions for threshold-based decisions:
+- `toxicity_score()`, `sentiment_score()`, `obscurity_score()`, `jailbreak_likelihood()`, `code_likelihood()`
+- `refusal_similarity()`, `harmfulness_similarity()`, `roleplay_likelihood()`, `persuasion_score()`
+- `length_score()`, `repetition_score()`, `entropy_score()`, `unique_token_ratio()`
+- `special_char_ratio()`, `digit_ratio()`, `uppercase_ratio()`, `punctuation_ratio()`, `whitespace_ratio()`
+- `contains_blacklisted_word()`, `gpt2_perplexity()`, `encoding_detection()`
+- `prompt_injection_likelihood()`, `adversarial_suffix_score()`, `sql_likelihood()`, `json_likelihood()`
+
+### Program Execution
+
+Programs are executed by the `ProgramExecutor` (`core/executor.py`), which walks the AST directly — no LLM calls are made at prediction time:
+
+```python
+executor.execute(program, prompt) -> Outcome  # 0 = ACCEPT, 1 = REFUSE
+```
+
+The executor recursively evaluates each node:
+1. **PredicateNode**: Calls `primitive.evaluate(prompt)` → `bool` → mapped to outcome
+2. **ThresholdNode**: Calls `classifier.score(prompt)` → compares against threshold
+3. **AndNode/OrNode**: Short-circuit evaluation of children
+4. **NotNode**: Negates child's result
+5. **IfThenElseNode**: If condition True → `then_outcome`, else → `else_outcome`
+
 ## Key Components
 
 | Module | Purpose |
 |--------|---------|
-| `core/primitive.py` | 92 primitives: 27 Predicates, 38 Transforms, 27 Classifiers for building defense programs |
+| `core/primitive.py` | 92 primitives: 27 Predicates, 19 Transforms, 27 Classifiers for building defense programs |
 | `core/program.py` | AST-based defense program representation (IfThenElse, And, Or, Not, Threshold) |
 | `core/executor.py` | ProgramExecutor — evaluates defense programs against prompts |
 | `core/jailbreak.py` | 21 jailbreak techniques with templates (DAN, GCG, hex_injection, persona, etc.) and UCB1 bandit selection |
